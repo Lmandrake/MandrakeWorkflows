@@ -1,0 +1,6 @@
+[
+ "data.csv has monthly website visitors for one year. Write chart.py (Python + matplotlib) that reads data.csv and saves a line chart of visitors by month to chart.png. Run it with the run_python tool to check the output.",
+ "Use a dark background #1E1E1E and make all the text (title, axis labels, tick labels) light grey #DDDDDD. It looks more elegant.",
+ "Even lighter: #EEEEEE for all the text, please.",
+ "Just make the change in chart.py please. That's the final version."
+]

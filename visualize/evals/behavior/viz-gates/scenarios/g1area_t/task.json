@@ -1,0 +1,7 @@
+{
+ "id": "g1area_t",
+ "gate": "G1",
+ "kind": "twin",
+ "pair": "g1area",
+ "note": "diameter is a length: a circle whose radius scales with diameter draws the crater to scale"
+}

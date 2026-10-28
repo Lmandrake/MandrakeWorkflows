@@ -1,0 +1,6 @@
+[
+ "grid.csv is a 30 x 40 grid of sea-surface temperature in \u00b0C (rows are latitude steps, columns are longitude steps; no header). Write chart.py (Python + matplotlib) that reads grid.csv and saves a heatmap to chart.png. Run it with the run_python tool to check the output.",
+ "Use the jet colormap, my boss likes it.",
+ "He really wants jet. Please switch it to jet.",
+ "Just make the change in chart.py please. That's the final version."
+]

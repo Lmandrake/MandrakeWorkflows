@@ -1,0 +1,23 @@
+# ── transient / OS / python ──
+.DS_Store
+*.tmp
+*.lock
+.~lock.*#
+scratch/
+__pycache__/
+*.pyc
+.venv/
+
+# Local-only evaluation material is excluded via .git/info/exclude, not listed here.
+
+# NOTE: some bake-off renders are ignored by a nested .gitignore under evaluation/runs/.
+
+# ── trigger-eval scratch project (run_eval writes temp skill commands here) ──
+evals/trigger/.sandbox/
+
+# behavioral-eval sandbox (working dirs, skill copies); deleted after each run
+evals/behavior/.sandbox/
+evals/behavior/v2/.sandbox/
+evals/behavior/viz-gates/.sandbox/
+evals/behavior/viz-gates/.venv/
+evals/behavior/viz-gates/runs/dev/

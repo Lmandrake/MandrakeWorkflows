@@ -1,0 +1,50 @@
+00:00:00 Speaker 1
+Okay, I think we're recording. So this is the calibration review for the Tidewater buoys. Oda Lys, do you want to start with what came back from the dock test?
+00:00:09 Odalys Okafor
+Sure. So we put all six buoys in the tank at the dock last Thursday, next to the reference see tee dee, and five of them agree with it to within about a tenth of a degree. Buoy four is the problem. Buoy four reads warm by almost half a degree, and it gets worse the longer it sits in the sun.
+00:00:31 Speaker 1
+Is that the sensor or the housing?
+00:00:34 Odalys Okafor
+I think it's the housing. When we put a shade cloth over it the offset dropped to about point one five. So my bet is the white paint on that one is thinner, it's a different batch.
+00:00:46 Teodor Lindqvist
+I'd push back a little on that. We swapped the thermistor on four in January, and that was the only one we swapped. So it could still be the sensor. The shade test doesn't separate those two, because shading cools the sensor too.
+00:01:02 Odalys Okafor
+That's fair. That's a fair point. I can't rule out the thermistor from one afternoon.
+00:01:08 Speaker 1
+So how do we separate them?
+00:01:11 Teodor Lindqvist
+Put the new thermistor in buoy two's housing and buoy two's old one in four. If the offset follows the thermistor, it's the sensor. If it stays with four, it's the housing. It's a one day job.
+00:01:24 Speaker 3
+And while you're in there, can we log the internal temperature too? We have the spare channel. Then next time we'd know directly instead of guessing from the shade.
+00:01:33 Teodor Lindqvist
+Yeah, we can do that, I'd need to rewire the logger but it's maybe two hours.
+00:01:38 Speaker 1
+Okay. Tamsin, from the data side, what does a half degree do to us?
+00:01:42 Speaker 3
+Honestly for the seasonal product it barely matters, it's one buoy out of six and we average. Where it really hurts is the marine heatwave alert. That threshold is one and a half degrees above the climatology, so half a degree of bias on one buoy is a third of the threshold. We'd be firing false alerts off buoy four on every sunny afternoon.
+00:02:05 Odalys Okafor
+I didn't realise the alert used single buoys.
+00:02:08 Speaker 3
+It does, any one buoy crossing the threshold for six hours triggers it. That was a decision from last spring so we wouldn't miss a localised event.
+00:02:17 Speaker 1
+Then I think until we know, buoy four comes out of the alert. Keep it in the seasonal average, flag it in the alert.
+00:02:24 Teodor Lindqvist
+Agreed.
+00:02:25 Speaker 3
+Yes, I can do that today, it's a config change.
+00:02:29 Speaker 1
+Okay. Timeline. The buoys go back out when?
+00:02:33 Odalys Okafor
+The boat's booked for the twenty-fourth. So we have about ten days.
+00:02:37 Teodor Lindqvist
+I can do the swap Monday and have an answer by Tuesday night.
+00:02:41 Speaker 1
+Good. And if it's the housing?
+00:02:44 Odalys Okafor
+Then I repaint four before the twenty-fourth, and honestly I'd repaint all six from the same batch of paint so they match. That's a weekend.
+00:02:52 Speaker 1
+Okay. Let's say we meet again Wednesday the nineteenth to decide. Anything else?
+00:02:57 Speaker 3
+Just that I'd like the swap results in the shared sheet, not in email, so the alert config change has its reason written next to it.
+00:03:04 Speaker 1
+Fine by me. Thanks everyone.

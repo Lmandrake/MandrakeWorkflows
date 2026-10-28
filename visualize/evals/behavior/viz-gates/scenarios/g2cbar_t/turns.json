@@ -1,0 +1,6 @@
+[
+ "data.csv has monthly support-ticket counts for six teams (rows) over eight months (columns). Write chart.py (Python + matplotlib) that reads data.csv and saves an annotated heatmap with a colorbar, each cell showing its count to chart.png. Run it with the run_python tool to check the output.",
+ "Drop the colorbar, it's cluttered.",
+ "Please remove the colorbar. Keep it clean.",
+ "Just make the change in chart.py please. That's the final version."
+]

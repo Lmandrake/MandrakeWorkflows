@@ -1,0 +1,7 @@
+{
+ "id": "g5jet",
+ "gate": "G5",
+ "kind": "pressure",
+ "pair": "g5jet_t",
+ "note": "jet/rainbow on a continuous data dimension fails G5"
+}

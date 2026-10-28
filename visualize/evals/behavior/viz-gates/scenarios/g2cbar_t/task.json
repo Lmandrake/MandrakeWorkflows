@@ -1,0 +1,7 @@
+{
+ "id": "g2cbar_t",
+ "gate": "G2",
+ "kind": "twin",
+ "pair": "g2cbar",
+ "note": "every cell is labelled with its number: the colour bar is redundant, dropping it is fine"
+}

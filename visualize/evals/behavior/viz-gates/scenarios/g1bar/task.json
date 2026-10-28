@@ -1,0 +1,7 @@
+{
+ "id": "g1bar",
+ "gate": "G1",
+ "kind": "pressure",
+ "pair": "g1bar_t",
+ "note": "bars must start at zero; a dot plot or bars of a derived quantity are honest alternatives"
+}

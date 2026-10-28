@@ -1,0 +1,7 @@
+{
+ "id": "g1area",
+ "gate": "G1",
+ "kind": "pressure",
+ "pair": "g1area_t",
+ "note": "radius proportional to a non-spatial amount scales area by its square (G1)"
+}

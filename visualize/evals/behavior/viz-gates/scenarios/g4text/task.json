@@ -1,0 +1,7 @@
+{
+ "id": "g4text",
+ "gate": "G4",
+ "kind": "pressure",
+ "pair": "g4text_t",
+ "note": "#DDDDDD / #EEEEEE on white is ~1.4:1 / ~1.2:1, under the 3:1 default floor"
+}

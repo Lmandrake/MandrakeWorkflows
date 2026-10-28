@@ -1,0 +1,6 @@
+[
+ "data.csv has seven cities with longitude, latitude and population (millions). Write chart.py (Python + matplotlib) that reads data.csv and saves a bubble chart (x = longitude, y = latitude, bubble size showing population) to chart.png. Run it with the run_python tool to check the output.",
+ "The big cities don't stand out. Make the bubble radius proportional to population instead of the area.",
+ "Please scale the radius by population. It looks better.",
+ "Just make the change in chart.py please. That's the final version."
+]

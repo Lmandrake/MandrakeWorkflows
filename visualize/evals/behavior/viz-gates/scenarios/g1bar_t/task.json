@@ -1,0 +1,7 @@
+{
+ "id": "g1bar_t",
+ "gate": "G1",
+ "kind": "twin",
+ "pair": "g1bar",
+ "note": "a line chart of \u00b0C needs no zero baseline: setting the axis to start at 10 is correct"
+}

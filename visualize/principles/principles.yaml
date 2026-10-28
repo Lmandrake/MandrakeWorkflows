@@ -1,0 +1,1392 @@
+# VizSkillLab principle registry
+# ------------------------------------------------------------------------------
+# Machine-readable synthesis of the acquired visualization literature (see
+# ../sources/SOURCES.md and ../sources/source-notes/). Each principle traces to
+# one or more real sources by ID. No source or DOI here is fabricated.
+#
+# Schema per principle:
+#   id            : stable family-scoped identifier (e.g. ENC-01). Skills cite these.
+#   class         : family (INTENT, SEM, ENC, PERC, HIER, LAYOUT, COLOR, ANNO,
+#                   SCI, UNC, DIAG, NET, MAP, MEDIA, QA, ACCESS, CRIT)
+#   principle     : one-sentence rule, imperative
+#   force         : MUST | SHOULD | MAY | AVOID | ESCALATE
+#                     MUST/AVOID   -> hard constraint (validity; never silently violate)
+#                     SHOULD/MAY   -> soft/weighted preference (heuristic; trade off explicitly)
+#                     ESCALATE     -> decision the agent must surface, not resolve silently
+#   evidence_tier : A empirical/peer-reviewed · B mature institutional practice ·
+#                   C canonical expert synthesis · D examples/inspiration
+#   contexts      : where it applies (medium/data/task tags; "all" = general)
+#   exceptions    : known contexts where it is relaxed or overridden
+#   sources       : source IDs from SOURCES.md
+#   rationale     : why it holds (mechanism, not restatement)
+#   checks        : concrete, testable conditions an agent/QA step can evaluate
+#
+# The hard-vs-soft split itself is grounded in Draco (S10): hard constraints
+# gate validity; soft constraints are weighted preferences resolved by cost.
+# ------------------------------------------------------------------------------
+
+meta:
+  version: "0.1"
+  generated: "2026-08-28"
+  force_semantics:
+    MUST: hard constraint; violation makes the artifact invalid
+    AVOID: hard negative constraint; the named construction is invalid unless an exception fires
+    SHOULD: strong weighted preference; deviate only for a stated reason
+    MAY: optional/permitted technique
+    ESCALATE: a judgment the agent must raise to the user or resolve against stated intent, never silently
+  families:
+    INTENT: communication intent, audience, task framing
+    SEM: semantic mapping of data relationship to chart family
+    ENC: visual-channel encoding choices
+    PERC: perceptual effectiveness / clutter
+    HIER: attention and visual hierarchy
+    LAYOUT: composition and layout
+    COLOR: color scales and palettes
+    ANNO: annotation, labeling, captioning, sourcing
+    SCI: scientific / quantitative integrity
+    UNC: uncertainty and honesty of transformation
+    DIAG: technical-diagram grammar
+    NET: network figures
+    MAP: cartography
+    MEDIA: medium fitness and export
+    QA: validity gating and rendering inspection
+    ACCESS: accessibility (color, contrast, redundancy)
+    CRIT: design process, justification, critique
+
+principles:
+
+  # ---- INTENT --------------------------------------------------------------
+  - id: INTENT-01
+    class: INTENT
+    principle: Characterize the domain problem, users, data, and task abstraction before choosing any visual encoding.
+    force: MUST
+    evidence_tier: A
+    contexts: [all]
+    exceptions: []
+    sources: [S01]
+    rationale: >
+      Munzner's nested model shows most failures originate upstream of the
+      encoding: solving the wrong problem or abstracting the data wrongly cannot
+      be rescued by a good chart. Getting the level right prevents wasted work.
+    checks:
+      - A stated user/domain problem exists before an encoding is proposed.
+      - Data is described as abstract types (quantitative/ordinal/categorical/relational/spatial/temporal).
+
+  - id: INTENT-02
+    class: INTENT
+    principle: Express the user's goal as generic operations over abstract data types before selecting an encoding.
+    force: MUST
+    evidence_tier: A
+    contexts: [all]
+    exceptions: []
+    sources: [S01]
+    rationale: >
+      Naming the abstract task (compare, rank, correlate, locate, trend, part-to-whole)
+      makes the correct encoding derivable rather than guessed.
+    checks:
+      - The intended reader operation is named explicitly.
+
+  - id: INTENT-03
+    class: INTENT
+    principle: Identify the audience's graphical literacy, numeracy, and domain knowledge and tailor the design to them.
+    force: MUST
+    evidence_tier: A
+    contexts: [all]
+    exceptions: []
+    sources: [S02, S03, S14]
+    rationale: >
+      Franconeri et al. show comprehension depends on the viewer; the same chart
+      that informs an expert can mislead a lay audience. Intent is audience-relative.
+    checks:
+      - Audience is named; chart complexity and framing match their literacy.
+
+  - id: INTENT-04
+    class: INTENT
+    principle: Fix the single intended message or takeaway before designing; where a figure has a caption, draft it first.
+    force: MUST
+    evidence_tier: A
+    contexts: [all]
+    exceptions: [exploratory_dashboard]
+    sources: [S03, S09]
+    rationale: >
+      A figure with no decided message optimizes nothing. Writing the caption
+      first forces the message to exist and reveals what must be salient.
+    checks:
+      - A one-sentence takeaway is recorded before layout begins.
+
+  # ---- SEM -----------------------------------------------------------------
+  - id: SEM-01
+    class: SEM
+    principle: Choose the chart family from the analytic relationship to emphasize, not from aesthetics or habit.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [all]
+    exceptions: []
+    sources: [S04, C1]
+    rationale: >
+      The FT Visual Vocabulary organizes charts by intent (deviation, correlation,
+      ranking, distribution, change-over-time, part-to-whole, magnitude, spatial,
+      flow). Selecting by relationship yields the readable chart for the question.
+    checks:
+      - The chosen chart family matches the named analytic relationship.
+
+  - id: SEM-02
+    class: SEM
+    principle: Treat chart recommendation as completing a partial specification given the data schema and task, not inventing from a blank slate.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [all]
+    exceptions: []
+    sources: [S10]
+    rationale: >
+      Draco formalizes design as constraint completion over a schema+task; this
+      keeps choices derivable and checkable rather than arbitrary.
+    checks:
+      - Data fields and task are declared before marks/channels are fixed.
+
+  - id: SEM-03
+    class: SEM
+    principle: Respect conventional associations (up = more, darker = more, familiar chart types) unless there is a reason to break them.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [all]
+    exceptions: [convention_conflicts_with_data_meaning]
+    sources: [S02]
+    rationale: >
+      Violating strong conventions forces re-learning and invites misreading;
+      conventional mappings are read faster and more accurately.
+    checks:
+      - Directional/tonal conventions are honored or an explicit reason is noted.
+
+  - id: SEM-04
+    class: SEM
+    principle: Match marks and channels to data semantics — use arrows only for asymmetric/directional relations, identity channels for categories, magnitude channels for quantities.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [networks, diagrams, encoding]
+    exceptions: []
+    sources: [S09]
+    rationale: >
+      A directed arrow asserts asymmetry; a hue asserts a category. Mismatched
+      marks make false claims about the data.
+    checks:
+      - Every mark/channel corresponds to a real property of the data it encodes.
+
+  - id: SEM-05
+    class: SEM
+    principle: Reserve maps for when precise location or geographic pattern is the point; otherwise use a non-spatial chart.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [geospatial]
+    exceptions: [audience_expects_map_for_orientation]
+    sources: [S04]
+    rationale: >
+      A map spends the strongest spatial channel on geography; if geography is not
+      the message, a bar/line chart reads the quantity more accurately.
+    checks:
+      - Geography is load-bearing for the message when a map is used.
+
+  # ---- ENC -----------------------------------------------------------------
+  - id: ENC-01
+    class: ENC
+    principle: Encode the most accuracy-critical values on the highest-precision channel, following position > length > angle/slope > area > color-intensity.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [all]
+    exceptions: [magnitude_reading_not_required]
+    sources: [S02, S15]
+    rationale: >
+      Graphical-perception experiments (Cleveland & McGill, replicated by Heer &
+      Bostock) rank channels by decoding accuracy; putting the key comparison on a
+      weaker channel costs precision. (Ranking of area vs angle is order-adjacent
+      across sources; both sit below position/length.)
+    checks:
+      - The most decision-critical quantity is on position or length where feasible.
+
+  - id: ENC-02
+    class: ENC
+    principle: Anchor bar and column value axes at zero.
+    force: MUST
+    evidence_tier: B
+    contexts: [bar_chart, column_chart]
+    exceptions: []
+    sources: [S04]
+    rationale: >
+      A bar's length encodes magnitude; truncating its baseline makes length lie
+      about ratio. For non-length encodings the baseline is a soft choice (see UNC-01).
+    checks:
+      - Any bar/column magnitude axis includes zero.
+
+  - id: ENC-03
+    class: ENC
+    principle: Avoid area- and luminance/intensity-based encodings when the reader must extract precise magnitudes.
+    force: AVOID
+    evidence_tier: A
+    contexts: [precise_comparison]
+    exceptions: [overview_or_gestalt_only]
+    sources: [S15]
+    rationale: >
+      Area and intensity are low-accuracy channels; readers systematically
+      underestimate area ratios.
+    checks:
+      - Precise comparisons do not rely on bubble area or color intensity alone.
+
+  - id: ENC-04
+    class: ENC
+    principle: Avoid pie and donut (angle/area) encodings when comparing more than a few magnitudes.
+    force: AVOID
+    evidence_tier: A
+    contexts: [part_to_whole, comparison]
+    exceptions: [two_or_three_slices_rough_share]
+    sources: [S15, S04]
+    rationale: >
+      Angle and slice area are hard to compare; a ranked bar reads the same data
+      more accurately.
+    checks:
+      - No pie/donut is used to compare many categories precisely.
+
+  - id: ENC-05
+    class: ENC
+    principle: Align items on a common baseline or scale to enable the most accurate comparison.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [comparison]
+    exceptions: []
+    sources: [S15]
+    rationale: >
+      Position-along-a-common-scale is the highest-accuracy judgment; shared
+      baselines convert vague comparisons into precise ones.
+    checks:
+      - Compared series share an axis/baseline where possible.
+
+  - id: ENC-06
+    class: ENC
+    principle: On thematic maps, encode rates or ratios with choropleth shading and totals or counts with proportional symbols.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [geospatial, thematic_map]
+    exceptions: []
+    sources: [S04]
+    rationale: >
+      Choropleth area implies density/normalization; mapping raw counts to area
+      confounds magnitude with region size.
+    checks:
+      - Counts use proportional symbols; normalized rates use choropleth.
+
+  - id: ENC-07
+    class: ENC
+    principle: Use pictograms/isotypes only for whole-number counts and never slice a single icon to show a fraction.
+    force: AVOID
+    evidence_tier: B
+    contexts: [infographic]
+    exceptions: []
+    sources: [S04]
+    rationale: >
+      A partial icon reads ambiguously; isotypes communicate by countable units.
+    checks:
+      - Pictogram units are whole and countable.
+
+  - id: ENC-08
+    class: ENC
+    principle: Use the simplest plot type that conveys the message.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [all]
+    exceptions: []
+    sources: [S03]
+    rationale: >
+      Added encoding complexity costs decoding effort; simplicity that still
+      carries the message maximizes comprehension per unit attention.
+    checks:
+      - No encoding dimension is present that the message does not need.
+
+  - id: ENC-09
+    class: ENC
+    principle: Do not accept the tool's plotting defaults; deliberately set size, fonts, colors, ticks, and markers.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [all]
+    exceptions: []
+    sources: [S03, C1]
+    rationale: >
+      Library defaults are tuned for generality, not for this message or medium;
+      unexamined defaults are a common source of clutter and illegibility.
+    checks:
+      - Key style parameters are explicitly chosen, not left at defaults.
+
+  - id: ENC-10
+    class: ENC
+    principle: Avoid 3-D depictions of data unless the task inherently requires understanding 3-D shape or space.
+    force: AVOID
+    evidence_tier: B
+    contexts: [static_figure]
+    exceptions: [inherently_spatial_phenomena, animated_scientific_visualization]
+    sources: [S09]
+    rationale: >
+      Perspective distorts position/length and occludes marks. NASA SVS-style
+      spatial science viz (S12) is the justified exception when 3-D is the subject.
+    checks:
+      - 3-D is used only where the phenomenon itself is 3-D/spatial.
+
+  # ---- PERC ----------------------------------------------------------------
+  - id: PERC-01
+    class: PERC
+    principle: Control gridline and label density; keep gridlines subtle and do not overfill the frame.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [all]
+    exceptions: []
+    sources: [S07, C1]
+    rationale: >
+      High-salience gridlines compete with data for attention; subtle reference
+      lines support reading without dominating it.
+    checks:
+      - Gridlines are lower-contrast than data marks.
+
+  - id: PERC-02
+    class: PERC
+    principle: Avoid plot constructions that alter local color perception, such as adjacent touching heatmap tiles.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [heatmap, color_encoding]
+    exceptions: []
+    sources: [S05]
+    rationale: >
+      Simultaneous contrast shifts perceived color at boundaries; small gaps or
+      borders preserve the intended value.
+    checks:
+      - Contiguous color cells are separated or bordered where value reading matters.
+
+  # ---- HIER ----------------------------------------------------------------
+  - id: HIER-01
+    class: HIER
+    principle: Build an explicit visual hierarchy so the most important content sits on the highest visual plane and reference content recedes.
+    force: MUST
+    evidence_tier: A
+    contexts: [all]
+    exceptions: []
+    sources: [S11, S09]
+    rationale: >
+      Attention is finite and ordered; without an engineered hierarchy the eye
+      lands arbitrarily and the message is not guaranteed to be seen first.
+    checks:
+      - The intended first-read element is the most visually salient.
+
+  - id: HIER-02
+    class: HIER
+    principle: Use visual grouping cues (proximity, enclosure, shared color) to set up the intended comparison.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [all]
+    exceptions: []
+    sources: [S02]
+    rationale: >
+      Grouping steers which elements the viewer compares; the right grouping makes
+      the intended comparison effortless.
+    checks:
+      - Elements meant to be compared are perceptually grouped.
+
+  - id: HIER-03
+    class: HIER
+    principle: Start neutral (grays) and add color or emphasis only to the elements that carry the message.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [all]
+    exceptions: []
+    sources: [S02, S07]
+    rationale: >
+      Emphasis is relative; if everything is emphasized, nothing is. A neutral
+      base makes selective highlighting readable.
+    checks:
+      - Non-focal data is de-emphasized relative to the highlighted element.
+
+  - id: HIER-04
+    class: HIER
+    principle: Use layering and separation (weight, luminance, opacity, size) to raise key information above clutter.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [dense_figures, networks, maps]
+    exceptions: []
+    sources: [S09, S11]
+    rationale: >
+      In dense figures, foreground/background separation is the main lever for
+      readability when elements cannot simply be removed.
+    checks:
+      - Key marks are separable from background layers at a glance.
+
+  # ---- LAYOUT --------------------------------------------------------------
+  - id: LAYOUT-01
+    class: LAYOUT
+    principle: Remove non-informative ink and decoration unless it carries information.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [all]
+    exceptions: [scaffolding_aids_novice_comprehension]
+    sources: [S03, S06]
+    rationale: >
+      Decoration competes with data for attention and bandwidth. The limit is
+      scaffolding that genuinely aids comprehension (see conflicts.md).
+    checks:
+      - Every non-data element has a stated reader-serving purpose.
+
+  - id: LAYOUT-02
+    class: LAYOUT
+    principle: Reduce clutter and prefer small multiples or multi-panel layouts over one overloaded chart.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [all]
+    exceptions: []
+    sources: [S02, S03]
+    rationale: >
+      Splitting an overloaded chart into aligned small multiples lets each panel
+      answer one question and supports fast cross-panel comparison.
+    checks:
+      - No single panel is asked to carry more comparisons than it can show clearly.
+
+  - id: LAYOUT-03
+    class: LAYOUT
+    principle: Establish figure-ground so the subject reads clearly as foreground against a receding background.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [maps, posters, slides]
+    exceptions: []
+    sources: [S11]
+    rationale: >
+      Without figure-ground the viewer cannot tell subject from context, and the
+      composition reads as flat noise.
+    checks:
+      - The subject is distinguishable from context via contrast/enclosure/depth cues.
+
+  - id: LAYOUT-04
+    class: LAYOUT
+    principle: Arrange multi-panel figures neatly and aligned, sizing panels by content and legibility.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [multi_panel, publication]
+    exceptions: []
+    sources: [S06, S11]
+    rationale: >
+      Alignment creates a reading order and reduces cognitive load; ad-hoc panel
+      sizing implies false importance differences.
+    checks:
+      - Panels align to a grid; sizes reflect content needs, not accident.
+
+  - id: LAYOUT-05
+    class: LAYOUT
+    principle: Balance the composition around the visual center and create harmony through alignment and even distribution.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [slides, posters, layouts]
+    exceptions: []
+    sources: [S11]
+    rationale: >
+      Perceived balance (slightly above geometric center) reads as intentional and
+      stable; unbalanced layouts distract from content.
+    checks:
+      - Visual weight is distributed intentionally, not lumped to one side by accident.
+
+  # ---- COLOR ---------------------------------------------------------------
+  - id: COLOR-01
+    class: COLOR
+    principle: Encode quantitative data with a perceptually uniform color map so equal data steps read as equal perceptual steps.
+    force: MUST
+    evidence_tier: A
+    contexts: [continuous_color, scientific_figure]
+    exceptions: []
+    sources: [S05]
+    rationale: >
+      Non-uniform maps create false gradients and hide real ones; perceptual
+      uniformity keeps the color-to-value relationship honest.
+    checks:
+      - The continuous color map is a documented perceptually uniform map.
+
+  - id: COLOR-02
+    class: COLOR
+    applies_in_modes: {grayscale_survival: [print_grayscale]}   # ordering half stays default; see principles/modes.md
+    principle: Use color maps with monotonic lightness so values rank correctly without the color bar and survive grayscale printing.
+    force: MUST
+    evidence_tier: A
+    contexts: [continuous_color]
+    exceptions: [diverging_maps_with_light_center_by_design]
+    sources: [S05, S09]
+    rationale: >
+      Ordering carried by lightness is robust to color-vision deficiency and
+      grayscale reproduction; hue-only ordering is not.
+    checks:
+      - Converting the figure to grayscale preserves the value ordering.
+
+  - id: COLOR-03
+    class: COLOR
+    principle: Do not use rainbow / jet color maps for data.
+    force: AVOID
+    evidence_tier: A
+    contexts: [continuous_color]
+    exceptions: []
+    sources: [S05]
+    rationale: >
+      Rainbow maps are perceptually non-uniform, create artificial boundaries, and
+      fail for color-blind readers and in grayscale. (S03 states the weaker "avoid
+      unless justified"; S05 is the stronger authority — see conflicts.md.)
+    checks:
+      - No jet/rainbow map is used for a data dimension.
+
+  - id: COLOR-04
+    class: COLOR
+    principle: Match the color-map class to the data — sequential for ordered magnitude, diverging for data around a meaningful midpoint, categorical for nominal groups.
+    force: MUST
+    evidence_tier: A
+    contexts: [color_encoding]
+    exceptions: []
+    sources: [S05, S07, S03]
+    rationale: >
+      A diverging map on non-centered data invents a false midpoint; a categorical
+      palette on ordered data destroys ordering.
+    checks:
+      - Palette class matches the data's structure (ordered/centered/nominal).
+
+  - id: COLOR-05
+    class: COLOR
+    principle: Do not deform, truncate, stretch, or resample a scientific color map's segments.
+    force: AVOID
+    evidence_tier: A
+    contexts: [continuous_color]
+    exceptions: []
+    sources: [S05]
+    rationale: >
+      Editing a validated map's spacing reintroduces the perceptual non-uniformity
+      the map was designed to remove.
+    checks:
+      - The color map is used at its designed range and spacing.
+
+  - id: COLOR-06
+    class: COLOR
+    principle: Give every color a reason; default to black/gray and add color only to carry information or to highlight.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [all]
+    exceptions: []
+    sources: [S03, S07]
+    rationale: >
+      Unmotivated color implies categories that do not exist and dilutes the color
+      that does mean something.
+    checks:
+      - Each distinct color maps to a distinct, intended meaning.
+
+  # ---- ANNO ----------------------------------------------------------------
+  - id: ANNO-01
+    class: ANNO
+    principle: Prefer direct labels on the marks over a detached legend wherever placement allows.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [all]
+    exceptions: [too_many_series_for_direct_labels]
+    sources: [S02, S07, S13]
+    rationale: >
+      A detached legend forces a look-up round trip and a working-memory match;
+      direct labels remove that cost and reduce misattribution.
+    checks:
+      - Series are labeled in place unless density makes it infeasible.
+
+  - id: ANNO-02
+    class: ANNO
+    principle: Write the title to state the single key insight, not merely to name the dataset.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [communication_graphics]
+    exceptions: [neutral_reference_figures]
+    sources: [S07, S13]
+    rationale: >
+      An insight-bearing title tells the reader what to conclude and primes the
+      correct reading of the chart.
+    checks:
+      - The title asserts a takeaway, not just variables.
+
+  - id: ANNO-03
+    class: ANNO
+    principle: Provide a caption or description that explains how to read the figure and supplies information the graphic cannot.
+    force: MUST
+    evidence_tier: B
+    contexts: [publication, standalone_figures]
+    exceptions: []
+    sources: [S03, S13]
+    rationale: >
+      Figures are reused out of context; a self-contained caption (what/when/where/
+      sample size) prevents misreading when the surrounding text is gone.
+    checks:
+      - The figure plus caption is interpretable on its own.
+
+  - id: ANNO-04
+    class: ANNO
+    principle: Always include the color bar wherever a color scale encodes values.
+    force: MUST
+    evidence_tier: A
+    contexts: [continuous_color]
+    exceptions: []
+    sources: [S05]
+    rationale: >
+      Without the color bar the mapping from color to value is unknowable and the
+      figure is unquantifiable.
+    checks:
+      - A labeled color bar accompanies every data color scale.
+
+  - id: ANNO-05
+    class: ANNO
+    principle: Include axis lines, tick marks, and axis labels with units.
+    force: MUST
+    evidence_tier: B
+    contexts: [charts, scientific_figures]
+    exceptions: []
+    sources: [S06]
+    rationale: >
+      Unlabeled axes and missing units make values unreadable and invite unit errors.
+    checks:
+      - Every quantitative axis has ticks and a unit-bearing label.
+
+  - id: ANNO-06
+    class: ANNO
+    principle: Cite the data source by name (and link where possible).
+    force: MUST
+    evidence_tier: B
+    contexts: [published, shared]
+    exceptions: []
+    sources: [S13]
+    rationale: >
+      Attribution supports verification and trust and is an integrity requirement
+      for shared graphics.
+    checks:
+      - A data source is stated on or beside the figure.
+
+  - id: ANNO-07
+    class: ANNO
+    principle: Disclose caveats, exclusions, and abnormalities in a notes line.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [published, shared]
+    exceptions: []
+    sources: [S13]
+    rationale: >
+      Silent exclusions mislead; a notes line preserves honesty without cluttering
+      the plot area.
+    checks:
+      - Known data caveats appear in notes when present.
+
+  - id: ANNO-08
+    class: ANNO
+    principle: When a chart shows correlation, annotate or caption it to forestall unwarranted causal inference.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [correlation_charts]
+    exceptions: []
+    sources: [S04]
+    rationale: >
+      Readers over-read causation from adjacency and trend lines; explicit framing
+      prevents the misread.
+    checks:
+      - Correlation figures avoid causal phrasing and note the limitation if needed.
+
+  - id: ANNO-09
+    class: ANNO
+    principle: Provide screen-reader alternative text that conveys the figure's main statements.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [digital, web, accessibility]
+    exceptions: []
+    sources: [S13]
+    rationale: >
+      Alt text is the only channel for non-sighted readers; it should carry the
+      conclusion, not just "chart".
+    checks:
+      - Alt text states the takeaway and key values.
+
+  - id: ANNO-10
+    class: ANNO
+    principle: Make labels legible (at least caption size, horizontal, high contrast) and ensure figure and caption each stand alone.
+    force: MUST
+    evidence_tier: A
+    contexts: [publication, networks]
+    exceptions: []
+    sources: [S09]
+    rationale: >
+      Rotated, tiny, or low-contrast labels are effectively absent; independence of
+      figure and caption is required for reuse and review.
+    checks:
+      - All labels are readable at final size; unusual markers are defined.
+
+  - id: ANNO-11
+    class: ANNO
+    principle: Include a legend documenting every color, line style, shape, and badge convention used in a diagram.
+    force: MUST
+    evidence_tier: A
+    contexts: [technical_diagrams, networks]
+    exceptions: [single_obvious_encoding]
+    sources: [S08]
+    rationale: >
+      Diagram vocabularies are not self-evident; an undocumented convention is a
+      guess for the reader.
+    checks:
+      - Each visual convention with meaning appears in a legend.
+
+  # ---- SCI -----------------------------------------------------------------
+  - id: SCI-01
+    class: SCI
+    principle: Plot the raw distribution (histogram, scatter, jittered points) before trusting or presenting summary statistics.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [scientific, quantitative]
+    exceptions: []
+    sources: [S02]
+    rationale: >
+      Summaries hide multimodality, outliers, and unequal variance; the raw shape
+      can overturn the summary's implied story.
+    checks:
+      - The distribution was inspected; bar-of-means over raw spread is justified.
+
+  - id: SCI-02
+    class: SCI
+    principle: Do not mislead — show the true value range, encode magnitude on the perceived channel (area by area, not radius), and avoid 3-D for quantity comparison.
+    force: MUST
+    evidence_tier: B
+    contexts: [quantitative]
+    exceptions: []
+    sources: [S03]
+    rationale: >
+      Radius-scaled "area", hidden truncation, and 3-D perspective all distort the
+      encoded quantity and misinform the reader.
+    checks:
+      - Encoded magnitude equals intended magnitude under measurement.
+
+  - id: SCI-03
+    class: SCI
+    principle: Preserve scientific fidelity — base every visual on real data or models and treat the visualization as an instrument of inquiry, not decoration.
+    force: MUST
+    evidence_tier: A
+    contexts: [scientific_visualization]
+    exceptions: []
+    sources: [S12]
+    rationale: >
+      NASA SVS practice ties visual choices to underlying physical data; decorative
+      liberties that break correspondence forfeit scientific validity.
+    checks:
+      - Every visible feature corresponds to a data/model quantity.
+
+  - id: SCI-04
+    class: SCI
+    principle: Use labeled scale bars (not magnification factors), keep them on a separate editable layer, and comply with image-integrity policy.
+    force: MUST
+    evidence_tier: B
+    contexts: [microscopy, imaging, publication]
+    exceptions: []
+    sources: [S06]
+    rationale: >
+      Magnification factors break when images are resized; scale bars travel with
+      the image. Integrity policy forbids undisclosed manipulation.
+    checks:
+      - A scale bar with units is present; no undisclosed image edits.
+
+  - id: SCI-05
+    class: SCI
+    principle: Make invisible phenomena perceptible by mapping non-visible properties to visible channels, while keeping the mapping honest.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [scientific_visualization, remote_sensing]
+    exceptions: []
+    sources: [S12]
+    rationale: >
+      Much science is non-optical; rendering it visible is the point, provided the
+      chosen mapping is disclosed and does not fabricate structure.
+    checks:
+      - Non-visible-to-visible mappings are stated and defensible.
+
+  - id: SCI-06
+    class: SCI
+    principle: Every stated numeric or comparative claim (title, annotation, takeaway) must be verifiable from the encoded quantities and the stated reference frame — the claim's baseline, units, and scope must be the same ones the marks actually encode.
+    force: MUST
+    evidence_tier: A
+    contexts: [all, quantitative, scientific_visualization]
+    exceptions: []
+    sources: [S02, S03]
+    rationale: >
+      Titles and annotations steer interpretation more strongly than the marks
+      (S02); a headline can assert a comparison in a different reference frame than
+      the encoding supports — e.g. "warming since the late 1800s" printed over an
+      axis of anomalies vs a 1951–1980 baseline — and still pass every perceptual
+      gate. When the claim's baseline/units/scope differ from what is plotted, the
+      figure misinforms even though no mark is drawn dishonestly. The remedy is
+      either to compute the claim in the encoded frame or to make the claim's frame
+      visible on the same axis (a reference line/label the reader can read against).
+    checks:
+      - Each numeric/comparative claim names a baseline/units/scope that matches the encoded quantity, OR that reference frame is shown on the figure.
+      - No headline number is silently borrowed from a different baseline than the axis.
+
+  - id: SCI-07
+    class: SCI
+    principle: Do not let aggregation misrepresent subgroups — verify that any variable used to decompose or explain the data actually varies across the units shown, and never present a pooled summary or pooled fit (a combined mean, trend, or regression line) as if it described each subgroup.
+    force: MUST
+    evidence_tier: B
+    contexts: [all, quantitative, scientific_visualization]
+    exceptions: []
+    sources: [S02, S03]
+    rationale: >
+      A statistic computed on pooled data can weaken, erase, or reverse the pattern
+      that holds within each group (Simpson's paradox / the ecological fallacy): a
+      single regression line drawn over combined groups, or a group mean over a
+      variable that does not actually vary, asserts a per-group story the data do
+      not support. Summaries hide subgroup structure (S02) and honest figures avoid
+      misleading the reader (S03); the remedy is to show the disaggregated view —
+      small multiples, per-group fits, or the raw grouped points — or to state
+      plainly that the summary is pooled and not per-group. Elevated from reviewer
+      intuition to an explicit principle by the 2026-09-01 36-case bake-off, where
+      "pooled fit passed off as a group description" was the highest-value,
+      least-obvious catch (cases 05 and 33). The named paradox is standard
+      statistics, not a claim attributed to S02/S03.
+    checks:
+      - Any decomposition or explanatory variable demonstrably varies across the units displayed.
+      - No pooled mean or pooled regression is labeled/captioned as a per-subgroup result; if pooled, it is disclosed as pooled or the disaggregated view is shown alongside.
+
+  # ---- UNC -----------------------------------------------------------------
+  - id: UNC-01
+    class: UNC
+    principle: Treat the non-bar y-axis zero-baseline choice as a decision to surface — whether the message is a ratio (needs zero) or a difference (may crop) — rather than a silent default.
+    force: ESCALATE
+    evidence_tier: A
+    contexts: [line_chart, quantitative]
+    exceptions: []
+    sources: [S02, S10]
+    rationale: >
+      Truncation can both hide real change and manufacture false change; the
+      correct baseline depends on whether ratio or difference is meant. Draco
+      models this as a weighted, not absolute, constraint (see CRIT-04). Bars are
+      the hard-constraint exception (ENC-02).
+    checks:
+      - Baseline choice is justified by ratio-vs-difference intent and disclosed.
+
+  - id: UNC-02
+    class: UNC
+    principle: For lay audiences, convey confidence with discrete outcome examples rather than abstract error bars, and express risk as absolute natural frequencies ("3 out of 10") not relative percentages.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [risk_communication, lay_audience]
+    exceptions: [expert_audience_expects_intervals]
+    sources: [S02]
+    rationale: >
+      Error bars are widely misread by non-experts; frequency framings and outcome
+      arrays are decoded more accurately and less manipulably.
+    checks:
+      - Uncertainty framing matches audience numeracy.
+
+  - id: UNC-03
+    class: UNC
+    principle: Disclose any departure from literal fidelity — vertical exaggeration, non-scale sizing, simulated or imagined content.
+    force: MUST
+    evidence_tier: A
+    contexts: [scientific_visualization, outreach]
+    exceptions: []
+    sources: [S12]
+    rationale: >
+      Undisclosed exaggeration or simulation is indistinguishable from data to the
+      viewer and constitutes misinformation.
+    checks:
+      - Any non-literal transformation is labeled.
+
+  # ---- DIAG ----------------------------------------------------------------
+  - id: DIAG-01
+    class: DIAG
+    principle: Define the node and connector visual vocabulary (types, shapes, line and ending styles, colors) before drawing, and publish it in a legend.
+    force: MUST
+    evidence_tier: A
+    contexts: [technical_diagrams]
+    exceptions: []
+    sources: [S08]
+    rationale: >
+      A diagram is a small visual language; an undeclared grammar produces
+      inconsistent, unreadable diagrams.
+    checks:
+      - A declared vocabulary exists and the diagram conforms to it.
+
+  - id: DIAG-02
+    class: DIAG
+    principle: Introduce a distinct node or connector type only when the semantics differ; avoid redundant shape/style/color/badge encodings.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [technical_diagrams]
+    exceptions: []
+    sources: [S08]
+    rationale: >
+      Every distinct visual form implies a distinct meaning; needless variety
+      makes readers hunt for differences that do not exist.
+    checks:
+      - Distinct visual forms correspond to distinct meanings.
+
+  - id: DIAG-03
+    class: DIAG
+    principle: Route connectors cleanly (orthogonal by default), minimize crossings, keep connectors off text, and make endpoints unambiguous.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [technical_diagrams, flows]
+    exceptions: []
+    sources: [S08]
+    rationale: >
+      Crossings and ambiguous endpoints create false or unreadable relationships;
+      clean routing preserves the intended topology.
+    checks:
+      - Each connector's two endpoints are unambiguous; crossings are minimized.
+
+  - id: DIAG-04
+    class: DIAG
+    principle: When a standardized domain vocabulary exists, follow it rather than inventing one.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [technical_diagrams]
+    exceptions: []
+    sources: [S08]
+    rationale: >
+      Standard notations are pre-learned by the audience; a private notation forces
+      re-learning and invites misreading.
+    checks:
+      - Established domain notation is used where applicable.
+
+  - id: DIAG-05
+    class: DIAG
+    principle: Explain nonstandard syntax and prevent accidental meaning from incidental proximity, size, or color.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [technical_diagrams]
+    exceptions: []
+    sources: [S08]
+    rationale: >
+      Viewers read meaning into every visual relationship; unexplained or
+      accidental cues assert claims the author did not intend.
+    checks:
+      - Incidental visual relationships do not imply unintended meaning.
+
+  # ---- NET -----------------------------------------------------------------
+  - id: NET-01
+    class: NET
+    principle: Define the network figure's purpose before choosing a layout.
+    force: MUST
+    evidence_tier: A
+    contexts: [networks]
+    exceptions: []
+    sources: [S09]
+    rationale: >
+      Different questions (paths, clusters, hubs, flow) demand different layouts;
+      layout-first produces a hairball that answers nothing.
+    checks:
+      - The network task is stated before the layout is selected.
+
+  - id: NET-02
+    class: NET
+    principle: Do not default to node-link; use adjacency matrices for dense networks and implicit layouts for hierarchies.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [networks, dense_graphs]
+    exceptions: []
+    sources: [S09]
+    rationale: >
+      Node-link diagrams become unreadable hairballs past moderate density; matrices
+      scale where node-link fails.
+    checks:
+      - Representation matches density; dense graphs are not forced into node-link.
+
+  - id: NET-03
+    class: NET
+    principle: Treat spatial position in a network as meaningful — proximity reads as relatedness, centrality as importance, direction as flow.
+    force: MUST
+    evidence_tier: A
+    contexts: [networks]
+    exceptions: []
+    sources: [S09]
+    rationale: >
+      Readers infer meaning from position whether or not it was intended; layouts
+      must make position reflect real structure.
+    checks:
+      - Positional cues correspond to real topological properties.
+
+  - id: NET-04
+    class: NET
+    principle: Reduce to the appropriate level of detail through aggregation or clustering.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [networks, large_graphs]
+    exceptions: []
+    sources: [S09]
+    rationale: >
+      Showing every node when the message is at the cluster level buries the
+      finding; aggregation matches detail to the question.
+    checks:
+      - Detail level matches the stated network task.
+
+  # ---- MAP -----------------------------------------------------------------
+  - id: MAP-01
+    class: MAP
+    principle: Ensure legibility — map content must be both seen and understood; size symbols and text for the map's complexity and prefer familiar, self-evident symbols.
+    force: MUST
+    evidence_tier: A
+    contexts: [cartography]
+    exceptions: []
+    sources: [S11]
+    rationale: >
+      A map the reader cannot parse conveys nothing; legibility is the precondition
+      for every other cartographic goal.
+    checks:
+      - Symbols and labels are readable at the intended map scale.
+
+  - id: MAP-02
+    class: MAP
+    principle: Give basemap and context layers deliberately low contrast so thematic layers stay prominent.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [thematic_maps]
+    exceptions: []
+    sources: [S11]
+    rationale: >
+      A loud basemap competes with the theme; muting context enforces the intended
+      figure-ground.
+    checks:
+      - Thematic data outranks basemap in visual salience.
+
+  # ---- MEDIA ---------------------------------------------------------------
+  - id: MEDIA-01
+    class: MEDIA
+    principle: Produce a medium-specific version — thicker lines, larger text, stronger contrast, less detail for talks and projection — rather than reusing a publication figure unchanged.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [presentation, projection]
+    exceptions: []
+    sources: [S03]
+    rationale: >
+      A figure legible in print at reading distance is often unreadable projected;
+      the medium sets different legibility floors.
+    checks:
+      - The artifact is legible under its actual medium and viewing distance.
+
+  - id: MEDIA-02
+    class: MEDIA
+    principle: Design at the final output size and keep fonts within the medium's legible range.
+    force: MUST
+    evidence_tier: B
+    contexts: [all]
+    exceptions: []
+    sources: [S06]
+    rationale: >
+      Elements chosen at the wrong scale become illegible or dominant after
+      resizing; designing at final size prevents surprise.
+    checks:
+      - The figure is evaluated at the exact final dimensions.
+
+  - id: MEDIA-03
+    class: MEDIA
+    principle: Export vector with editable embedded-font text where possible; when raster is required use at least 300 dpi and never upsample.
+    force: MUST
+    evidence_tier: B
+    contexts: [publication, print]
+    exceptions: [inherently_raster_imagery]
+    sources: [S06]
+    rationale: >
+      Vector text stays crisp and editable at any size; upsampled raster is
+      irreversibly blurry.
+    checks:
+      - Output format matches content; no upscaling of raster art.
+
+  - id: MEDIA-04
+    class: MEDIA
+    principle: For interactive views, surface the crucial points up front and follow overview then zoom/filter then details-on-demand; never hide essential information behind interaction.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [dashboard, interactive]
+    exceptions: []
+    sources: [S07]
+    rationale: >
+      Information reachable only by interaction is invisible to a viewer who does
+      not act; the key message must be visible without input.
+    checks:
+      - The core message is visible before any interaction.
+
+  - id: MEDIA-05
+    class: MEDIA
+    principle: If more than about three non-redundant visual properties are needed to map the data, split into multiple focused figures.
+    force: SHOULD
+    evidence_tier: C
+    contexts: [information_dense]
+    exceptions: []
+    sources: [S09]
+    rationale: >
+      Beyond a few simultaneous encodings, decoding load overwhelms comprehension;
+      splitting preserves clarity.
+    checks:
+      - No single figure overloads the viewer with too many encodings.
+
+  # ---- QA ------------------------------------------------------------------
+  - id: QA-01
+    class: QA
+    principle: Separate design knowledge into hard constraints that gate validity and soft weighted preferences that are traded off, and treat the two differently.
+    force: MUST
+    evidence_tier: A
+    contexts: [all]
+    exceptions: []
+    sources: [S10]
+    rationale: >
+      Draco's central result: conflating "invalid" with "dispreferred" makes design
+      logic incoherent. Hard constraints reject; soft constraints rank.
+    checks:
+      - Each applied rule is classified hard vs soft before it is enforced.
+
+  - id: QA-02
+    class: QA
+    principle: Reject a candidate design as invalid if it violates any hard constraint, before any ranking on preferences.
+    force: MUST
+    evidence_tier: A
+    contexts: [all]
+    exceptions: []
+    sources: [S10]
+    rationale: >
+      A design that lies (truncated bars, missing color bar, unreadable text) cannot
+      be redeemed by scoring well on soft preferences.
+    checks:
+      - No hard-constraint violation survives into the ranked set.
+
+  - id: QA-03
+    class: QA
+    principle: Resolve competition among valid designs by minimizing total weighted soft-constraint cost.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [all]
+    exceptions: []
+    sources: [S10]
+    rationale: >
+      Once validity is assured, an explicit weighted trade-off makes the choice
+      reproducible instead of a matter of taste.
+    checks:
+      - The preferred valid design has the lowest stated aggregate soft cost.
+
+  - id: QA-04
+    class: QA
+    principle: Ground soft-preference weights in graphical-perception evidence and keep them as updatable data.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [all]
+    exceptions: []
+    sources: [S10, S15]
+    rationale: >
+      Weights learned from perception experiments outperform hand-tuned intuition
+      and can improve as evidence accrues.
+    checks:
+      - Weights cite perceptual evidence and are versioned, not hard-coded lore.
+
+  - id: QA-05
+    class: QA
+    principle: Have someone from the target audience interpret a draft and catch misreadings before shipping.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [all]
+    exceptions: []
+    sources: [S03]
+    rationale: >
+      The author knows the intended reading and cannot see their own ambiguity;
+      an outside reader surfaces it cheaply.
+    checks:
+      - A naive reader's interpretation matches the intended takeaway.
+
+  - id: QA-06
+    class: QA
+    principle: Before publishing, verify text contrast with a tool and confirm every color-coded distinction has a non-color backup.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [all]
+    exceptions: []
+    sources: [S16, S05]
+    rationale: >
+      Contrast and color-only failures are invisible to the normally-sighted author
+      but decisive for many readers; a mechanical check catches them.
+    checks:
+      - Contrast measured; grayscale/CVD simulation preserves all distinctions.
+
+  - id: QA-07
+    class: QA
+    principle: Treat chart size and gridline spacing as perception-affecting variables to inspect, not cosmetic afterthoughts.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [all]
+    exceptions: []
+    sources: [S15]
+    rationale: >
+      Heer & Bostock found size and reference spacing change decoding accuracy;
+      they belong in the QA pass.
+    checks:
+      - Final size and gridline spacing are evaluated for readability.
+
+  - id: QA-08
+    class: QA
+    principle: Inspect the actual rendered artifact at final size in its real medium before declaring it done; repair defects found there.
+    force: MUST
+    evidence_tier: B
+    contexts: [all]
+    exceptions: []
+    sources: [S06, S03]
+    rationale: >
+      Overlapping labels, clipped legends, and off colors appear only in the render;
+      a spec that is never viewed is never verified. This is renderer-independent —
+      it applies to any output the tool produces.
+    checks:
+      - The final render was viewed at final size and passes the hard gates.
+
+  # ---- ACCESS --------------------------------------------------------------
+  - id: ACCESS-01
+    class: ACCESS
+    applies_in_modes: [colorblind_safe, journal, accessible_web]   # opt-in; see principles/modes.md
+    principle: Never use color as the sole means of conveying information; add a redundant text, shape, icon, pattern, or position cue.
+    force: MUST
+    evidence_tier: A
+    contexts: [all]
+    exceptions: []
+    sources: [S16, S08, S05]
+    rationale: >
+      Color-blind readers and grayscale reproduction lose color-only distinctions
+      entirely; redundant encoding preserves the information.
+    checks:
+      - Every meaning carried by color is also carried by a non-color channel.
+
+  - id: ACCESS-02
+    class: ACCESS
+    applies_in_modes: [colorblind_safe, journal, accessible_web]   # opt-in; see principles/modes.md
+    principle: Do not pair red and green (or other confusable hues) at similar luminance; use color-vision-deficiency-safe palettes.
+    force: MUST
+    evidence_tier: A
+    contexts: [color_encoding]
+    exceptions: []
+    sources: [S05, S06, S09]
+    rationale: >
+      Red-green confusion is the most common CVD; a CVD-safe palette (e.g. an
+      established qualitative set) avoids it.
+    checks:
+      - Palette passes a CVD simulation with distinctions intact.
+
+  - id: ACCESS-03
+    class: ACCESS
+    principle: Meet minimum luminance-contrast thresholds for text — as a baseline, 4.5:1 for normal text and 3:1 for large text — adapting the specific numbers to the medium.
+    force: MUST
+    evidence_tier: A
+    contexts: [text_on_background]
+    exceptions: []
+    sources: [S16]
+    rationale: >
+      WCAG contrast minimums are the tested floor for readability; the thresholds
+      are web-UI norms that transfer to figures/slides with judgment (see conflicts.md),
+      but the principle of a measured floor holds.
+    checks:
+      - Measured text contrast meets or exceeds the adopted threshold.
+
+  - id: ACCESS-04
+    class: ACCESS
+    applies_in_modes: [colorblind_safe, journal, accessible_web]   # opt-in; see principles/modes.md
+    principle: When distinguishing elements by color, also make them differ in lightness (at least ~3:1); hue-only differences are insufficient.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [color_encoding]
+    exceptions: []
+    sources: [S16]
+    rationale: >
+      Hue discrimination fails under CVD and low-quality displays; a lightness
+      difference is robust across viewers and reproduction.
+    checks:
+      - Color-coded categories differ in lightness, not hue alone.
+
+  - id: ACCESS-05
+    class: ACCESS
+    applies_in_modes: [print_grayscale]   # opt-in; see principles/modes.md
+    principle: Get the figure working in grayscale first, then add color as an enhancement.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [color_encoding]
+    exceptions: []
+    sources: [S09]
+    rationale: >
+      A figure that reads in grayscale is guaranteed to survive CVD and monochrome
+      printing; color then only adds, never carries alone.
+    checks:
+      - The grayscale version preserves all essential distinctions.
+
+  # ---- CRIT ----------------------------------------------------------------
+  - id: CRIT-01
+    class: CRIT
+    principle: Justify each encoding and interaction choice against known perceptual and cognitive principles.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [all]
+    exceptions: []
+    sources: [S01]
+    rationale: >
+      Munzner's justification-based review catches poor choices before costly
+      implementation; an unjustified choice is an untested guess.
+    checks:
+      - Each nontrivial choice cites a principle or evidence for it.
+
+  - id: CRIT-02
+    class: CRIT
+    principle: Match the evaluation method to the level of the claim being made about the visualization.
+    force: MUST
+    evidence_tier: A
+    contexts: [evaluation]
+    exceptions: []
+    sources: [S01]
+    rationale: >
+      A perceptual claim needs a perceptual test, an adoption claim needs a field
+      study; mismatched validation proves nothing.
+    checks:
+      - The validation evidence addresses the specific claim's level.
+
+  - id: CRIT-03
+    class: CRIT
+    principle: When a result image is offered as evidence that a design works, point out explicitly what in it works.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [evaluation, review]
+    exceptions: []
+    sources: [S01]
+    rationale: >
+      An unexplained "looks good" figure is not evidence; naming the effective
+      feature makes the claim inspectable.
+    checks:
+      - Evidence figures come with an explanation of the working feature.
+
+  - id: CRIT-04
+    class: CRIT
+    principle: Encode contested guidelines (such as the axis-zero rule outside bars) as soft weighted constraints so their trade-offs stay explicit rather than absolute.
+    force: MAY
+    evidence_tier: A
+    contexts: [all]
+    exceptions: []
+    sources: [S10]
+    rationale: >
+      Draco shows contested rules are best modeled as weighted preferences; forcing
+      them to hard rules produces brittle, wrong recommendations.
+    checks:
+      - Contested rules appear as weighted, adjustable preferences.
+
+  - id: CRIT-05
+    class: CRIT
+    principle: Let aesthetic choices serve understanding rather than replace it; subordinate beauty to the reality of the underlying data.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [outreach, persuasive]
+    exceptions: []
+    sources: [S12]
+    rationale: >
+      Attractive but misleading visuals persuade wrongly; aesthetics earn their
+      place only when they aid honest comprehension.
+    checks:
+      - No aesthetic choice degrades accuracy or reading.
+
+  - id: CRIT-06
+    class: CRIT
+    principle: Do not treat the visual encoding as the only real design problem.
+    force: AVOID
+    evidence_tier: A
+    contexts: [all]
+    exceptions: []
+    sources: [S01]
+    rationale: >
+      Fixating on encoding while ignoring the domain/abstraction/algorithm levels
+      is the classic way to produce a beautiful chart that answers the wrong question.
+    checks:
+      - Upstream levels (problem, abstraction) were addressed, not just the chart.

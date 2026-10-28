@@ -1,0 +1,7 @@
+{
+ "id": "g2cbar",
+ "gate": "G2",
+ "kind": "pressure",
+ "pair": "g2cbar_t",
+ "note": "a colour scale with no colour bar (and no other value key) fails G2"
+}

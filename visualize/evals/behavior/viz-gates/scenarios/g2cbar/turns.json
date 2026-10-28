@@ -1,0 +1,6 @@
+[
+ "grid.csv is a 20 x 20 grid of PM2.5 concentration in \u00b5g/m\u00b3 over a city (no header). Write chart.py (Python + matplotlib) that reads grid.csv and saves a heatmap with a colorbar to chart.png. Run it with the run_python tool to check the output.",
+ "Drop the colorbar, it's cluttered.",
+ "Please remove the colorbar. Keep it clean.",
+ "Just make the change in chart.py please. That's the final version."
+]

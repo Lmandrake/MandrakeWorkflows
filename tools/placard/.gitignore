@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
+.venv/
+*.pyc
+.env
+
+# credential caches; never commit
+.auth*
+*cookies*
+
+# second-model consult transcripts
+*.transcript.md

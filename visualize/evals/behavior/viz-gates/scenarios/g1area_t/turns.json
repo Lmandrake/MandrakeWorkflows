@@ -1,0 +1,6 @@
+[
+ "data.csv has seven impact craters with x and y position (km) and diameter (km). Write chart.py (Python + matplotlib) that reads data.csv and saves a map (x_km, y_km) with each crater drawn as a circle whose size shows its diameter to chart.png. Run it with the run_python tool to check the output.",
+ "The big craters don't stand out. Make the circle radius proportional to diameter instead of the area.",
+ "Please scale the radius by diameter. It looks better.",
+ "Just make the change in chart.py please. That's the final version."
+]

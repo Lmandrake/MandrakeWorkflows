@@ -1,0 +1,422 @@
+# Capability registry: what each renderer can draw, from what data, and how it can mislead.
+#
+# This is DATA, not a skill. Skills never name a renderer (decision D6); they ask for a
+# capability by property (data shape, primitive, output mode, dims) and
+# tools/route_renderer.py resolves the properties to renderer ids. tools/check_skills.py
+# reads every `id` and `names` entry below and fails any SKILL.md that contains one.
+#
+# Source: the maintainer's renderer capability notes. Claims are
+# hand-written from that review (`verified: hand`) until a probe backs them (`verified: probe`).
+#
+# Vocabulary (enforced by tests/test_registry.py):
+#   status:       runs | pending | dead
+#   fit:          P primary · S secondary (works with adaptation or limits) · E evokes only
+#                 (looks like the data shape but cannot support reading it)
+#   data_shapes:  network, embedding, vector_field, scalar_field, point_samples_3d, geo_flow,
+#                 trajectories (spatial paths with timestamps), scalar_time_series, hierarchy,
+#                 text_corpus, none (no data; procedural or simulated content)
+#   primitives:   points, links, arcs, trails, particles, fluid, mesh, splats, text, contours,
+#                 heat, hex, discs, segments, sphere, hud, procedural, lines, bands (state spans)
+#   output_modes: interactive_web, interactive_native, still, hires_still, vector_still, video,
+#                 deterministic_video   (value = how; null = not available)
+#   hidden_defaults: renderer behaviour that changes a mark's look as a function of anything
+#                 other than a declared field. Each must be bound or switched off and declared.
+#   hazards:      ways the picture can mislead even when every default is handled.
+#   tasks:        optional; reader tasks a renderer is unusually good at, for route_renderer --task:
+#                 live_monitoring, exploratory_drilldown, many_series_comparison,
+#                 event_annotation, distribution_over_time, long_time_series
+schema: mv.renderers/v0
+renderers:
+
+- id: grafana
+  names: [Grafana]
+  status: runs
+  verified: probe
+  install: Homebrew grafana
+  adapter: Grafana dashboard-provisioning script
+  platform: web (canvas 2D)
+  dims: [2d]
+  primitives: [lines, points, heat, bands, text]
+  data_shapes: {scalar_time_series: P, network: E}
+  tasks: [live_monitoring, exploratory_drilldown, many_series_comparison, event_annotation, distribution_over_time, long_time_series]
+  output_modes: {interactive_web: "dashboard at 127.0.0.1:3000, provisioned from JSON as code", still: "kiosk page plus headless capture (headless capture script)", hires_still: "capture with device scale 2", video: page recording of a scripted time range, deterministic_video: null}
+  hidden_defaults:
+    - "auto step: query resolution follows panel width and time range, so peaks are averaged or sampled away and the picture changes when the panel is resized; pin the interval and use max_over_time for peaks"
+    - "each step takes the last sample in its window: sub-step reports (specials) vanish unless a rollup keeps them"
+    - "the store fills gaps with the last value, so a missing hour reads as a flat line"
+    - "smooth interpolation overshoots (below zero, above the peak)"
+    - "series colours come from a palette by series order, so adding a series recolours the others"
+    - "timezone defaults to the browser's; set utc on the dashboard"
+    - "state timeline in threshold colour mode merges every state into one band and ignores value mappings"
+    - "heatmap from cumulative le buckets shows +Inf as a row unless excluded"
+    - "kiosk footer 'Powered by Grafana'; panels below the fold are lazy and capture empty unless the viewport holds the whole dashboard"
+  hazards:
+    - "dashboard clutter: many panels with their own axes and no single takeaway; the default is a monitoring wall, not a figure"
+    - "each panel has an independent y scale, inviting false comparisons across panels; share the scale by hand"
+    - "circular quantities (wind direction) drawn as lines jump at 360/0"
+    - "annotation regions carry no text in a still; phases need a labelled state band"
+    - "limited art control: one UI font, fixed axis styling, tick density chosen by the tool, no per-panel background"
+    - "AGPL-3.0: local use is unaffected; modifying it and serving it to others carries source obligations. The official image-renderer service has no macOS build"
+  license: AGPL-3.0
+
+- id: victoriametrics
+  names: [VictoriaMetrics, victoria-metrics, vmui]
+  status: runs
+  verified: probe
+  install: Homebrew package
+  adapter: dataset loader script
+  platform: time-series database with a built-in web explorer
+  dims: [2d]
+  primitives: [lines]
+  data_shapes: {scalar_time_series: S}
+  tasks: [exploratory_drilldown, many_series_comparison, long_time_series, live_monitoring]
+  output_modes: {interactive_web: "vmui at 127.0.0.1:8428/vmui (ad hoc queries, cardinality explorer)", still: page screenshot, video: null, deterministic_video: null}
+  hidden_defaults:
+    - "retention defaults to 1 month and drops any older sample on import; historical data needs -retentionPeriod (the stack sets 100y)"
+    - "-search.latencyOffset hides the newest 30 s of a live stream; the stack sets it to 0"
+    - "re-importing the same samples duplicates them unless the series are deleted first or dedup is on"
+    - "vmui's auto step resamples exactly as a dashboard does"
+  hazards:
+    - "a store and explorer, not a presentation: no annotations, styling or keys"
+    - "its own Grafana datasource plugin is AGPL-3.0, unlike the Apache-2.0 store; not needed, the built-in Prometheus datasource reads it"
+  license: Apache-2.0
+
+- id: cosmos-gl
+  names: [cosmos.gl, cosmos-gl, cosmosgl, Cosmograph]
+  status: runs
+  verified: hand
+  install: <checkout>/cosmosgl-graph
+  adapter: cosmos-gl adapter script
+  platform: webgl2
+  dims: [2d]
+  primitives: [points, links]
+  data_shapes: {network: P, embedding: S, geo_flow: S, text_corpus: S, hierarchy: S, scalar_time_series: E}
+  output_modes: {interactive_web: native, still: page screenshot or preserveDrawingBuffer, hires_still: supersampled screenshot, video: page recording, deterministic_video: seeded positions plus frame-step}
+  hidden_defaults:
+    - "link length fade: links longer than 150 px drop to 25% opacity, zoom-dependent (on in the pinned defaults, so a config diff cannot see it)"
+    - "dot size grows with zoom even in the 'constant' size mode (up to 5x)"
+    - "800 ms position transitions"
+    - "curved links invent curvature"
+    - "simulation and random seed make the layout non-deterministic"
+    - "setConfig() resets every value to defaults; change one value with setConfigPartial()"
+  hazards:
+    - "force layout position is arbitrary up to rotation and reflection; inter-cluster distance means nothing"
+    - "simulationCluster can manufacture separation the edges do not support"
+    - "edge colour interpolated between endpoints suggests a gradient no data has"
+    - "overdraw at millions of points hides interior density"
+  license: MIT
+
+- id: regl-scatterplot
+  names: [regl-scatterplot]
+  status: runs
+  verified: hand
+  install: <checkout>/regl-scatterplot
+  adapter: null
+  platform: webgl
+  dims: [2d]
+  primitives: [points]
+  data_shapes: {embedding: P, network: S, scalar_field: S, text_corpus: S, scalar_time_series: E}
+  output_modes: {interactive_web: native, still: "export({scale})", hires_still: "export({scale})", video: page recording of transitions, deterministic_video: null}
+  hidden_defaults:
+    - "export() rescales point size, so the still differs from the page"
+    - "opacityBy / sizeBy defaults vary marks without a declared field"
+  hazards:
+    - "embedding geometry has no global meaning"
+    - "dense regions saturate to solid colour without density-aware opacity"
+    - "a user colormap makes rainbow on continuous data easy"
+  license: MIT
+
+- id: deepscatter
+  names: [deepscatter]
+  status: runs
+  verified: hand
+  install: <checkout>/deepscatter
+  adapter: null
+  platform: webgl
+  dims: [2d]
+  primitives: [points]
+  data_shapes: {embedding: P, text_corpus: P, scalar_time_series: E}
+  output_modes: {interactive_web: dev server only, still: page screenshot (three canvases), hires_still: page screenshot, video: page recording, deterministic_video: null}
+  hidden_defaults:
+    - "level-of-detail tiles show a subsample when zoomed out"
+    - "jitter animation is motion with no data referent"
+  hazards:
+    - "embedding geometry has no global meaning"
+    - "density under-represented away from the tiles' priority order"
+  license: CC-BY-NC-SA-4.0
+
+- id: embedding-atlas
+  names: [Embedding Atlas, embedding-atlas]
+  status: runs
+  verified: hand
+  install: <checkout>/embedding-atlas
+  adapter: null
+  platform: webgpu
+  dims: [2d]
+  primitives: [points, heat, text]
+  data_shapes: {embedding: P, text_corpus: P, scalar_field: S}
+  output_modes: {interactive_web: native, still: "screenshot()", hires_still: "screenshot({pixelRatio})", video: page recording, deterministic_video: null}
+  hidden_defaults:
+    - "automatic cluster labels assert meaning"
+    - "KDE bandwidth decides whether you see one blob or five"
+    - "density downsampling"
+  hazards:
+    - "category colour as the only cue"
+    - "embedding geometry has no global meaning"
+  license: MIT
+
+- id: deck-gl
+  names: [deck.gl, deckgl, deck-gl, TripsLayer, HexagonLayer]
+  status: runs
+  verified: hand
+  install: <checkout>/deck.gl
+  adapter: null
+  platform: webgl2
+  dims: [2d, 3d]
+  primitives: [points, arcs, trails, heat, hex, mesh]
+  data_shapes: {geo_flow: P, trajectories: P, point_samples_3d: S, scalar_field: S, embedding: S, network: S}
+  output_modes: {interactive_web: small page plus build, still: "toDataURL with preserveDrawingBuffer", hires_still: supersampled canvas, video: page recording, deterministic_video: "explicit currentTime plus frame assembly"}
+  hidden_defaults:
+    - "additive blending saturates, so a hub with 50 routes looks like one with 500"
+    - "heatmap and hexbin radius are editorial choices"
+    - "basemap adds ink that is not data"
+  hazards:
+    - "extruded hex columns use 3-D height to compare amounts (forbidden, G1)"
+    - "aggregation radius changes the story (G13)"
+    - "trajectory layers draw spatial paths with timestamps, not value-versus-time series"
+  license: MIT
+
+- id: potree
+  names: [Potree, PotreeConverter]
+  status: runs
+  verified: hand
+  install: <checkout>/potree
+  adapter: potree adapter
+  platform: webgl
+  dims: [3d]
+  primitives: [points]
+  data_shapes: {point_samples_3d: P, scalar_field: S}
+  output_modes: {interactive_web: native, still: page screenshot (capture mode hides UI chrome), hires_still: tiled view offsets, video: camera path, deterministic_video: "camera path plus frame-step, pinned budget"}
+  hidden_defaults:
+    - "ADAPTIVE point size varies with octree level"
+    - "point budget (1M) and level of detail drop points by view"
+    - "eye-dome lighting (strength 1.0) darkens by neighbouring depth: a data-derived effect, not decoration"
+    - "the shader clamps attribute ranges (pointcloud.vs:586)"
+    - "menu button and description caption are undeclared UI chrome"
+  hazards:
+    - "elevation rainbow on a continuous quantity makes false bands at hue boundaries"
+    - "LOD gaps can resemble real coverage gaps"
+    - "Web Mercator input inflates footprints (1.32x at 40.76 N)"
+  license: BSD-2-Clause
+
+- id: gephi
+  names: [Gephi, Gephi.app]
+  status: runs
+  verified: hand
+  install: Gephi desktop application
+  adapter: null
+  platform: cpu
+  dims: [2d]
+  primitives: [points, links, text]
+  data_shapes: {network: P, embedding: S, geo_flow: S, hierarchy: S, text_corpus: S}
+  output_modes: {interactive_native: desktop app, still: Preview PNG, hires_still: Preview PNG at any size, vector_still: Preview SVG and PDF, video: screen recording, deterministic_video: null}
+  hidden_defaults:
+    - "Preview defaults (edge colour mixing, curved edges, label scaling)"
+  hazards:
+    - "force layout position asserts structure (G9)"
+    - "community colour as the only cue"
+  license: GPL-3.0 / CDDL
+
+- id: gephi-lite
+  names: [Gephi Lite, gephi-lite]
+  status: runs
+  verified: hand
+  install: <checkout>/gephi-lite
+  adapter: null
+  platform: webgl
+  dims: [2d]
+  primitives: [points, links, text]
+  data_shapes: {network: P, hierarchy: S}
+  output_modes: {interactive_web: native, still: Export PNG modal, hires_still: Export PNG modal, vector_still: null, video: null, deterministic_video: null}
+  hidden_defaults:
+    - "as Gephi; capacity about 50k nodes"
+  hazards:
+    - "force layout position asserts structure (G9)"
+    - "community colour as the only cue"
+  license: GPL-3.0
+
+- id: mpl-network-still
+  names: [matplotlib, fa2_modified]
+  status: runs
+  verified: hand
+  install: <checkout>/_venvs/network
+  adapter: openflights render script
+  platform: cpu
+  dims: [2d]
+  primitives: [discs, segments, text, contours]
+  data_shapes: {network: P, geo_flow: S, scalar_time_series: P, scalar_field: S}
+  output_modes: {still: deterministic PNG, hires_still: deterministic PNG at any dpi, vector_still: SVG and PDF, video: frame loop plus assembly, deterministic_video: frame loop plus assembly}
+  hidden_defaults:
+    - "library style defaults (ENC-09: never accept them)"
+    - "the FA2 port has no LinLog mode, so its layouts are plain ForceAtlas2"
+  hazards:
+    - "no additive glow; bundles do not bloom"
+  license: matplotlib (PSF-style)
+
+- id: webgl-wind
+  names: [webgl-wind, windgl, windgl-regional]
+  status: runs
+  verified: hand
+  install: <checkout>/webgl-wind
+  adapter: webgl-wind adapter script
+  platform: webgl2
+  dims: [2d]
+  primitives: [particles, trails]
+  data_shapes: {vector_field: P, scalar_field: S, scalar_time_series: E}
+  output_modes: {interactive_web: native, still: page screenshot after warm-up, hires_still: page screenshot, video: page recording, deterministic_video: "regional fork only (seeded, frame-stepped)"}
+  hidden_defaults:
+    - "upstream: fadeOpacity, speedFactor, dropRate, dropRateBump smear time and make speed fps-dependent"
+    - "upstream: a fixed 0.0001 texture-unit step has no physical unit"
+    - "upstream: global equirectangular latitude maths and date-line wrapping"
+    - "upstream: 8-bit U/V quantisation; Math.random seeds; diverging default ramp on unsigned speed"
+  hazards:
+    - "random respawn can look like sources"
+    - "trails suggest steady flow even from one snapshot"
+    - "equirectangular sampling oversamples near the poles"
+  license: ISC
+
+- id: webgl-fluid
+  names: [WebGL-Fluid-Simulation, webgl-fluid]
+  status: runs
+  verified: hand
+  install: <checkout>/WebGL-Fluid-Simulation
+  adapter: null
+  platform: webgl
+  dims: [2d]
+  primitives: [fluid]
+  data_shapes: {none: P, vector_field: E, scalar_field: E}
+  output_modes: {interactive_web: native, still: built-in screenshot, hires_still: CAPTURE_RESOLUTION, video: screen recording, deterministic_video: null}
+  hidden_defaults:
+    - "random HSV splat colour"
+    - "bloom and sunrays"
+  hazards:
+    - "simulated content reads as data unless disclosed (G6)"
+  license: MIT
+
+- id: encom-globe
+  names: [ENCOM Globe, encom-globe]
+  status: runs
+  verified: hand
+  install: <checkout>/encom-globe
+  adapter: null
+  platform: webgl
+  dims: [3d]
+  primitives: [sphere, points, text]
+  data_shapes: {geo_flow: E, network: E}
+  output_modes: {interactive_web: native, still: page screenshot, hires_still: page screenshot, video: screen recording, deterministic_video: null}
+  hidden_defaults:
+    - "hex-dot variance and intro lines are decoration"
+  hazards:
+    - "pins with stalks suggest an unencoded magnitude"
+    - "thin cyan mono labels on black risk contrast"
+  license: MIT
+
+- id: encom-boardroom
+  names: [ENCOM Boardroom, encom-boardroom]
+  status: runs
+  verified: hand
+  install: <checkout>/encom-boardroom
+  adapter: null
+  platform: webgl
+  dims: [2d]
+  primitives: [hud, text]
+  data_shapes: {none: E}
+  output_modes: {interactive_web: native, still: page screenshot, hires_still: page screenshot, video: screen recording, deterministic_video: null}
+  hidden_defaults:
+    - "placeholder KPIs, clock and radar with no data"
+  hazards:
+    - "a frame, not a picture; style reference only"
+  license: MIT
+
+- id: metalsplatter
+  names: [MetalSplatter]
+  status: runs
+  verified: hand
+  install: <checkout>/MetalSplatter
+  adapter: null
+  platform: metal
+  dims: [3d]
+  primitives: [splats]
+  data_shapes: {point_samples_3d: S, embedding: S, scalar_field: S}
+  output_modes: {interactive_native: sample app, still: window screencapture, video: screen recording, deterministic_video: null}
+  hidden_defaults:
+    - "synthetic splat size and opacity read as uncertainty or density"
+  hazards:
+    - "alpha-sorting artifacts look like structure"
+  license: MIT
+
+- id: satin
+  names: [Satin]
+  status: runs
+  verified: hand
+  install: <checkout>/Satin
+  adapter: null
+  platform: metal
+  dims: [2d, 3d]
+  primitives: [mesh, points, links, trails, text, procedural]
+  data_shapes: {vector_field: S, scalar_field: S, point_samples_3d: S, network: S, hierarchy: S, geo_flow: S, embedding: S, scalar_time_series: S}
+  output_modes: {interactive_native: example app, still: window screencapture, video: screen recording, deterministic_video: "needs a texture readback recorder"}
+  hidden_defaults:
+    - "a blank canvas: every choice is yours, so every misleading move is available"
+  hazards:
+    - "build-it-yourself; nothing is honest by default"
+  license: MIT
+
+- id: lerping
+  names: [Lerping@Home, lerping-at-home, LerpPreview]
+  status: runs
+  verified: hand
+  install: <checkout>/lerping-at-home
+  adapter: null
+  platform: metal
+  dims: [2d]
+  primitives: [procedural]
+  data_shapes: {none: P, scalar_field: S}
+  output_modes: {interactive_native: playground or screensaver, still: "LerpPreview --snapshot", hires_still: "LerpPreview --size", video: frame loop, deterministic_video: "pure function of time and seed"}
+  hidden_defaults:
+    - "an artistic shader whose mapping is not a colour scale"
+  hazards:
+    - "procedural imagery reads as data unless disclosed (G6)"
+  license: AGPL-3.0
+
+- id: metal-fluid
+  names: [metal-fluid-simulation]
+  status: runs
+  verified: hand
+  install: <checkout>/metal-fluid-simulation
+  adapter: null
+  platform: metal
+  dims: [2d]
+  primitives: [fluid]
+  data_shapes: {none: P, vector_field: E}
+  output_modes: {interactive_native: SDL window, video: screen recording, deterministic_video: null}
+  hidden_defaults:
+    - "simulated content"
+  hazards:
+    - "simulated content reads as data unless disclosed (G6)"
+  license: none (no licence file; do not publish derived work)
+
+- id: particlelab
+  names: [ParticleLab]
+  status: dead
+  verified: hand
+  install: <checkout>/ParticleLab
+  adapter: null
+  platform: metal
+  dims: [2d]
+  primitives: [particles]
+  data_shapes: {}
+  output_modes: {}
+  hidden_defaults: []
+  hazards: ["does not build"]
+  license: unknown

@@ -1,0 +1,19 @@
+{
+  "note": "Answers are fixed by make_example.py, not by any model. Each check is matched against the lower-cased answer with commas, dollar signs and % removed: `num` must appear as a whole number (not inside 1291 or 15), `word` as whole words (`sand` matches sandy/sand, not thousand), `none_of` phrases must NOT appear as whole words. All checks must pass. An answer containing \"not in the folder\" scores 0. tests/test_example_scorer.py pins wrong answers that must fail.",
+  "questions": [
+    {"id": "q01", "q": "What was the overall reduction in water use across all sites, in percent?", "checks": [{"num": "23.1"}], "where": "report p.1, deck slide 2"},
+    {"id": "q02", "q": "Which site saved the most water, and by what percentage?", "checks": [{"word": "dunmore"}, {"num": "27.2"}], "where": "report Table 1"},
+    {"id": "q03", "q": "Which site fell below the board's target, and what was the target?", "checks": [{"word": "cedar ridge"}, {"num": "20"}], "where": "deck slide 3 chart"},
+    {"id": "q04", "q": "How many controllers had valve stiction, and at which site?", "checks": [{"num": "5"}, {"word": "cedar ridge"}], "where": "report p.4"},
+    {"id": "q05", "q": "Which firmware version fixed the clock drift, and on what date was it installed?", "checks": [{"num": "2.3.4"}, {"any": [{"word": "18 august"}, {"word": "august 18"}, {"word": "aug 18"}, {"word": "18 aug"}, {"word": "2026-08-18"}]}], "where": "report p.4"},
+    {"id": "q06", "q": "Who quoted the filter retrofit, and at what price per unit?", "checks": [{"word": "tallis"}, {"num": "38"}], "where": "deck slide 4 speaker notes only"},
+    {"id": "q07", "q": "What is the total 2027 budget ask in dollars?", "checks": [{"num": "61400"}], "where": "deck slide 5; workbook budget_2027"},
+    {"id": "q08", "q": "On what date does the operations board vote?", "checks": [{"any": [{"word": "12 november"}, {"word": "november 12"}, {"word": "nov 12"}, {"word": "12 nov"}, {"word": "2026-11-12"}]}], "where": "report p.5, deck slide 6"},
+    {"id": "q09", "q": "If the board defers its decision, what happens to the earliest install?", "checks": [{"num": "2028"}], "where": "deck slide 6 speaker notes only"},
+    {"id": "q10", "q": "Which site and week had the most controller alerts, and how many?", "checks": [{"word": "cedar ridge"}, {"num": "7"}, {"num": "9"}], "where": "workbook weekly_readings"},
+    {"id": "q11", "q": "How much water did Dunmore use in week 12, in cubic metres?", "checks": [{"num": "291"}], "where": "workbook weekly_readings"},
+    {"id": "q12", "q": "Why did Dunmore do best?", "checks": [{"word": "sand"}], "where": "deck slide 2 speaker notes only"},
+    {"id": "q13", "q": "Was a weather correction applied, and why or why not?", "checks": [{"any": [{"word": "no"}, {"word": "not"}]}, {"num": "8"}, {"none_of": ["yes", "a correction was applied", "a weather correction was applied", "correction was made"]}], "where": "report p.2"},
+    {"id": "q14", "q": "What was Birch Hollow's soil moisture in week 3, in percent?", "checks": [{"num": "26.2"}], "where": "workbook weekly_readings"}
+  ]
+}

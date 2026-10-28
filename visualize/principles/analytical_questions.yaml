@@ -1,0 +1,167 @@
+meta:
+  name: analytical-question taxonomy
+  purpose: >
+    The diversity axis for portfolio generation. Two candidate views are "the same"
+    if they answer the same analytical question, regardless of chart type. This file
+    is the controlled vocabulary the generate/select stages use to guarantee that
+    three alternatives differ in WHAT the reader learns, not merely in how they look.
+  status: draft (2026-09-02)
+  anchor: >
+    The nine primary questions are anchored to the Financial Times "Visual Vocabulary"
+    (FT Visual Journalism Team; web edition ft-interactive.github.io/visual-vocabulary;
+    repo github.com/Financial-Times/chart-doctor), itself inspired by the "Graphic
+    Continuum" of Jon Schwabish and Severino Ribecca. Source VERIFIED 2026-09-02 via
+    Fetcher (see sources/lineage-analytical-questions.md). Categories 10-12 are our own
+    documented extensions, not part of the FT set, and are labelled as such.
+  relation_to_gates: >
+    This taxonomy is orthogonal to the honesty gates (RUBRIC.md G1-G13). The gates
+    decide whether a single view is VALID; the taxonomy decides which QUESTION a view
+    answers. A portfolio needs both: every member passes the gates (floor) AND the
+    members answer distinct questions (diversity).
+  comparability_check: >
+    data_prereqs test only whether a question is ASKABLE, not whether the measure is
+    COMPARABLE across the entities being compared. For any comparing/ordering question
+    (RANKING, RELATIONSHIP, DEVIATION, COMPARISON_ACROSS_GROUPS) the generate stage
+    MUST verify common support — equal exposure windows, same denominator/normalization,
+    same population (no survivorship), same units — and either reconstruct the measure
+    to be comparable (rate, per-capita, indexed to a shared base) or disclose the
+    differing basis on the figure. A raw measure over unequal bases is a reference-frame
+    lie even when the marks are honest (extends SCI-06; ENC-05). See visual-portfolio
+    stage 2. Added from the 2026-09-03 Stocks.csv dogfood (raw growth multiple vs CAGR).
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Each question:
+#   id            short stable key
+#   name          human label
+#   ft_category   the FT Visual Vocabulary category it maps to (or "extension")
+#   asks          the reader question in plain words
+#   data_prereqs  what the data MUST contain for this question to be honestly askable
+#                 (used by pipeline stage 1 to prune to supportable questions)
+#   typical_forms encodings that fit, ordered by perceptual effectiveness where it matters
+#   claim_shape   the kind of takeaway sentence this view licenses
+#   watch         the honesty gate(s) most often stressed when answering this question
+# ─────────────────────────────────────────────────────────────────────────────
+
+questions:
+  - id: MAGNITUDE
+    name: Magnitude / size
+    ft_category: Magnitude
+    asks: How big is each thing, in absolute terms?
+    data_prereqs: [categorical or labelled key, one additive measure]
+    typical_forms: [bar, column, lollipop, dot]
+    claim_shape: "X is <n> units; A is about <k>x B."
+    watch: [G1]
+
+  - id: RANKING
+    name: Ranking / order
+    ft_category: Ranking
+    asks: What is the order — which is largest, smallest, where does one sit?
+    data_prereqs: [categorical key, one orderable measure]
+    typical_forms: [ordered bar, ordered lollipop, ordered dot, slope for rank-change]
+    claim_shape: "A ranks first; the top three account for most of the total."
+    watch: [G1, G7]
+
+  - id: CHANGE_OVER_TIME
+    name: Change over time / rate
+    ft_category: Change over Time
+    asks: How does it move over time — trend, growth, acceleration, inflection?
+    data_prereqs: [ordered time field, measure sampled over it]
+    typical_forms: [line, area, indexed line, slope, connected scatter, column-time]
+    claim_shape: "It rose through <period>, then inflected at <t>."
+    watch: [G1, G12]
+
+  - id: DEVIATION
+    name: Deviation from a reference
+    ft_category: Deviation
+    asks: How far above or below a baseline, target, or zero does each value sit?
+    data_prereqs: [measure with a meaningful reference/zero/target]
+    typical_forms: [diverging bar, diverging column, surplus/deficit fill, dumbbell-vs-target]
+    claim_shape: "A is <n> above target; B is <m> below."
+    watch: [G1, G12]
+
+  - id: COMPOSITION
+    name: Composition / part-to-whole
+    ft_category: Part-to-whole
+    asks: What makes up the total, and how do the shares split (or shift)?
+    data_prereqs: [parts that sum to a meaningful whole]
+    typical_forms: [stacked bar, stacked-100 bar, stacked area over time, treemap; pie only for a few large parts]
+    claim_shape: "A is <p>% of the total; its share grew from <p0> to <p1>."
+    watch: [G1, G2]
+
+  - id: RELATIONSHIP
+    name: Relationship / correlation
+    ft_category: Correlation
+    asks: How do two or more variables co-vary — is there structure, a cluster, a break?
+    data_prereqs: [two+ continuous measures on the same units]
+    typical_forms: [scatter, bubble (3rd var by area with care), scatter-matrix, heatmap-corr]
+    claim_shape: "As X rises, Y rises/falls; the relationship weakens above <x>."
+    watch: [G1, G11, G13]
+
+  - id: DISTRIBUTION
+    name: Distribution / spread
+    ft_category: Distribution
+    asks: What is the shape — center, spread, skew, modality, outliers within one variable?
+    data_prereqs: [many observations of a measure]
+    typical_forms: [histogram, density, boxplot, violin, strip/beeswarm, ECDF]
+    claim_shape: "The distribution is right-skewed with a tail past <x>."
+    watch: [G1, G6]
+
+  - id: SPATIAL
+    name: Spatial pattern
+    ft_category: Spatial
+    asks: Where — is there geographic or layout-dependent structure?
+    data_prereqs: [geographic key or coordinates + a measure]
+    typical_forms: [choropleth (rate, not count), proportional-symbol, hexbin, registered heatmap]
+    claim_shape: "The high values cluster in <region>."
+    watch: [G1, G5, G6]
+
+  - id: FLOW
+    name: Flow / connection / network
+    ft_category: Flow
+    asks: How do entities relate, route, or move between states?
+    data_prereqs: [edges/links between nodes, or from->to->quantity records]
+    typical_forms: [sankey, chord, node-link (sparse), adjacency matrix (dense), arc diagram]
+    claim_shape: "Most flow moves from A to C; B is a hub."
+    watch: [G9]
+
+  # ── extensions (our own; NOT part of the FT nine) ──
+  - id: COMPARISON_ACROSS_GROUPS
+    name: Comparison across groups
+    ft_category: extension
+    asks: How do subgroups differ on the same measure or the same distribution?
+    note: >
+      A cross-cutting lens rather than a distinct FT category — it composes with
+      magnitude, distribution, or change-over-time applied per group. Kept explicit
+      because "compare the groups" is one of the most common real decisions and small
+      multiples are its signature honest form.
+    data_prereqs: [a grouping key, plus any of a measure / distribution / time series per group]
+    typical_forms: [grouped bar, small multiples, faceted line, side-by-side box/violin, dumbbell]
+    claim_shape: "Group A leads on <measure> across every period."
+    watch: [G1, G7, G11, G13]
+
+  - id: ANOMALY
+    name: Anomaly / exception
+    ft_category: extension
+    asks: What breaks the pattern — what is unusual, and where?
+    note: >
+      A lens applied on top of another question (a trend with a break, a distribution
+      with an outlier). Listed so the portfolio can deliberately offer an
+      "what's surprising here" view distinct from the descriptive views.
+    data_prereqs: [enough data to establish an expected pattern to deviate from]
+    typical_forms: [control-chart bands, highlighted line, residual plot, outlier-annotated scatter]
+    claim_shape: "Every point tracks the trend except <case>, which sits <k>-sigma out."
+    watch: [G6, G11, G12]
+
+  - id: UNCERTAINTY
+    name: Uncertainty / confidence
+    ft_category: extension (cross-cutting overlay)
+    asks: How sure are we of what any of the other views assert?
+    note: >
+      NOT a standalone view. It is an overlay obligation on whichever question is being
+      answered when the data carry error, sampling, or model spread. Tracked here so the
+      pipeline treats "show the uncertainty" as a first-class option and gate G6 has a
+      home in the taxonomy.
+    data_prereqs: [error bars / intervals / ensemble spread / sample sizes available]
+    typical_forms: [error bars, CI bands, gradient/fan, ensemble spaghetti, quantile dot]
+    claim_shape: "The gap between A and B is within the confidence interval — not resolvable."
+    watch: [G6, G2]

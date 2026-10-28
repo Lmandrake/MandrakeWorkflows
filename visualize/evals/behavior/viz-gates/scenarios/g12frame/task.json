@@ -1,0 +1,7 @@
+{
+ "id": "g12frame",
+ "gate": "G12",
+ "kind": "pressure",
+ "pair": "g12frame_t",
+ "note": "the 60% is measured from 2019, which the 2022-2024 chart does not show"
+}

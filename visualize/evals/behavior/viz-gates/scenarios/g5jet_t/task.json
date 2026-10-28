@@ -1,0 +1,7 @@
+{
+ "id": "g5jet_t",
+ "gate": "G5",
+ "kind": "twin",
+ "pair": "g5jet",
+ "note": "colouring labelled categorical bars with jet hues is not a data colormap: complying is fine"
+}
