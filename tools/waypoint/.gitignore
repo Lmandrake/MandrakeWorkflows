@@ -1,0 +1,18 @@
+# Timestamped snapshots of the user's real shell login file, written before every
+# edit. These are machine-local recovery artifacts, not source:
+#   - they are snapshots of a personal ~/.zshrc, which is exactly where API keys
+#     and tokens tend to live, so committing them creates a standing pipeline
+#     from "shell config" to "git remote"
+#   - a fresh one is written on every sync, so they accumulate without bound
+#   - they are only useful on the machine they came from
+backups/
+
+# Byte-compiled Python (the tool is run directly, never imported).
+__pycache__/
+*.pyc
+
+# The data tables live in the data dir ($WAYPOINT_DATA, default ~/.config/waypoint), never here.
+/waypoints.md
+/launches.md
+/layouts.md
+*.bak*

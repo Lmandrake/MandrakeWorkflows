@@ -12,6 +12,15 @@ measured incident, the skill keeps the number.
 Every skill is a directory under `skills/` with a `SKILL.md` (the instructions an agent loads) and,
 where it has them, references, scripts, evals and tests.
 
+## Projects
+
+| Folder | What it is |
+|---|---|
+| [`designer/`](designer/README.md) | **The Designer** (name provisional): a Socratic agent that argues a design into shape with its owner before anything is built, then writes what must be true so a builder and a judge cannot misread it. Definition, defects, version history. |
+| [`relentless/`](relentless/README.md) | **Relentless Agent**: a fire-and-forget agent for modest goals. Definition, blindness contract, known defects, version history. |
+| [`augur/`](augur/DESIGN.md) | **Augur**: one small macOS background producer that measures the machine once (load, network, VPN, agent sessions, projects) and writes one versioned snapshot file that several consumers read instead of each measuring on its own. Design, JSON schema, LaunchAgent plists, tests. |
+| [`sprites/`](sprites/README.md) | **Sprites**: luminous desktop creatures, one per Claude Code session, that encode session and machine load. Prototypes, gallery, spec. |
+
 ## The skills
 
 ### Evaluation and judgment
@@ -49,7 +58,7 @@ where it has them, references, scripts, evals and tests.
 
 | Skill | What it does |
 |---|---|
-| [`technical-presentation`](skills/technical-presentation/SKILL.md) | Build slides whose titles are takeaways, with a spoken layer and a visual layer, and no arithmetic in titles. |
+| [`visual-presentation`](skills/visual-presentation/SKILL.md) | Slide decks and animated HTML pages: claim titles, and when motion earns its place. Replaces technical-presentation. |
 | [`meeting-postbrief`](skills/meeting-postbrief/SKILL.md) | Turn a technical meeting into a one-page findings sheet: the terms it needed, the plan against the real need, ways forward with workday estimates. |
 | [`engaging-survey`](skills/engaging-survey/SKILL.md) | Design surveys busy people want to answer: decisions first, honest length, neutral questions, energy in the framing. |
 
@@ -91,6 +100,16 @@ synthetic folder and one model, a demonstration of the workflow rather than a be
 details and caveats are in [`tools/placard/README.md`](tools/placard/README.md). Its skill is
 `tools/placard/SKILL.md`.
 
+## Waypoint
+
+`tools/waypoint/` names your project roots once, in a markdown table, and renders them into your
+shell as `$NAME` variables, a `wp <name>` jump and a `launch <name>` runner (cd and start a
+command, such as an agent session), with per-machine rows for paths that differ between machines.
+The tables live outside the repo, in `$WAYPOINT_DATA` (default `~/.config/waypoint`); starter
+tables are in `tools/waypoint/examples/`. Details in
+[`tools/waypoint/README.md`](tools/waypoint/README.md); its skill is
+`tools/waypoint/.claude/skills/waypoint/`.
+
 ## Install
 
 Claude Code loads any skill directory found under `~/.claude/skills/`. Clone the repository and
@@ -115,6 +134,7 @@ says what to do when it is not.
 python3 tests/test_skills.py        # every SKILL.md has a name and description, and no dangling relative links
 python3 -m pytest -q tests skills   # the same, plus each skill's own tests (needs pytest and git)
 (cd tools/placard && python3 -m pytest -q)               # Placard
+(cd tools/waypoint && python3 -m pytest -q tests)        # Waypoint
 (cd visualize && python3 -m pytest -q tests && python3 tools/check_skills.py)   # visualization stack
 ```
 

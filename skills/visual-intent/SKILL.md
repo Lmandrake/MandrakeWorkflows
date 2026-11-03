@@ -76,6 +76,13 @@ part-to-whole → stacked bar / treemap (avoid pie for many parts, ENC-04) · sp
 - **dashboard_or_exploratory** — interactive; key message visible before interaction.
   Live, long, many-series or drill-down time streams: a dashboard over a time-series store
   exists; `~/dev/MandrakeWorkflows/visualize/principles/time-series-and-dashboards.md` says when it beats a figure.
+- **ambient_overlay** — always on, peripheral, glanced at rather than read (a desktop
+  companion, a status creature). No labels by default: hover slows the mark and shows
+  its name (owner, Visitors 2026-10-31; earlier studies: make the rest discoverable on
+  hover). Idle near still, every motion a datum (motion.14, motion.15); a datum the
+  reader cares about is never the subtlest thing on screen (HIER-01). *Provisional*,
+  invented by the Visitors builders and untested: no end frame, all-day tolerance as a
+  criterion, avoid the focused window, a screen-area budget.
 - **scientific_spatiotemporal** — spatial/temporal science data (hand to
   `scientific-visualization`).
 

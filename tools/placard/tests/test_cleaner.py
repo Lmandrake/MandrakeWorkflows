@@ -163,7 +163,7 @@ class LetterSplitRejoin(unittest.TestCase):
         self.assertIn("I believe", out.text)
 
     def test_initials_are_not_glued(self):
-        pages = ["PM/CAM A. Author approved it"]
+        pages = ["The lead, A. Author, approved it"]
         out = cleaner.clean(pages)
         self.assertIn("A. Author", out.text)
 

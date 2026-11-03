@@ -202,7 +202,7 @@ _ABBREV = {
 
 def first_sentence(text: str) -> str:
     """The first sentence of `text`, not breaking on common abbreviations or
-    single-letter initials (e.g. 'Dr.', 'PM/CAM A.')."""
+    single-letter initials (e.g. 'Dr.', 'A. Author')."""
     i = 0
     while True:
         idx = text.find(". ", i)

@@ -1,0 +1,431 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Sprites stage</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; }
+  canvas#stage { position: fixed; left: 0; top: 0; pointer-events: none; }
+</style>
+<script src="behaviors.js"></script>
+<script>window.VISITORS_SHARED = true;</script>
+<script src="../prototype/timelines.js"></script>
+<script src="../prototype/scenarios.js"></script>
+<script src="../prototype/visitors_runtime.js"></script>
+<script src="../prototype/labels/shortname.js" onerror="void 0"></script>
+<script src="projects.js"></script>
+<script src="../prototype/labels/labels.js" onerror="void 0"></script>
+</head><body>
+<script>
+/* Sprites live stage (SHIP_PLAN v1). The Swift host (app/macos) loads this page full-screen in a transparent,
+ * click-through panel and calls window.SpritesStage:
+ *   update(snapshot|null) setCast(json) setProjects(table) setBehaviors({key:bool}) setDemo(bool) setPaused(bool)
+ *   setCursor({x,y}|null) setFocus({x,y,w,h}|null) setActivity({typing,idleSec}) setWindows([{x,y,w,h,pid,sessionPid?}])
+ *   setSize(w,h) setScale(0.5..2) setVisible({x,y,w,h}|null) (the screen's visible frame, stage px)
+ * and receives, through webkit.messageHandlers.sprites: {hits:[{id,x,y,r,project,pid}]} (~10 Hz) and
+ * {click:{id,pid,project,key,ghost}}. Projects are keyed by Augur's project_key everywhere (app/projects.js: the cast,
+ * the hue, the short name and the ghost launch); setProjects hands in the host's table (SpritesProjects.build).
+ * ONE full-screen canvas, ONE frame loop (constant 24 fps while anything is visible; CPU 2026-11-01: the cost was per
+ * rendering update per full-screen layer). Each species is a runtime instance (prototype/visitors_runtime.js shared mode,
+ * "live mode") running that piece's own script, unchanged, read from prototype/cN_*.html; each draws into the shared
+ * canvas inside its own save/restore. Instances keep creatures by id across arrivals and departures.
+ * Input is ONE shape, Augur's snapshot (augur/schema/snapshot.schema.json; owner, 2026-10-31 23:50). adaptState() is
+ * the only place it is read. Absent = absent: a missing or expired field is drawn calm, never as a measured zero.
+ * Test hooks: ?stale=0 ignores valid_until (old samples), ?dpr=N, ?fps=N, window.__stage (state, layers, hits,
+ * V(concept) = that species' runtime instance with its QA hooks: __report, __live, _def, sessions, ...). */
+(function () {
+  "use strict";
+  const q = new URLSearchParams(location.search);
+  const SPECIES = ["c1_choir", "c2_siphon", "c3_sigils", "c4_kaleido", "c5_fireflies"];
+  const PROTO = "../prototype/";
+  const IGNORE_STALE = q.get("stale") === "0";
+  const DPR = parseFloat(q.get("dpr")) || Math.min(2, window.devicePixelRatio || 1);
+  let W = innerWidth || 1440, H = innerHeight || 900;
+  let cast = { projects: {} }, beh = {}, demo = false, paused = false, scale = 1;
+  const SP = window.SpritesProjects;
+  let ptable = [], pindex = new Map();   // the host's project table (app/projects.js), key -> entry
+  let raw = null, focus = null, cursor = null, activity = { typing: false, idleSec: 0 }, windows = [];
+  const layers = {};            // concept -> {V (runtime instance), ready, queue, dropAt}
+  const hitsBy = {};            // concept -> [{id,x,y,r}]
+  let model = { sessions: [], S: null };   // adapted state: sessions [{id,concept,...}], S {s,m,net,play}
+  const on = k => beh[k] !== false;
+
+  // ---------- small helpers ----------
+  function hashStr(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+  function hexHue(hex) { const m = /^#?([0-9a-f]{6})$/i.exec(hex || ""); if (!m) return null; const n = parseInt(m[1], 16);
+    const r = (n >> 16) / 255, g = (n >> 8 & 255) / 255, b = (n & 255) / 255, mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+    if (!d) return 0; let h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return Math.round((h * 60 + 360) % 360); }
+  const fin = v => typeof v === "number" && isFinite(v);
+  const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+
+  // Casting (SHIP_PLAN Settings): cast.json maps project_key -> {concept, iv, hex, short?} (review R1 #2: one key; an entry
+  // saved before under the launch alias or the registry Name still counts, SpritesProjects.castEntry). Anything not cast,
+  // and every unmanaged (white) session, draws randomly from the range of possibilities, seeded by its id (owner,
+  // 2026-10-31: "White sprites just draw randomly ... like any new project not yet selected by the user"). The hue is the
+  // cast's hex, else the project's Waypoint colour, else random.
+  function castFor(key, seedKey, white, name) {
+    const e = pindex.get(key), c = !white && SP && SP.castEntry(cast, key, e || { name }) || {}, h = hashStr(seedKey);
+    const concept = SPECIES.includes(c.concept) ? c.concept : SPECIES[h % 5];
+    const iv = Number.isInteger(c.iv) ? ((c.iv % 8) + 8) % 8 : (h >>> 3) % 8;
+    const hue = white ? 0 : (hexHue(c.hex) ?? hexHue(e && e.hex) ?? (h >>> 7) % 360);
+    return { concept, iv, hue, hex: white ? undefined : (/^#[0-9a-f]{6}$/i.test(c.hex || "") ? c.hex : e && e.hex || undefined) };
+  }
+  const keyOf = n => SP ? SP.keyOf(n) : String(n || "").toLowerCase();
+  const nameOf = (key, fallback) => { const e = pindex.get(key); return e && e.name || fallback || key; };
+
+  // ---------- THE adapter: Augur snapshot -> sessions + S ----------
+  // Mapping: augur/DESIGN.md section 11. A block past its valid_until is absent. Whole snapshot past valid_until: all
+  // measurements absent (sessions stay, drawn calm).
+  // The envelope (CONTRACT R1 C2; schema rule 4): anything but an Augur major-1 snapshot with a finite valid_until, or an
+  // `off` one, is refused as a whole (the empty model), as the Python readers and the click gate (Decide.swift) refuse it.
+  // A block with no finite valid_until is absent (only the ?stale=0 test hook keeps unstamped blocks).
+  function envelopeOK(snap) { return !!snap && typeof snap === "object" && Array.isArray(snap.sessions) && snap.schema === "augur.snapshot"
+    && String(snap.version ?? "").split(".")[0] === "1" && fin(snap.valid_until) && snap.off !== true; }
+  function adaptState(snap, nowSec) {
+    if (!envelopeOK(snap)) return { sessions: [], S: null };
+    const now = nowSec ?? Date.now() / 1000;
+    const stale = !IGNORE_STALE && now > snap.valid_until;
+    const blk = b => (b && typeof b === "object" && !b.unknown && !stale && (IGNORE_STALE || (fin(b.valid_until) && now <= b.valid_until))) ? b : null;
+    const M = snap.machine || {}, m = {}, net = {};
+    const strain = blk(M.strain), th = blk(M.thermal), mem = blk(M.memory), mn = blk(M.net), vpn = blk(M.vpn), path = blk(M.path), bw = blk(M.bandwidth);
+    if (strain && fin(strain.score)) m.level = clamp(strain.score * 0.75, 0, 3);
+    if (th && fin(th.state)) m.thermal = clamp(th.state, 0, 2);
+    if (mem && fin(mem.pressure)) m.mempress = clamp(mem.pressure, 0, 2);
+    if (mn && fin(mn.rx_mbps) && fin(mn.tx_mbps)) net.mbps = mn.rx_mbps + mn.tx_mbps;
+    // Link (owner, 2026-11-01 ~08:15: "we need to check VPN, on-site network, AND we need to monitor for API cannot be reached...
+    // they are interrelated and each informative"). Truth table (SHIP_PLAN "VPN, on-site network and API"):
+    //   lost = api failing with error_kind network (agents cannot reach the API), whatever the VPN says
+    //   risk = VPN down and not on the on-site network (on_site false or unknown), API ok or absent
+    //   ok   = on the on-site network or VPN up, API not failing on the network; also: api failing for another reason (rate limit,
+    //          server) is not a link problem
+    //   none = vpn and api both unknown: show nothing
+    // Debounced in push() (entering lost/risk holds 20 s; recovery immediate).
+    const api = blk(M.api), vDown = !!(vpn && vpn.state === "down"), offSite = !(vpn && vpn.on_site === true);
+    const apiNet = !!(api && api.state === "failing" && api.error_kind === "network");
+    if (apiNet) net.linkRaw = "lost"; else if (vDown && offSite) net.linkRaw = "risk"; else if ((vpn && vpn.state) || (api && api.state)) net.linkRaw = "ok";
+    net.why = [apiNet && "API unreachable", vDown && "VPN down", vDown && vpn.on_site === false && "not on the on-site network"].filter(Boolean);
+    if (path && fin(path.loss_pct)) net.loss = path.loss_pct;
+    if (bw && fin(bw.strain)) net.strain = clamp(bw.strain, 0, 1);                          // absent -> no jam
+    // burning per project (Lodestar attributes items to projects; Sprites only reads the count)
+    const burn = Object.create(null);   // null-prototype maps: a project key may be "constructor" (R1 #16b)
+    for (const p of Array.isArray(snap.projects) ? snap.projects : []) { const c = blk(p && p.counts); if (!p || !p.key || !c || !fin(c.burning)) continue;
+      burn[p.key] = { burning: c.burning, burning_red: fin(c.burning_red) ? c.burning_red : 0, name: p.name || p.key }; }
+    const sessions = [], s = Object.create(null), oldest = Object.create(null);
+    for (const x of snap.sessions) { if (!x || x.id == null) continue;
+      const id = String(x.id), white = x.managed === false, key = x.project_key ? String(x.project_key) : keyOf(x.project);
+      const name = white ? String(x.project || key) : nameOf(key, x.project ? String(x.project) : key);
+      const k = castFor(key, white ? id : key, white, name);   // a project's sprites keep the project's cast: same form for each session
+      sessions.push({ id, pid: x.pid | 0, project: name, key, name, label: name, white, ghost: false,
+        concept: k.concept, iv: k.iv, hue: k.hue, hex: k.hex, started: fin(x.started_at) ? x.started_at : 0 });
+      const d = {}, at = blk(x.attention), ld = blk(x.load), tk = blk(x.tasks), nt = blk(x.net);
+      if (at && at.state) { d.state = at.state === "needs_you" ? "needs" : at.state === "working" ? "working" : "idle";
+        if (d.state === "needs" && fin(at.since)) d.needSec = Math.max(0, now - at.since); }
+      if (ld && fin(ld.cpu_cores)) d.cpu = ld.cpu_cores;
+      if (ld && fin(ld.mem_gb)) d.mem = ld.mem_gb;
+      // satellites = background tasks (BURNING_CONCEPTS; augur DESIGN s11): tasks.background (1.1), never tasks.total
+      // (shells + subagents, foreground included) nor load.procs (every OS process). Absent = unset, drawn calm (C5).
+      if (tk && fin(tk.background)) d.procs = tk.background;
+      if (nt && fin(nt.rx_mbps)) d.rx = nt.rx_mbps;
+      if (nt && fin(nt.tx_mbps)) d.tx = nt.tx_mbps;
+      s[id] = d;
+      if (!white && burn[key]) { const o = oldest[key]; const st = fin(x.started_at) ? x.started_at : Infinity;
+        if (!o || st < o.st || (st === o.st && id < o.id)) oldest[key] = { id, st }; } }
+    // lights on ONE creature per project: its oldest session (owner ruling 3)
+    for (const key in oldest) { const b = burn[key]; if (b.burning > 0) Object.assign(s[oldest[key].id], { burning: b.burning, burning_red: b.burning_red }); }
+    // ghost visitors: burning > 0 and no session at all (ruling 4; Lodestar follows the same rule). An unmanaged session
+    // is a session too (R1 #16a: no ghost beside a white sprite of the same project).
+    const live = new Set(sessions.map(x => x.key));
+    for (const key in burn) { const b = burn[key]; if (b.burning <= 0 || live.has(key)) continue;
+      const name = nameOf(key, b.name), k = castFor(key, key, false, name), id = "ghost:" + key;
+      sessions.push({ id, pid: 0, project: name, key, name, label: name, white: false, ghost: true, concept: k.concept, iv: k.iv, hue: k.hue, hex: k.hex, started: 0 });
+      s[id] = { state: "idle", cpu: 0.02, procs: 0, burning: b.burning, burning_red: b.burning_red }; }
+    return { sessions, S: { s, m, net, play: { pair: ["", ""], amt: 0 } } };
+  }
+
+  // ---------- demo mode: a random cast cycling through every behaviour (SHIP_PLAN "Demo mode") ----------
+  // Synthesised directly in the adapted shape (no file). Deterministic from the clock, so a reload looks the same.
+  const DEMO_P = [["Lodestar", 43], ["SidePulse", 350], ["Granite", 164], ["ProjectDial", 93], ["ProjectCert", 211], ["Machinist", 25], ["Waypoint", 265], ["Orchard", 286]];
+  let demoT0 = performance.now() / 1000;
+  function demoState() {
+    const t = performance.now() / 1000 - demoT0, cyc = 240, u = t % cyc, sessions = [], s = {};
+    const wave = (a, p) => 0.5 + 0.5 * Math.sin(t / p * 2 * Math.PI + a);
+    DEMO_P.forEach(([name, hue], i) => {
+      const present = i < 5 || (i === 5 && u > 30 && u < 150) || (i === 6 && u > 90) || (i === 7 && u < 60);   // 7 or 8 with white + ghost (S9: 6-8)
+      if (!present) return;
+      const id = "demo" + i, concept = SPECIES[i % 5], iv = (i * 3) % 8;
+      sessions.push({ id, pid: 0, project: name, key: name.toLowerCase(), name, label: name, white: false, ghost: false, concept, iv, hue, started: i });
+      const ph = (u + i * 37) % 120;
+      const state = i === 2 && u > 20 && u < 75 ? "needs" : ph < 70 ? "working" : "idle";
+      s[id] = { state, cpu: state === "working" ? 0.3 + 3 * wave(i, 23 + i) : 0.03, mem: 0.4 + 1.6 * wave(i * 2, 97),
+        procs: Math.round(1 + 6 * wave(i * 3, 51)), rx: state === "working" ? 0.05 + 18 * Math.pow(wave(i, 17), 3) : 0.03,
+        tx: state === "working" ? 0.05 + 8 * Math.pow(wave(i + 1, 29), 3) : 0.02, burning: i === 0 ? 3 : i === 3 ? 1 : undefined, burning_red: i === 0 ? 1 : 0 };
+      if (state === "needs") s[id].needSec = u - 20; });
+    { const id = "demoW"; sessions.push({ id, pid: 0, project: "scratch", key: "scratch", name: "scratch", label: "scratch (unmanaged)", white: true, ghost: false,
+        concept: castFor("scratch", id, true).concept, iv: castFor("scratch", id, true).iv, hue: 0, started: 9 });
+      s[id] = { state: u % 60 < 30 ? "working" : "idle", cpu: 0.4, mem: 0.5, procs: 2 }; }
+    if (u > 150) { const id = "ghost:hestia"; sessions.push({ id, pid: 0, project: "Hestia", key: "hestia", name: "Hestia", label: "Hestia", white: false, ghost: true,
+        concept: "c4_kaleido", iv: 5, hue: 300, started: 0 }); s[id] = { state: "idle", cpu: 0.02, procs: 0, burning: 4, burning_red: 0 }; }
+    const m = { level: u > 160 && u < 195 ? 2.6 : 0.3, thermal: u > 170 && u < 190 ? 1 : 0, mempress: u > 175 && u < 185 ? 1 : 0 };
+    const net = { mbps: 6, vpn: u > 120 && u < 140 ? "down" : "up", loss: 0, strain: u > 50 && u < 80 ? 0.8 : 0 };
+    return { sessions, S: { s, m, net, play: { pair: ["", ""], amt: 0 } } };
+  }
+
+  // ---------- play: the stage decides (two idle creatures of one species drift together, twirl once, part) ----------
+  const play = {};   // concept -> {pair, t0}
+  function playFor(concept, list, S) {
+    const nowS = performance.now() / 1000, p = play[concept];
+    if (!on("play")) { delete play[concept]; return { pair: ["", ""], amt: 0 }; }
+    if (p) { const e = nowS - p.t0, ok = p.pair.every(id => list.some(x => x.id === id) && S.s[id] && S.s[id].state === "idle");
+      if (e > 14 || !ok) { delete play[concept]; p.next = nowS + 60 + 60 * Math.random(); play["_" + concept] = p.next; return { pair: ["", ""], amt: 0 }; }
+      return { pair: p.pair, amt: e < 2 ? e / 2 : e < 10 ? 1 : Math.max(0, (13 - e) / 3) }; }
+    if (nowS < (play["_" + concept] || (play["_" + concept] = nowS + 30 + 60 * Math.random()))) return { pair: ["", ""], amt: 0 };
+    const idle = list.filter(x => !x.ghost && S.s[x.id] && S.s[x.id].state === "idle");
+    if (idle.length >= 2 && !(S.net.vpn === "down") && !(S.m.level >= 2)) { play[concept] = { pair: [idle[0].id, idle[1].id], t0: nowS }; }
+    else play["_" + concept] = nowS + 20;
+    return { pair: ["", ""], amt: 0 }; }
+
+  // ---------- the one canvas and its one loop ----------
+  // The host's visible frame (NSScreen.visibleFrame in stage px: below the menu bar, clear of the Dock on any side; R1-SPEC
+  // S4) bounds the terrain of every layer; avoidDockMenu adds EXTRA px inside it. Without one, the old fixed margins.
+  let vis = null; const EXTRA = () => on("avoidDockMenu") ? 8 : 0;
+  const TOP = () => vis ? vis.y + EXTRA() : on("avoidDockMenu") ? 44 : 26;
+  const BOT = () => vis ? Math.max(0, H - vis.y - vis.h) + EXTRA() : on("avoidDockMenu") ? 86 : 12;
+  const visMsg = () => { if (!vis) return null; const e = EXTRA(); return { x: vis.x + e, y: vis.y + e, w: Math.max(0, vis.w - 2 * e), h: Math.max(0, vis.h - 2 * e) }; };
+  const cv = document.createElement("canvas"); cv.id = "stage"; cv.setAttribute("aria-hidden", "true"); document.body.appendChild(cv);
+  const ctx = cv.getContext("2d");
+  function sizeCanvas() { cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR); cv.style.width = W + "px"; cv.style.height = H + "px";
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0); }
+  sizeCanvas();
+  // Draw-call batching (CPU, 2026-11-01: cost is per canvas call replayed in the WebKit GPU process, not per pixel).
+  // Consecutive fillRect calls with the same state become ONE path fill; anything that changes state or draws flushes
+  // first, so order and state are exactly as the pieces wrote them. Only overlaps within one batch can differ (a union is
+  // filled once), so it is OFF unless ?batch=1 (A/B only, pending a measured win).
+  if (q.get("batch") === "1") (function () {
+    const P = CanvasRenderingContext2D.prototype; let pend = null, n = 0;
+    function flush() { if (!pend) return; const p = pend; pend = null; n = 0; P.fill.call(ctx, p); }
+    ctx.fillRect = function (x, y, w, h) { if (!pend) pend = new Path2D(); pend.rect(x, y, w, h); if (++n > 4000) flush(); };
+    for (const m of ["fill", "stroke", "drawImage", "clearRect", "fillText", "strokeText", "strokeRect", "save", "restore", "setTransform",
+      "resetTransform", "transform", "translate", "rotate", "scale", "clip", "putImageData", "getImageData", "drawFocusIfNeeded"])
+      ctx[m] = function () { flush(); return P[m].apply(this, arguments); };
+    for (const k of ["fillStyle", "globalCompositeOperation", "filter", "shadowBlur", "shadowColor", "shadowOffsetX", "shadowOffsetY", "imageSmoothingEnabled"]) {
+      const d = Object.getOwnPropertyDescriptor(P, k); if (!d) continue;
+      Object.defineProperty(ctx, k, { configurable: true, get() { return d.get.call(this); }, set(v) { flush(); d.set.call(this, v); } }); }
+    ctx.__flush = flush; })();
+  window.__errors = window.__errors || []; addEventListener("error", e => window.__errors.push(String(e.message)));
+  // Constant frame rate whenever anything is visible (owner, 2026-11-01: "Their fps shouldn't change, just their
+  // velocity"); 2 fps while creatures exist but all are faded out (so fades and re-entry still advance); no frames at all
+  // with no creatures, when paused (hidden, full screen, locked) or when the page is hidden. Frames land on a wall-clock grid.
+  const FPS = parseFloat(q.get("fps")) || 24;
+  let timer = 0, rafId = 0, painted = false;
+  function wake() { if (timer || rafId) return; schedule(); }
+  // Nothing visible (no creatures, or all faded out): simulation steps at 2 Hz on a plain timer, the canvas is cleared
+  // once and then left alone, so WebKit has no rendering update to do.
+  function schedule() { clearTimeout(timer); timer = 0; if (paused || document.hidden) return;
+    const Ls = Object.values(layers).filter(L => L.ready);
+    if (!Ls.length) { if (painted) { ctx.clearRect(0, 0, W, H); painted = false; } return; }
+    const vis = Ls.some(L => L.V._anyVisible()), p = 1000 / (vis ? FPS : 2), t = performance.timeOrigin + performance.now();
+    let w = p - (t % p) - 4; if (w < 2) w += p;
+    timer = setTimeout(() => { timer = 0; if (vis) rafId = requestAnimationFrame(frame); else frame(performance.now(), true); }, w); }
+  // Each species draws inside its own save/restore, and the drawing state it left behind is handed back to it next
+  // frame (as its own canvas used to keep it), so a piece that relies on a lingering fillStyle or lineWidth looks the same.
+  const KEEP = ["fillStyle", "strokeStyle", "lineWidth", "globalCompositeOperation", "font", "textAlign", "textBaseline", "lineCap", "lineJoin"];
+  // That includes the canvas's own (native) globalAlpha, which a piece's save/restore can leave different from the value
+  // the runtime tracks; some draws (the VPN beam) read it as is.
+  const GA = Object.getOwnPropertyDescriptor(CanvasRenderingContext2D.prototype, "globalAlpha");
+  // Native renderer (docs/NATIVE_PORT.md): each species is marked as one layer, composited source-over as its own iframe
+  // was, so glows of two species stack instead of adding; a WebKit canvas has no such hooks and ignores this.
+  function drawLayer(L, fn) { ctx.__aS = L.V._alpha; if (ctx.__beginLayer) ctx.__beginLayer(); ctx.save();
+    const st = L.ctxState; if (st) for (const k of KEEP) ctx[k] = st[k];
+    if (st) GA.set.call(ctx, st.nativeAlpha); else ctx.globalAlpha = L.V._alpha.raw;
+    try { fn(); } catch (e) { window.__errors.push(L.concept + ": " + e.message); }
+    const o = L.ctxState || (L.ctxState = {}); for (const k of KEEP) o[k] = ctx[k]; o.nativeAlpha = GA.get.call(ctx);
+    ctx.restore(); if (ctx.__endLayer) ctx.__endLayer(); }
+  function frame(now, dark) { rafId = 0; if (paused) return;
+    if (!dark || painted) ctx.clearRect(0, 0, W, H);
+    for (const c in layers) { const L = layers[c]; if (L.ready) drawLayer(L, () => L.V._frame(now, dark)); }   // creation order = the old iframe z-order
+    if (!dark) drawLabels(now);
+    if (ctx.__flush) ctx.__flush();
+    painted = !dark; schedule(); }
+  // ---------- hover labels (owner: five styles switchable in Settings, Constellation default; docs/HOVER_LABELS.md) ----------
+  // After every species: the hovered creature's label in the labelStyle chosen in Settings (behaviors.labelStyle), drawn by
+  // prototype/labels/labels.js (SpritesLabels). Without that module, the old plain name. One state machine per creature,
+  // so a label fades out while the next fades in.
+  // Short names (R1 #1): SpritesProjects.shortTable over the host's whole project table, so a project reads the same here as
+  // in Settings (the Waypoint alias where it is short, the cast's short override first); a session outside the table gets
+  // its own automatic short name.
+  const labelSt = {}; let labelT = 0, shortMap = Object.create(null), shortKey = null;
+  function shortFor(s) { if (!s.key || !SP) return s.label || s.name;
+    const extra = model.sessions.filter(x => x.key && !pindex.has(x.key)).map(x => ({ key: x.key, name: x.name }));
+    const k = [ptable, cast, extra.map(x => x.key + "=" + x.name).join("|")];
+    if (!shortKey || k.some((v, i) => v !== shortKey[i])) { shortKey = k;
+      try { shortMap = Object.assign(Object.create(null), SP.shortTable(ptable, cast), SP.shortTable([], cast, extra)); } catch (e) { shortMap = Object.create(null); } }
+    return shortMap[s.key] || s.label || s.name; }
+  function drawLabels(now) { const dt = labelT ? Math.min(0.2, (now - labelT) / 1000) : 0; labelT = now;
+    let hov = null; if (on("hoverName")) for (const c in layers) { const L = layers[c]; if (L.ready && !hov) hov = L.V._hover(); }
+    // the beacon names which signal is down (owner, 2026-11-01 ~08:15), in the same label style
+    if (!hov && on("hoverName") && cursor) for (const c in layers) { const L = layers[c], b = L.ready && L.V._beacon(); if (!b) continue;
+      if (Math.hypot(cursor[0] - b[0], cursor[1] - b[1]) < b[2]) { const why = (model.S && model.S.net.why || []).join(", ") || (lastLink === "lost" ? "API unreachable" : "VPN down");
+        hov = { id: "beacon", x: b[0], y: b[1], r: b[2] * 0.6, alpha: 1, s: { name: why, label: why, white: false, hue: 0 }, beacon: true }; } }
+    const SL = window.SpritesLabels, style = typeof beh.labelStyle === "string" ? beh.labelStyle : (SL ? SL.DEFAULT : "");
+    if (hov) labelSt[hov.id] = labelSt[hov.id] || { phase: null, p: 0, h: hov };
+    for (const id in labelSt) { const st = labelSt[id]; if (hov && hov.id === id) st.h = hov;
+      if (!SL) { if (hov && hov.id === id) plainLabel(st.h); else delete labelSt[id]; continue; }
+      SL.track(st, !!hov && hov.id === id, dt, style); if (!st.phase) { delete labelSt[id]; continue; }
+      const h = st.h, s = h.s, short = h.beacon || s.white ? s.label : shortFor(s);
+      ctx.save(); const lab = ctx.__beginLabel ? ctx.__beginLabel() : false;   // native: the label becomes one textured quad
+      try { SL.draw(ctx, { style, name: s.name, short, hex: s.white ? undefined : s.hex, hue: s.white ? undefined : s.hue,
+        x: h.x, y: h.y, r: h.r, scale, t: now / 1000, phase: st.phase, p: st.p, motes: h.motes, W, H,
+        ground: SL.groundAt(windows, SL.labelBox(h.x, h.y, h.r, scale, short)) }); }
+      catch (e) { window.__errors.push("labels: " + e.message); }
+      finally { if (ctx.__endLabel) ctx.__endLabel(lab); }
+      ctx.restore(); } }
+  function plainLabel(h) { ctx.save(); ctx.font = Math.max(11, Math.round(H / 36)) + "px -apple-system,system-ui,sans-serif";
+    ctx.textAlign = "center"; ctx.fillStyle = "rgba(235,240,250,0.85)"; ctx.fillText(h.s.label || h.s.name, h.x, Math.max(14, h.y - Math.max(14, h.r) - 8)); ctx.restore(); }
+  // QA: deterministic frame of every layer at sim time t (re-simulated from 0), drawn through the same path as live.
+  function renderAt(t) { ctx.clearRect(0, 0, W, H); const out = {};
+    for (const c in layers) { const L = layers[c]; if (L.ready) drawLayer(L, () => { out[c] = L.V.__renderAt(t).reports; }); }
+    if (ctx.__flush) ctx.__flush();
+    painted = true; return out; }
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) wake(); });
+
+  // ---------- layers: one runtime instance per species, running the piece's own script ----------
+  const SRC = {};   // concept -> piece script text (the last inline <script> of prototype/<concept>.html)
+  function loadSrc(concept, cb) { if (SRC[concept]) return cb(SRC[concept]);
+    const x = new XMLHttpRequest(); x.open("GET", PROTO + concept + ".html");
+    x.onload = () => { const m = [...x.responseText.matchAll(/<script>([\s\S]*?)<\/script>/g)]; SRC[concept] = m.length ? m[m.length - 1][1] : ""; cb(SRC[concept]); };
+    x.onerror = () => window.__errors.push("cannot load " + concept); x.send(); }
+  function params(concept) { return new URLSearchParams({ live: 1, w: W, h: H, top: TOP(), bot: BOT(), dpr: DPR, size: scale, hover: 0,
+    seed: hashStr(concept) % 100000 }); }
+  let gen = 0;
+  function ensureLayer(concept) { let L = layers[concept]; if (L) { L.dropAt = 0; return L; }
+    L = layers[concept] = { V: null, ready: false, queue: [], dropAt: 0, concept, gen };
+    loadSrc(concept, src => { if (layers[concept] !== L) return;
+      const env = { ctx, canvas: cv, wake, post: d => { if (d.ev === "hits" && layers[concept] === L) { hitsBy[concept] = d.hits; hitT = 1; } } };
+      try { const V = VisitorsRuntime.create(params(concept), env); L.V = V;
+        new Function("V", src + "\n//# sourceURL=" + concept + ".piece.js")(V);
+        if (!V._def) throw new Error("piece did not register");
+      } catch (e) { window.__errors.push(concept + ": " + e.message); return; }
+      L.ready = true; L.V._onLive(clone(Object.assign({ cmd: "live" }, full(L)))); const qq = L.queue; L.queue = []; qq.forEach(m => L.V._onLive(m)); wake(); });
+    return L; }
+  const clone = m => typeof structuredClone === "function" ? structuredClone(m) : JSON.parse(JSON.stringify(m));   // as postMessage did
+  function send(L, msg) { msg.cmd = "live"; msg = clone(msg); if (!L.ready) { L.queue.push(msg); return; }
+    try { L.V._onLive(msg); } catch (e) { window.__errors.push(L.concept + ": " + e.message); } wake(); }
+  function sendAll(msg) { for (const c in layers) send(layers[c], Object.assign({}, msg)); }
+  function full(L) {   // everything a fresh layer needs
+    const o = { behaviors: beh, cursor: cursor ? { x: cursor[0], y: cursor[1] } : null, activity, windows, scale, paused, demo };
+    if (vis) o.visible = visMsg(); return o; }
+  function dropLayer(c) { delete layers[c]; delete hitsBy[c]; delete lastSig[c]; }
+  function rebuildLayers() { for (const c in layers) dropLayer(c); for (const k in hitsBy) delete hitsBy[k]; sizeCanvas(); painted = true; push(true); }
+
+  // ---------- ONE shared VPN-huddle point (owner bug 2026-11-01: they "seemed to run away" from the beacon) ----------
+  // In open space NEAR the flock and on its side of the focused window (a straight line from the flock's centroid to
+  // the point must not cross the focus), so every creature can actually travel there. Fixed for the outage.
+  let hudKey = "", hudPt = null;
+  function crossesRect(x0, y0, x1, y1, r) { if (!r) return false; for (let k = 0; k <= 40; k++) { const u = k / 40, x = x0 + (x1 - x0) * u, y = y0 + (y1 - y0) * u;
+      if (x > r[0] && x < r[0] + r[2] && y > r[1] && y < r[1] + r[3]) return true; } return false; }
+  function huddlePoint() {
+    if (hudPt && hudKey === "down") return hudPt;   // fixed for the whole outage (lost or at risk)
+    const rects = windows.map(w => [w.x, w.y, w.w, w.h]); if (focus) rects.push(focus);
+    const hs = allHits(); let cx = W / 2, cy = H / 2; if (hs.length) { cx = hs.reduce((a, h) => a + h.x, 0) / hs.length; cy = hs.reduce((a, h) => a + h.y, 0) / hs.length; }
+    const m = 120, y0 = TOP() + m, y1 = H - BOT() - m, x0 = (vis ? vis.x : 0) + m, x1 = vis ? vis.x + vis.w - EXTRA() - m : W - m - (on("avoidDockMenu") ? 70 : 0); let best = null, bs = -1e9;
+    for (let y = y0; y <= y1; y += 24) for (let x = x0; x <= x1; x += 24) { let d = 1e9;
+      for (const [rx, ry, rw, rh] of rects) { const dx = Math.max(rx - x, 0, x - (rx + rw)), dy = Math.max(ry - y, 0, y - (ry + rh));
+        d = Math.min(d, (dx || dy) ? Math.hypot(dx, dy) : -Math.min(x - rx, rx + rw - x, y - ry, ry + rh - y)); }
+      const fd = focus ? (() => { const [rx, ry, rw, rh] = focus, dx = Math.max(rx - x, 0, x - (rx + rw)), dy = Math.max(ry - y, 0, y - (ry + rh)); return (dx || dy) ? Math.hypot(dx, dy) : -1; })() : 1e9;
+      if (fd < 110) continue;                                            // never on or hugging the focused window
+      const sc = Math.min(d, 160) * 1.5 - 0.6 * Math.hypot(x - cx, y - cy) - (crossesRect(cx, cy, x, y, focus) ? 5000 : 0);
+      if (sc > bs) { bs = sc; best = [x, y]; } }
+    hudPt = best || [cx, cy]; hudKey = "down"; return hudPt; }
+
+  // Entering lost or risk must hold for VPN_DEBOUNCE s (walking around the site flaps on_site); each level has its own
+  // clock, and any adverse time counts toward risk's (owner ruling, SHIP_PLAN; R1 #15: LOST -> API ok with the VPN
+  // still down off site shows AT RISK at once, no false "ok" gap); recovery is immediate. During a hold the calm state
+  // already shown stays (none -> lost reads "none", not "ok"). Only lost -> ok fires the reconnect bloom (V.reconnected).
+  const VPN_DEBOUNCE = +(q.get("vpndebounce") ?? 20);
+  let vpnShown = "ok", lostSince = null, riskSince = null, lastLink = "ok";
+  function linkDebounce(raw, nowMs) { const now = nowMs ?? performance.now();
+    if (raw !== "lost") lostSince = null; else if (lostSince === null) lostSince = now;
+    if (raw !== "lost" && raw !== "risk") riskSince = null; else if (riskSince === null) riskSince = now;
+    const D = VPN_DEBOUNCE * 1000;
+    vpnShown = lostSince !== null && now - lostSince >= D ? "lost" : riskSince !== null && now - riskSince >= D ? "risk"
+      : raw === "none" || raw == null ? "none" : raw === "ok" ? "ok" : vpnShown === "none" ? "none" : "ok";   // held: keep the calm state shown
+    return vpnShown; }
+  // the old two-state view, for tests written against it: "down" = lost
+  function vpnDebounce(raw, nowMs) { return linkDebounce(raw === "down" ? "lost" : "ok", nowMs) === "lost" ? "down" : "up"; }
+
+  // ---------- push the adapted model to the layers ----------
+  let lastSig = {}, knownIds = null, lastPush = 0; const lastHud = {};   // keep the point after reconnect so the bloom stays put
+  function push(force) {
+    model = demo ? demoState() : adaptState(raw);
+    const S = model.S || { s: {}, m: {}, net: {}, play: { pair: ["", ""], amt: 0 } };
+    S.net = Object.assign({}, S.net);
+    if (!demo) { S.net.link = linkDebounce(S.net.linkRaw); lastLink = S.net.link; S.net.vpn = S.net.link === "lost" ? "down" : "up"; }
+    else S.net.link = S.net.vpn === "down" ? "lost" : "ok";
+    delete S.net.linkRaw;
+    if (!on("vpnHuddle") && S.net.link !== "ok" && S.net.link !== "none") { S.net.vpn = "up"; S.net.link = "ok"; }
+    const ghosts = model.sessions.filter(x => x.ghost); ghosts.forEach((x, i) => { x.slot = i; x.slots = ghosts.length; });
+    const by = {}; for (const x of model.sessions) (by[x.concept] = by[x.concept] || []).push(x);
+    for (const c in by) ensureLayer(c);
+    if (S.net.link !== "lost" && S.net.link !== "risk") hudKey = "";
+    const hp = S.net.link === "lost" || S.net.link === "risk" ? huddlePoint() : null, owner = Object.keys(by).sort()[0];
+    const nowS = performance.now() / 1000;
+    for (const c in layers) { const L = layers[c], list = by[c] || [];
+      if (!list.length && !L.dropAt) L.dropAt = nowS + 2.5;   // let departures fade, then drop the layer
+      if (!list.length && L.dropAt && nowS > L.dropAt) { dropLayer(c); continue; }
+      const sub = { s: {}, m: S.m, net: S.net, focus, play: playFor(c, list, S) };
+      for (const x of list) sub.s[x.id] = S.s[x.id] || {};
+      const sessions = list.map(x => ({ id: x.id, key: x.key, hue: x.hue, hex: x.hex, iv: x.iv, name: x.name, label: x.label, pid: x.pid, white: x.white, ghost: x.ghost, slot: x.slot, slots: x.slots }));
+      const sg = JSON.stringify([sessions, sub, hp]); if (!force && sg === lastSig[c]) continue; lastSig[c] = sg;
+      send(L, { sessions, S: sub, huddle: hp ? { x: hp[0], y: hp[1], owner: c === owner } : (lastHud[c] ? { x: lastHud[c][0], y: lastHud[c][1], owner: c === owner } : null) });
+      if (hp) lastHud[c] = hp; }
+    // greet newcomers: once a new real session has a position, its nearest neighbour drifts over briefly
+    const ids = new Set(model.sessions.filter(x => !x.ghost).map(x => x.id));
+    if (knownIds) for (const id of ids) if (!knownIds.has(id)) { const x = model.sessions.find(z => z.id === id);
+      setTimeout(() => { const h = (hitsBy[x.concept] || []).find(z => z.id === id), L = layers[x.concept];
+        if (h && L && on("greetNewcomers")) send(L, { greet: { id, x: h.x, y: h.y } }); }, 1800); }
+    knownIds = ids; lastPush = performance.now(); }
+
+  // ---------- hits and clicks to the host ----------
+  const host = () => window.webkit && webkit.messageHandlers && webkit.messageHandlers.sprites;
+  function allHits() { const out = [];
+    for (const c in hitsBy) for (const h of hitsBy[c] || []) { const x = model.sessions.find(z => z.id === h.id); if (!x) continue;   // ghosts are clickable: they open a session
+      out.push({ id: h.id, x: h.x, y: h.y, r: h.r, project: x.project, key: x.key, ghost: !!x.ghost, pid: x.pid }); }
+    return out; }
+  // The host captures the mouse over every posted hit, so post none when every click would be ignored (demo, or a snapshot
+  // past valid_until): a disc that eats a click and does nothing breaks "no behaviour may block a click" (R3-SPEC #1, #2).
+  const clickable = () => !demo && (IGNORE_STALE || (!!raw && fin(raw.valid_until) && Date.now() / 1000 <= raw.valid_until));
+  const clickHits = () => clickable() ? allHits() : [];
+  let lastHitsMsg = "", lastGate = null;
+  let hitT = 0;   // hits come from the layers only on change; forward at most 10 Hz
+  setInterval(() => { const g = clickable(); if (paused || (!hitT && g === lastGate)) return; hitT = 0; lastGate = g;
+    const hs = clickHits(), m = JSON.stringify(hs);
+    if (m !== lastHitsMsg) { lastHitsMsg = m; const h = host(); if (h) h.postMessage({ hits: hs }); } }, 100);
+  addEventListener("mousedown", e => { const hs = clickHits(); let best = null, bd = 1e9;
+    for (const h of hs) { const d = Math.hypot(h.x - e.clientX, h.y - e.clientY); if (d <= h.r && d < bd) { bd = d; best = h; } }
+    if (best) { const h = host(); if (h) h.postMessage({ click: { id: best.id, pid: best.pid, project: best.project, key: best.key, ghost: best.ghost } }); window.__lastClick = best; }
+    e.preventDefault(); });
+  // demo and play are time-driven: re-evaluate once a second (cheap; layers only hear about real changes)
+  setInterval(() => { if (!paused && (demo || lostSince !== null || Object.keys(play).length || performance.now() - lastPush > 900)) push(false); }, 1000);
+
+  // ---------- host API ----------
+  window.SpritesStage = {
+    update(snap) { raw = snap || null; if (!demo) push(false); },
+    setCast(c) { cast = c && typeof c === "object" ? c : { projects: {} }; if (!cast.projects) cast.projects = {}; push(false); },
+    setProjects(t) { ptable = Array.isArray(t) ? t : []; pindex = SP ? SP.index(ptable) : new Map(); push(false); },
+    setBehaviors(b) { const was = TOP() + ":" + BOT(); beh = b && typeof b === "object" ? Object.assign({}, b) : {};
+      sendAll({ behaviors: beh }); if (vis) sendAll({ visible: visMsg() }); if (TOP() + ":" + BOT() !== was) rebuildLayers(); else push(true); },
+    setVisible(v) { const was = TOP() + ":" + BOT();
+      vis = v && fin(v.x) && fin(v.y) && fin(v.w) && fin(v.h) && v.w > 0 && v.h > 0 ? { x: v.x, y: v.y, w: v.w, h: v.h } : null;
+      hudKey = ""; if (TOP() + ":" + BOT() !== was) rebuildLayers(); else { if (vis) sendAll({ visible: visMsg() }); push(true); } },
+    setDemo(d) { d = !!d; if (d === demo) return; demo = d; demoT0 = performance.now() / 1000; sendAll({ demo }); push(true); },
+    setPaused(p) { paused = !!p; sendAll({ paused }); if (!paused) { push(true); wake(); } },
+    setCursor(c) { cursor = c && fin(c.x) ? [c.x, c.y] : null; sendAll({ cursor: c && fin(c.x) ? { x: c.x, y: c.y } : null }); },
+    setFocus(f) { focus = f && fin(f.w) && f.w > 0 ? [f.x, f.y, f.w, f.h] : null; push(false); },
+    setActivity(a) { activity = Object.assign({ typing: false, idleSec: 0 }, a || {}); sendAll({ activity }); },
+    setWindows(ws) { windows = Array.isArray(ws) ? ws : []; sendAll({ windows }); },
+    setSize(w, h) { w = Math.round(w); h = Math.round(h); if (w === W && h === H && Object.keys(layers).length) return; W = w; H = h; rebuildLayers(); },
+    setScale(s) { scale = clamp(+s || 1, 0.5, 2); sendAll({ scale }); },
+  };
+  window.__stage = { adaptState, vpnDebounce, linkDebounce, resetVpn: () => { vpnShown = "ok"; lostSince = null; riskSince = null; }, get model() { return model; }, get layers() { return layers; }, allHits, clickHits, demoState,
+    V: c => layers[c] && layers[c].V, canvas: cv, renderAt, get fps() { return FPS; } };
+  push(true);
+})();
+</script>
+</body></html>

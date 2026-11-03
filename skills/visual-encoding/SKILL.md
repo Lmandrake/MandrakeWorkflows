@@ -75,6 +75,15 @@ baseline decisions, scale transforms, and any escalations noted.
   vs difference and disclose any crop.
 - ENC-01 relaxes when magnitude reading is not required (gestalt/overview only).
 - ENC-10's exception: inherently spatial phenomena and animated science viz.
+- **Motion and alarm states: one channel family, one meaning** (COLOR-06 carried to
+  motion; the cross-study "one colour, one meaning" rule). An alarm takes a channel no
+  attention cue or datum uses. Visitors (2026-10-31): strain drawn as rings or ripples
+  read as the needs-you summons on 4 of 5 concepts; red glow plus geometric disalignment
+  did not. Keep tempo (angular) and flow (radial) on different motion axes (motion.11).
+- *Provisional (Visitors only, n=1):* keep an encoding inside its mark (particles
+  arriving from outside read as busy); readers adopt natural mappings before any legend
+  (orbiting satellites read as processes), so check the unlabelled reading and use it;
+  identity by form variant, recognisable in one hue, was liked.
 
 ## Failure modes
 - Key quantity placed on a weak channel (area/color) → misread magnitudes.
@@ -106,5 +115,8 @@ PERC-01/02 (S07, C1, S05). COLOR-01..05 (S05, S09, S07, S03); COLOR-06 (S03, S07
 ACCESS-01/02/04/05 (S16, S05, S06, S09). UNC-01 (S02, S10). See principles.yaml.
 
 ## Known open questions
+- Where motion channels (rate, spin, jitter, flicker) sit on the ENC-01 ladder, and
+  whether an ordinal alarm needs a discrete step: untested (the Visitors blind sheet is
+  unanswered; model judges cannot test motion).
 - Default weights for trading channel accuracy against clutter (needs QA-04 data).
 - Automatic selection among documented perceptually-uniform maps by data semantics.

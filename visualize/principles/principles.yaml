@@ -52,6 +52,7 @@ meta:
     QA: validity gating and rendering inspection
     ACCESS: accessibility (color, contrast, redundancy)
     CRIT: design process, justification, critique
+    MOTION: animation, builds and transitions (ids motion.NN; candidates, untested; see presentation/EXTRACTION.md)
 
 principles:
 
@@ -371,6 +372,8 @@ principles:
       lands arbitrarily and the message is not guaranteed to be seen first.
     checks:
       - The intended first-read element is the most visually salient.
+    validation: >
+      owner gallery (n=1, Visitors 2026-10-31): bandwidth, which he cares about, was 'too subtle' on all 5 concepts, the only row with no thumbs-up. Supports this entry, not a test of it.
 
   - id: HIER-02
     class: HIER
@@ -1390,3 +1393,805 @@ principles:
       is the classic way to produce a beautiful chart that answers the wrong question.
     checks:
       - Upstream levels (problem, abstraction) were addressed, not just the chart.
+
+  # ---- MOTION (candidates, 2026-10-28) ---------------------------------------
+  # Extracted for the visual-presentation family (presentation/BRIEF.md). These are
+  # CANDIDATES: none has passed the blind animated-vs-static test yet. Extra fields
+  # beyond the shared schema:
+  #   contexts           : medium tags slides | web | video (plus task tags)
+  #   platforms          : whether it can be honoured in PowerPoint, Keynote, Google Slides
+  #   practitioner_only  : true when no tier-A source carries the claim
+  #   refutation         : the blind animated-vs-static result that would show it wrong
+  #   validation         : what the tests so far actually showed for this entry (revision 1,
+  #                        2026-10-28); owner ratings are n=1 blind judgment, not research
+  #   status             : absent = candidate; "retired" with a reason (never delete an id)
+  # Tier A here means a peer-reviewed source carries the claim; where that claim is a
+  # design guideline the paper states rather than tests, the rationale says so.
+  # P01, P02, P07 and P15 are reference_only (abstract or metadata); they are cited
+  # as corroboration only, never as the sole carrier of a claim.
+
+  - id: motion.01
+    class: MOTION
+    principle: Default to a static view or a stepped static sequence; animate only when you can name the job the motion does (keeping marks identifiable across a change of view, drawing attention to one change, or showing a process that is itself change) and the static alternative does that job worse; a sequence of views is not by itself a job.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [slides, web, video]
+    platforms: {powerpoint: holds, keynote: holds, google_slides: holds}
+    practitioner_only: false
+    exceptions: [outreach pieces whose stated goal is affect rather than reading (see motion.22), "view changes where keeping marks identifiable is the job (motion.02), which then counts as named"]
+    sources: [P04, P05, P27, P20, P01]
+    rationale: >
+      Heer and Robertson (P04) call animation "a double-edged sword": attention capture,
+      object constancy, implied causality and engagement each help or mislead depending on
+      use, and animation is ephemeral, which complicates comparison. Robertson et al. (P05)
+      found trend animation least effective for analysis and error-prone even in
+      presentation. Fisher (P27) closes on "what function does the animation serve?" and
+      "that complexity should pay off". Apple HIG (P20): "Don't add motion for the sake of
+      adding motion." Tversky et al. (P01, abstract only) is the canonical skeptical review.
+      Revision 1: a deck that is a sequence of views does not license motion between every
+      pair; a step with no job is a cut, or a colour/opacity change if it only highlights
+      (timing in motion.09). The owner's blind rating (n=1) sharpens this into motion.28.
+    checks:
+      - The brief names the job the motion does in one sentence.
+      - A static alternative was considered and the reason it loses is recorded.
+      - Each animated step has its own named job; steps without one are cuts or colour/opacity changes.
+    validation: >
+      model-judge rounds 1-2 (B12, B13): no separation (ceiling). Owner blind rating (n=1): B01 unguided animation 'just fluff', B01 principled animation neutral, final frame carried the meaning; consistent with this entry, not a test of it.
+    refutation: >
+      Across the test briefs where no such job can be named, blind judges and comprehension
+      checks favour the animated build over the best static build as often as, or more often
+      than, the briefs where a job is named. That would mean naming the job does not predict
+      when animation wins.
+
+  - id: motion.02
+    class: MOTION
+    principle: When the view of the same data changes (filter, sort, rescale, regroup, switch chart type (see motion.29), step in time), use an animated transition rather than a hard cut so the viewer can follow which mark became which.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [slides, web, video, view_change]
+    platforms: {powerpoint: partial, keynote: partial, google_slides: partial}
+    practitioner_only: false
+    exceptions: [nearly every mark moves and following identity is not the task (motion.04), the task is comparing the two states (motion.04), "the final frame already links each mark's start to its end (slope lines, arrows, traces), so identity needs no motion (motion.04, motion.28)", the platform cannot keep mark identity (motion.26)]
+    sources: [P04, P27, P09, P14]
+    rationale: >
+      In two controlled experiments (n = 24) animated transitions beat static cuts for both
+      object tracking and estimating change, across all transition types tested (P04); the
+      authors stress presentations, where viewers who are not driving cannot predict the
+      result of a change. Fisher (P27) argues the same for an audience following a presenter.
+      Slide apps can do this only for objects they can match across slides (motion.26).
+    checks:
+      - Each mark that persists across the change is visibly the same object throughout.
+    validation: >
+      model-judge rounds 1-2 (B01, B03, B14): no separation (ceiling). Owner blind rating (n=1) of B01: motion between rankings judged fluff (N) or neutral (P) because the slope chart already carried identity.
+    refutation: >
+      For view-change briefs, viewers of the static cut (with the same labels and the same
+      dwell time) answer which-item-went-where and how-much-did-it-change questions as
+      accurately as viewers of the animated transition.
+
+  - id: motion.03
+    class: MOTION
+    principle: For trends over many items, or any reading that needs several frames compared, show small multiples or overlaid traces; animated playback is a presentation device for a small, clean story, not a way to show many trajectories.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [slides, web, video, time_series, trend_reading]
+    platforms: {powerpoint: holds, keynote: holds, google_slides: holds}
+    practitioner_only: false
+    exceptions: [few items moving in step, no reversals, a narrator pointing at the target (P05 conclusion; P27 on Rosling)]
+    sources: [P05, P27, P32]
+    rationale: >
+      P05 (two studies, 18 each): small multiples were more accurate than animation
+      (p < .001); in analysis animation was the slowest (83 s vs 46 s for small
+      multiples); in presentation it was fastest only because viewers could not replay and
+      had to guess; participants reported losing track of points (4.8 on a 0-6 scale). The
+      authors advise presenters to make the data "tell a clean story": not too many points,
+      no reversals, points moving in step. Fisher (P27) attributes Rosling's success (P32)
+      to knowing the answer, fixed axes, few highlighted countries, packs moving together
+      and live narration with a pointer.
+    checks:
+      - If more than a handful of items move independently, a small-multiples or trace view exists.
+      - Animated playback keeps the same axes throughout and the story names which items to watch.
+    validation: >
+      model-judge rounds 1-2 (B02, B12): no separation (ceiling). Owner blind rating (n=1): B02 unguided animation of 15 trails liked (5/6) for the timed reveal of the drop; the principled B02 was not rated.
+    refutation: >
+      For a many-item trend brief, viewers of the animated playback match or beat viewers of
+      the small multiples on accuracy for trend and reversal questions.
+
+  - id: motion.04
+    class: MOTION
+    principle: When the reader must compare the before and after, keep both on screen (side by side, ghosted start, trace, slope lines); when nearly everything on screen would move at once and following individual marks is not the task, cut to the new view instead of animating; when following identity is the task (a rank reshuffle), prefer an end view that links each start to its end, and if you still animate, stagger the movers.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [slides, web, video, comparison]
+    platforms: {powerpoint: holds, keynote: holds, google_slides: holds}
+    practitioner_only: false
+    exceptions: []
+    sources: [P04, P05, P27]
+    rationale: >
+      Animation is ephemeral: once a frame has passed, the viewer must hold it in memory
+      (P04). In P05's presentation condition only the final year stayed on screen, so viewers
+      either had the answer or gave up. Fisher (P27): if the user is meant to compare before
+      with after, animation is less likely to help; if everything moves, "perhaps it would be
+      better to simply switch atomically". The cut-when-everything-moves half rests on Fisher
+      alone (tier C); the keep-both-states half has P05's accuracy result behind it.
+      Revision 1 (rank change, where every mark moves but identity is the point): P04 found
+      direct sorting animation suffered from occlusion when three or more items overlapped and
+      added staggered onsets (section 4.1.2); its Sort Bars condition favoured animation over a
+      cut at the .10 level. Fisher (P27) reports staggered sorting "much clearer" than moving
+      all bars at once. A slope chart already carries identity statically, which is what the
+      owner's blind rating of B01 found (motion.28).
+    checks:
+      - Any question the audience is asked about the start state can be answered from the final frame.
+      - If over roughly half the marks change position, a cut or side-by-side was chosen, or identity is the task and the end view links start to end (motion then optional, and staggered if used).
+    validation: >
+      model-judge rounds 1-2 (B01, B05, B10): no separation (ceiling). Owner blind rating (n=1) of B01: the final static frame held all the meaning; rank-change wording revised accordingly.
+    refutation: >
+      In comparison briefs, viewers who saw only the animation (end state left on screen)
+      answer start-versus-end questions as accurately as viewers of the side-by-side static.
+
+  - id: motion.05
+    class: MOTION
+    principle: Keep every frame of a transition a valid chart; a mark stands for the same datum from start to end, values that do not change do not visibly change, and different operations (a time step versus swapping in another variable) look different.
+    force: MUST
+    evidence_tier: A
+    contexts: [slides, web, video, view_change]
+    platforms: {powerpoint: holds, keynote: holds, google_slides: holds}
+    practitioner_only: false
+    exceptions: ["unavoidable intermediate deformation in a chart-type morph (bar-to-wedge, line-to-stack; motion.29), kept as brief as possible, provided every mark keeps its datum and the invariant holds (a split's parts sum to the total in every frame)"]
+    sources: [P04, P27, P14]
+    rationale: >
+      P04's congruence guidelines: keep intermediate states valid data graphics, do not
+      reuse marks for different data points, use consistent mappings for the same operation,
+      and give different operations noticeably different transitions, because reusing a
+      time-step animation for a variable swap "abuses object constancy". Fisher (P27):
+      "Preserve valid mappings" and "Maintain the invariant" (his bar-to-pie example in which
+      bars grew both long and fat broke the rule). In P14's study viewers called bars that
+      rose before their axis updated "manipulated". These are design guidelines stated in tier-A
+      papers, not separately tested; this is a truth-floor rule (G1, G12).
+    checks:
+      - Sampled mid-transition frames show no mark whose drawn size contradicts its value on the visible scale.
+      - No mark is re-used for a different datum.
+      - When a total splits into parts (line to stacked area, bar to stacked bar), the parts sum to the total in every sampled frame.
+    validation: >
+      model-judge rounds 1-2 (B08): no separation (ceiling); mid-transition frame validity is not checked by any automated gate (B11's line-to-stack frames unverified).
+    refutation: >
+      This is a validity rule, not a preference, so a preference test cannot refute it. It
+      would be wrong only if viewers shown transitions that break it (mark reused, invariant
+      broken) answer value and identity questions as accurately as viewers of transitions
+      that keep it.
+
+  - id: motion.06
+    class: MOTION
+    principle: Keep the scale fixed across steps where the data allow; when an axis must rescale, stage the rescale apart from the value change and keep the gridlines through it.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [slides, web, video, view_change, time_series]
+    platforms: {powerpoint: partial, keynote: partial, google_slides: partial}
+    practitioner_only: false
+    exceptions: [the range grows by orders of magnitude, where a fixed scale hides the early steps]
+    sources: [P04, P27, P14]
+    rationale: >
+      In P04, axis rescaling raised error and "don't know" responses in every condition;
+      animation reduced the harm, and viewers significantly preferred staged animation for
+      rescales. The authors recommend common scales across time steps, and propose keeping
+      gridlines through a rescale (their animations faded the gridlines, which removed
+      landmarks mid-transition; that proposal is untested). Fisher (P27) also keeps the
+      coordinate space meaningful. P14 adds a caution: staging the x and y rescales apart from
+      each other was liked less than rescaling both together.
+    checks:
+      - A domain that changes between steps is a recorded choice, not a renderer default.
+      - During a rescale, at least one landmark (gridline or tick) stays visible throughout.
+    validation: >
+      model-judge rounds 1-2 (B04): no separation (ceiling).
+    refutation: >
+      For a time-step brief needing a rescale, viewers of the unstaged rescale (no landmarks
+      kept) estimate change as accurately as viewers of the staged one.
+
+  - id: motion.07
+    class: MOTION
+    principle: Use one stage, or at most two simple stages (for example axes, then values), for a complex transition; do not break it into many small steps. Stages are counted within one run of motion between two advances, so a click boundary starts a new count (each click is then a step under motion.21).
+    force: SHOULD
+    evidence_tier: A
+    contexts: [slides, web, video, view_change]
+    platforms: {powerpoint: holds, keynote: holds, google_slides: partial}
+    practitioner_only: false
+    exceptions: [a build that the speaker paces step by step (motion.12), where each step is its own point]
+    sources: [P04, P14, P27]
+    rationale: >
+      P04: simple staging reduced tracking error in most conditions and was strongly
+      preferred, but the heavily staged transitions (stacked bars, donut) raised error, and
+      "most subjects laughed" at one. The authors conclude it is better to cut unnecessary
+      motion than to do "one thing at a time". In P14's crowd study (n = 53) single-stage
+      designs (2 s) were ranked above two- and three-stage designs (667 ms per stage), and
+      the authors re-tuned Gemini to favour them. Fisher (P27) argues "do one thing at a
+      time"; see conflicts.md section 10.
+    checks:
+      - A data transition has no more than two stages unless each stage is a separate click.
+    validation: >
+      model-judge rounds 1-2 (B01, B08): no separation (ceiling).
+    refutation: >
+      A three- or four-stage version of the same transition is judged clearer, and answered
+      more accurately, than the one- or two-stage version in blind comparison.
+
+  - id: motion.08
+    class: MOTION
+    principle: Ease tracked marks in and out (slow-in, slow-out); do not move marks the viewer must follow at constant speed or with abrupt starts and stops.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [slides, web, video, view_change]
+    platforms: {powerpoint: partial, keynote: holds, google_slides: unverified}
+    practitioner_only: false
+    exceptions: [opacity and colour changes, where position tracking is not at stake]
+    sources: [P06, P04, P21, P19, P23, P35]
+    rationale: >
+      P06 (n = 12, controlled): slow-in/slow-out beat constant speed, fast-in/fast-out and
+      adaptive pacing for tracking one point in a moving cloud. The authors explain it by
+      smooth pursuit: easing makes the start and end predictable. P04 derives slow-in/slow-out
+      from its predictability guideline. Carbon (P21) and Material (P19) say linear motion
+      looks unnatural or mechanical. Keynote (P23) offers Ease In and Ease Out timing;
+      reveal.js auto-animate defaults to ease-out (P35). The PowerPoint and Google Slides
+      captures (P22, P41) do not name an easing control.
+    checks:
+      - Position transitions of data marks use an ease-in-out curve, not linear.
+    validation: >
+      untested as a variable (applied in every arm-P build); model-judge rounds 1-2: no separation (ceiling).
+    refutation: >
+      In a blind tracking test of the same transition, the linear version is tracked as
+      accurately as the eased one.
+
+  - id: motion.09
+    class: MOTION
+    principle: Time a data transition at about one second (0.7 to 2 s per stage, longer when much moves but capped at about 2 s; split anything longer into advanced steps); a colour or opacity change with no position to track may be shorter (about 0.3 to 0.7 s); keep interface feedback motion short (roughly 100 to 500 ms), and scale with the distance travelled.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [slides, web, video]
+    platforms: {powerpoint: holds, keynote: holds, google_slides: partial}
+    practitioner_only: false
+    exceptions: [ambient or explanatory video segments paced by narration (motion.13)]
+    sources: [P04, P06, P14, P05, P19, P21, P35]
+    rationale: >
+      P04 recommends "as long as needed, but no longer", around one second (following P05),
+      and after viewers said half-second stages were too fast, recommends about a second per
+      stage. P06 notes that a one-second transition spends about 30% of its length in the
+      eye's pursuit response. In P14, 2-second single-stage designs were preferred as "smooth
+      and slow". P05's viewers rated 1-second playback neither too fast nor too slow. The
+      interface figures come from design systems (P19: 50 to 600 ms, long 450-600 ms; P21: 70
+      to 700 ms, longer for larger moves) and govern interface elements, not data marks; see
+      conflicts.md section 11. Material says its duration and easing system is no longer
+      maintained (replaced by springs). Google Slides offers only a speed slider (P41).
+      Revision 1: the 2 s cap is the longest duration any held source tested for data marks
+      (P14's preferred single stage); nothing beyond it is evidenced, so the cap is a
+      practitioner bound. The colour/opacity band is also practitioner: P04 fades marks in and
+      out by alpha blending without stating a time, P06's pursuit argument covers tracked
+      position only, and Carbon's 110 ms fade token (P21) is for interface elements.
+    checks:
+      - Data-mark position transitions run between about 0.7 and 2 s per stage, none over about 2 s.
+      - Colour- or opacity-only changes run about 0.3 to 0.7 s; interface feedback under about 0.5 s.
+    validation: >
+      model-judge rounds 1-2 (B04, B14): no separation (ceiling). Duration gate (0.2-2 s) passed on all 14 P builds; frame quantisation (~0.1-0.2 s) prevented confirming the 0.7 s floor on short colour steps.
+    refutation: >
+      A blind test of the same transition at about 0.4 s, 1 s and 2.5 s finds no accuracy
+      difference, or finds the 0.4 s version best.
+
+  - id: motion.10
+    class: MOTION
+    principle: Keep the number of things the viewer must follow independently to about four; move groups together so they read as one (common fate), and point at the one to watch; when the data hold more movers than that, make the targets distinct before or as the motion starts (the rest greyed, static or moving as one group), not only at the end.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [slides, web, video]
+    platforms: {powerpoint: holds, keynote: holds, google_slides: holds}
+    practitioner_only: false
+    exceptions: []
+    sources: [P08, P27, P04, P05]
+    rationale: >
+      Fisher (P27) cites perception research (Cavanagh and Alvarez 2005, not in this archive)
+      that viewers have trouble tracking more than four or five objects independently, and
+      says Rosling succeeds by moving packs together and pointing. P08 (crowd study plus
+      n = 10 lab) confirms common fate is a strong grouping cue, with motion the strongest.
+      P04: "Group similar transitions." P05's viewers lost track of points ("the dots flew
+      everywhere"). The number four is secondary (P27 quoting a source we do not hold); the
+      grouping claim is primary (P08). Revision 1: for many trails (B02, fifteen), P27
+      attributes Rosling's success to a few highlighted countries among the pack, and P05's
+      "clean story" advice is about what the viewer is told to watch; a highlight that arrives
+      only after the motion has asked the viewer to track everything comes too late.
+    checks:
+      - At most about four independently moving targets the viewer is asked to follow; the rest move in shared groups or stay put.
+      - With more movers than that, the targets are highlighted before or as the motion starts.
+    validation: >
+      model-judge rounds 1-2 (B02): no separation (ceiling). Owner blind rating (n=1): B02 unguided liked; principled B02 not rated.
+    refutation: >
+      Viewers asked to follow eight independently moving, unhighlighted items answer as
+      accurately as viewers asked to follow four, with every other property held fixed.
+
+  - id: motion.11
+    class: MOTION
+    principle: To pick out one group during a transition, use a dynamic channel the encoding is not already using (pulsing size or brightness); do not move marks to group them when position encodes data.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [web, video, slides]
+    platforms: {powerpoint: partial, keynote: partial, google_slides: partial}
+    practitioner_only: false
+    exceptions: []
+    sources: [P08]
+    rationale: >
+      P08: coordinated change in luminance or size produces grouping (common fate) without
+      motion; if position already encodes an attribute, moving marks to group them would read
+      as a change in that attribute. Their ranking: motion > (dynamic luminance, size,
+      luminance); dynamic size > (dynamic luminance, position); dynamic luminance > size. Large
+      position changes may hide smaller colour or size changes (participants' comments, not
+      measured). Slide apps offer emphasis effects (pulse, grow) but not data-bound ones.
+    checks:
+      - A highlight-by-motion does not use a channel that already encodes data.
+    validation: >
+      model-judge rounds 1-2 (B06): no separation (ceiling).
+    refutation: >
+      Viewers find the highlighted group as quickly and accurately when it is singled out by a
+      static colour change as by a dynamic size or brightness change.
+
+  - id: motion.12
+    class: MOTION
+    principle: Break an animated explanation into short segments the speaker or reader advances (click, step, scroll position) rather than one continuous auto-played run.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [slides, web, video]
+    platforms: {powerpoint: holds, keynote: holds, google_slides: holds}
+    practitioner_only: false
+    exceptions: [ambient loops with no reading task; kiosk loops (then motion.20 applies)]
+    sources: [P03, P09, P13, P23, P41]
+    rationale: >
+      P03: learner-paced segments beat a continuous narrated animation on transfer (d = 1.36,
+      a single experiment, and the segmented group also had more study time). P13 (n = 240)
+      found no reliable engagement difference between stepper and scroller pacing, so the
+      claim is about segmenting, not about the input device. Keynote builds (P23) and Google
+      Slides animations (P41) default to "on click". This is learning research, not chart
+      research.
+    checks:
+      - No single auto-advancing run of motion exceeds one point of the argument.
+    validation: >
+      model-judge rounds 1-2 (B07, B09): no separation (ceiling); model judges stepped at their own pace, so segmenting could not matter.
+    refutation: >
+      A continuous auto-played version and a segmented, presenter-paced version of the same
+      material produce equal comprehension when watched blind at matched total time.
+
+  - id: motion.13
+    class: MOTION
+    principle: Narrate at the same moment as the motion it describes; when there is narration over an animation, do not also put the same words on screen; and put labels on or beside the moving thing, not in a distant legend.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [slides, video, web]
+    platforms: {powerpoint: holds, keynote: holds, google_slides: holds}
+    practitioner_only: false
+    exceptions: [audiences reading without sound (web, captions), where on-screen text is the narration; no animation present (P03 finds verbal redundancy then helps)]
+    sources: [P03, P16, P28]
+    rationale: >
+      P03's Table 3: temporal contiguity, narration at the same time as the animation (d = 1.30,
+      8 experiments); redundancy, narration alone beating narration plus identical on-screen text
+      over animation (d = 0.69, 3 experiments); spatial contiguity, words placed near the graphic
+      (d = 0.48, 1 experiment). P03 also reports that without animation, narration plus
+      on-screen text beats narration alone. P16 (n = 110) and P28 apply these principles to static
+      slides. All of this is learning research.
+    checks:
+      - Narration and its motion are synchronised (a speaker-cue map or timed captions exists).
+      - Labels on moving marks travel with them.
+      - In a silent piece, timed captions stand in for narration: each appears as its motion starts and is one short sentence (conflicts.md section 13, flip).
+    validation: >
+      untested: captures were silent, so narration sync could not be applied or judged. Owner blind rating (n=1): B02 reveal valued for landing with the narration's point (supports the timing idea).
+    refutation: >
+      Blind comprehension does not differ between a version with narration synchronised to the
+      motion and one where narration comes before or after the motion.
+
+  - id: motion.14
+    class: MOTION
+    principle: Cut decorative motion that carries no data or argument (entrance flourishes, bounces, spins, animated titles, parallax backgrounds).
+    force: AVOID
+    evidence_tier: A
+    contexts: [slides, web, video]
+    platforms: {powerpoint: holds, keynote: holds, google_slides: holds}
+    practitioner_only: false
+    exceptions: [one deliberate expressive moment at a section break or the payoff (P21 "occasional, important moments")]
+    sources: [P03, P04, P20, P21, P17, P02]
+    rationale: >
+      P03's coherence effect (d = 0.90, 5 experiments) comes from removing interesting but
+      extraneous material. Note that what was removed was background music and video clips,
+      not motion, so carrying it over to decorative motion is an inference. P04 calls frivolous
+      animation "temporal chart junk". Apple HIG (P20): gratuitous motion distracts and can cause
+      discomfort. Carbon (P21): avoid purely decorative easing. WCAG 2.3.3 (P17) names parallax
+      as typically non-essential. Hoffler and Leutner (P02, abstract only) found larger gains
+      for representational than for decorational animation.
+    checks:
+      - Every motion in the piece maps to a data change, a reading cue, or a declared expressive moment.
+    validation: >
+      model-judge rounds 1-2 (B12, B13): no separation (ceiling). Owner gallery (n=1, Visitors 2026-10-31, ambient piece): data-free 'play' between idle creatures kept, but only as a brief motion with nothing that looks like data moving; motes and bridges read as exchange. Candidate ambient exception, provisional.
+    refutation: >
+      Versions with decorative entrance motion are judged clearer and score at least as well on
+      recall as the same deck without it, in blind comparison.
+
+  - id: motion.15
+    class: MOTION
+    principle: Use motion to cue attention sparingly and one target at a time; motion grabs the eye, including in peripheral vision, so a second moving thing competes with the point.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [slides, web, video]
+    platforms: {powerpoint: holds, keynote: holds, google_slides: holds}
+    practitioner_only: false
+    exceptions: []
+    sources: [P04, P03, P08, P20, P21, P12]
+    rationale: >
+      P04: motion is "highly effective at attracting attention" and easily seen peripherally,
+      which is "a powerful force for distraction". P03: signalling aids transfer (d = 0.74, one
+      experiment). P08: participants said moving marks drew their attention away from size or
+      brightness changes. P20: avoid motion at the edge of view. P21: reserve expressive motion
+      for important moments. P12 (50 data videos) found animation, appear/disappear and
+      highlighting the most common attention cues, which is a description of practice, not
+      evidence of effect.
+    checks:
+      - At any moment at most one element moves to cue attention; ambient loops are off while the speaker makes a point.
+    validation: >
+      model-judge rounds 1-2 (B06): no separation (ceiling).
+    refutation: >
+      Viewers find the cued element as fast and remember the point as well when two or more
+      elements move at once as when only the cued one moves.
+
+  - id: motion.16
+    class: MOTION
+    principle: Make every frame held for reading, and above all the final frame, a complete static chart; the piece must still make its point with motion off (printed, PDF, a reduced-motion setting, a frozen projector).
+    force: MUST
+    evidence_tier: B
+    contexts: [slides, web, video]
+    platforms: {powerpoint: holds, keynote: holds, google_slides: holds}
+    practitioner_only: true
+    exceptions: [a process whose content is the motion itself (motion.24); even then, supply a key-frame static, "a transient build state such as axes-before-data (motion.23), which must still carry title, axes and units; the motion-off export is the final frame"]
+    sources: [P27, P20, P17, P18, P34, P05]
+    rationale: >
+      Fisher (P27): "Individual frames should be meaningful, so that users can capture and share
+      those images." Apple HIG (P20): avoid using motion "as the only way to communicate important
+      information". WCAG and MDN (P17, P18) presume motion can be removed. A community deck skill
+      (P34) notes that PDF export of HTML slides drops the animation. P05's presentation condition
+      shows the cost when only the final frame remains. This is the motion-off check in the
+      brief's ruling Q5.
+    checks:
+      - The motion-off render (reduced-motion or last-frame export) contains every label, unit and claim.
+    validation: >
+      compliance only: final_frame_matches_reduced gate passed on all 14 P builds; model-judge rounds 1-2 (B05, B11): no separation (ceiling).
+    refutation: >
+      Briefs whose final frames fail this check do just as well as those that pass in the blind
+      animated judgment and in the motion-off review. If so, the rule is not tied to
+      communication and is only a portability rule.
+
+  - id: motion.17
+    class: MOTION
+    principle: On the web, honour the reduced-motion setting by replacing movement (scaling, panning, parallax, scroll-linked motion) with a cut or fade, and let interaction-triggered motion be switched off unless the motion is the information.
+    force: MUST
+    evidence_tier: A
+    contexts: [web]
+    platforms: {powerpoint: n/a, keynote: n/a, google_slides: n/a}
+    practitioner_only: false
+    exceptions: [motion essential to the information (WCAG "essential"), which still needs a static key frame per motion.16]
+    sources: [P17, P18, P20]
+    rationale: >
+      WCAG 2.2 SC 2.3.3 (AAA, P17): motion animation triggered by interaction can be disabled
+      unless essential; vestibular reactions include nausea, migraine and needing bed rest; parallax
+      and scroll-linked non-essential motion are named. MDN (P18): the media feature detects the
+      user's request to minimise non-essential motion; scaling or panning large objects are
+      triggers; the example replaces motion with a dissolve. Apple HIG (P20): make motion optional.
+      Tier A here means normative standard, not experiment. The slide-app help pages (P22, P23,
+      P41) do not mention reduced motion; see conflicts.md section 15.
+    checks:
+      - With prefers-reduced-motion set, no element translates or scales; state changes still happen by cut or fade.
+    validation: >
+      compliance only: reduced-motion render gate passed on all 14 P builds; normative, not testable by comprehension.
+    refutation: >
+      This is a normative accessibility rule, so a comprehension test cannot refute it. The test
+      checks only that the reduced-motion render still makes the point (motion.16); if the
+      reduced-motion render loses the point, the fault is in the design, not in this rule.
+
+  - id: motion.18
+    class: MOTION
+    principle: Never flash more than three times per second; give any motion that starts by itself, lasts over five seconds and runs beside other content a pause, stop or hide control.
+    force: MUST
+    evidence_tier: A
+    contexts: [web, video, slides]
+    platforms: {powerpoint: partial, keynote: partial, google_slides: partial}
+    practitioner_only: false
+    exceptions: [motion essential to the activity (WCAG 2.2.2)]
+    sources: [P17]
+    rationale: >
+      WCAG 2.2 SC 2.3.1 (Level A, three flashes) and SC 2.2.2 (Level A, pause/stop/hide), per the
+      P17 Understanding pages: five seconds is "long enough to get a user's attention, but not so
+      long that a user cannot wait out the distraction". The three-flash rule is already in the
+      shared truth floor (modes.md section 4). In a slide app the presenter's advance is the
+      control, but a looping auto-play slide needs one.
+    checks:
+      - No luminance flash train above 3 Hz in the captured video.
+      - Auto-started motion over 5 s beside other content has a visible pause control (web) or is presenter-advanced (slides).
+    validation: >
+      compliance only: no_flashing gate passed on all 14 P builds; normative.
+    refutation: >
+      Normative; not refutable by a comprehension test. The test only checks that it was met.
+
+  - id: motion.19
+    class: MOTION
+    principle: Let the viewer replay, scrub or step back through animated data wherever the medium allows (controls on the web, a back-step or a static key-frame slide in a deck, chapters in video), and never make them wait for motion to finish before they can act.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [web, video, slides]
+    platforms: {powerpoint: holds, keynote: holds, google_slides: holds}
+    practitioner_only: false
+    exceptions: []
+    sources: [P05, P13, P17, P20]
+    rationale: >
+      P05: analysts replayed the animation repeatedly; presentation viewers, unable to replay,
+      either guessed or gave up. P13: scroller readers scrolled back and forth to replay
+      transitions. WCAG 2.2.2 (P17) requires pause for auto-started motion. Apple HIG (P20): "Let
+      people cancel motion."
+    checks:
+      - Web pieces have play/pause and a scrubber or step control; decks have a static key-frame slide or an easy step back.
+    validation: >
+      model-judge rounds 1-2 (B02, B09): no separation (ceiling); model judges could revisit every frame, so replay had no cost to remove.
+    refutation: >
+      Viewers who cannot replay are as accurate as viewers who can, on the same animated piece
+      and questions.
+
+  - id: motion.20
+    class: MOTION
+    principle: Do not take viewers' enjoyment or engagement as evidence that an animation communicates; judge it on what viewers can correctly read, recall or decide.
+    force: ESCALATE
+    evidence_tier: A
+    contexts: [slides, web, video, evaluation]
+    platforms: {powerpoint: holds, keynote: holds, google_slides: holds}
+    practitioner_only: false
+    exceptions: ["the stated goal is engagement (outreach), in which case say so in the brief", "builds: this governs whoever evaluates a piece, so a builder has nothing to apply"]
+    sources: [P05, P13, P04]
+    rationale: >
+      P05: animation was rated most enjoyable and exciting yet small multiples were more
+      accurate; participants found it "fun" and "emotionally touching" yet confusing. P13
+      (n = 240): animated transitions raised engagement scores, with no major comprehension
+      differences between conditions. P04: preference tracked accuracy in most conditions but not
+      all. This bears on the brief's own test design, where a judge's liking must not be scored
+      as communication.
+    checks:
+      - The evaluation scores comprehension or decision accuracy separately from preference.
+    validation: >
+      observed three times (model judges): static liked less (4.9 vs 5.5) and judged 'motion helped' far less at equal or better accuracy in rounds 1 and 2; consistent with the claim, but these are model judges, not viewers.
+    refutation: >
+      Across the test briefs, blind preference for the animated version predicts its
+      comprehension advantage closely; that is, preference and accuracy agree in nearly every
+      brief.
+
+  - id: motion.21
+    class: MOTION
+    principle: Between consecutive views or builds, change one thing at a time (time step first, then dimension or measure, and granularity last), and repeat the same order of changes throughout the sequence.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [slides, web, video, sequence]
+    platforms: {powerpoint: holds, keynote: holds, google_slides: holds}
+    practitioner_only: false
+    exceptions: []
+    sources: [P11, P09]
+    rationale: >
+      P11 (143 crowd workers, 696 trials): viewers strongly preferred low-cost transitions (fewer
+      changed attributes) and ranked transition types Temporal > (Dimension | Measure) >
+      Granularity. In a second study (n = 73) a sequence with consistent parallel structure was
+      remembered significantly better than its reversed form; comprehension differences were not
+      significant. Professional slideshows mostly changed one dimension at a time and used
+      partial animation when more changed. This applies to static step sequences as much as to
+      animation.
+    checks:
+      - Consecutive states differ in one attribute where the story allows; the order of changes repeats.
+    validation: >
+      model-judge rounds 1-2 (B03, B11): no separation (ceiling).
+    refutation: >
+      Sequences that change two or more attributes per step are judged as easy to follow, and
+      recalled as well, as one-change-per-step sequences of the same content.
+
+  - id: motion.22
+    class: MOTION
+    principle: Treat where a build or animation pauses or ends as emphasis; stop on the claim, not on a decorative or intermediate frame, and do not let motion imply a cause or relation the data do not support.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [slides, web, video, narrative]
+    platforms: {powerpoint: holds, keynote: holds, google_slides: holds}
+    practitioner_only: false
+    exceptions: []
+    sources: [P10, P04, P12, P09]
+    rationale: >
+      P10 (qualitative rhetoric analysis): animation "leverages time to suggest a story", and
+      partial animation that pauses or ends on particular views prioritises them through a
+      "climactic" effect. P04: animated behaviour can create perceptions of causality and false
+      relations (object constancy abused). P12 (50 data videos) found most build to a single Peak
+      near the middle followed by Release. P09 describes pauses between animations used to state
+      facts. The emphasis claim comes from qualitative design-space analyses; no effect was
+      measured.
+    checks:
+      - The final frame states the claim; motion between unrelated objects is absent.
+    validation: >
+      model-judge rounds 1-2 (B07, B10): no separation (ceiling). Owner blind rating (n=1): B02 valued for stopping on the drop as the narration lands it; supports this entry, not a test of it.
+    refutation: >
+      Viewers name the intended takeaway equally often whichever frame the animation ends or
+      pauses on.
+
+  - id: motion.23
+    class: MOTION
+    principle: Build a chart in the order of the argument, context first (axes, units, baseline), then data in meaningful groups, one click per point the speaker makes; do not build many small pieces one by one, and do not build at all when the steps carry no point of their own (motion.28).
+    force: SHOULD
+    evidence_tier: C
+    contexts: [slides, web]
+    platforms: {powerpoint: holds, keynote: holds, google_slides: partial}
+    practitioner_only: true
+    exceptions: []
+    sources: [P09, P23, P41, P03, P11]
+    rationale: >
+      P09 describes a worked example: the axis appears first with a comment, then each region is
+      added, with pauses for facts. Keynote (P23) builds a chart piece by piece, with each wedge a
+      click by default ("five wedges, five clicks"). Google Slides (P41) builds lists by paragraph
+      and gives no chart-piece build, so a chart there must be split into separate objects. The
+      segmenting (P03) and one-change-per-step (P11) results support the logic, but no source tests
+      build order on charts directly. Revision 1: the owner's blind rating (n=1) called a build of
+      a chart whose final frame held all the meaning concealment; open conflict, conflicts.md
+      section 16.
+    checks:
+      - The first build state shows the title, axes and units; no build step adds a single minor piece.
+      - Every build step after the first carries a point the speaker or caption states at that step; otherwise the chart is shown whole.
+    validation: >
+      model-judge rounds 1-2 (B03, B07): no separation (ceiling). Owner blind rating (n=1): a build of B01 whose final frame held all the meaning read as concealment; open conflict (conflicts.md section 16).
+    refutation: >
+      A chart shown whole while the speaker talks through it is understood and recalled as well,
+      blind, as the same chart built context-first in argument order.
+
+  - id: motion.24
+    class: MOTION
+    principle: Prefer animation when the content is itself change in time or space (a physical process, a procedure, a spatial or volumetric phenomenon), and make it realistic and representational, not decorative.
+    force: MAY
+    evidence_tier: A
+    contexts: [video, web, slides, process, spatial]
+    platforms: {powerpoint: partial, keynote: partial, google_slides: partial}
+    practitioner_only: false
+    exceptions: [the reader must compare stages (motion.04); add key-frame stills]
+    sources: [P02, P24, S12, P03]
+    rationale: >
+      Hoffler and Leutner (P02, abstract only, 26 studies): overall d = 0.37 for instructional
+      animation over static pictures; representational d = 0.40; video-based or highly realistic
+      d = 0.76; procedural-motor knowledge d = 1.06. NASA SVS (P24, S12) routinely animates
+      spatial Earth-science phenomena, which is already the ENC-10 exception. P03's experiments
+      used narrated animations of processes (lightning, pumps). The meta-analysis is held only as
+      an abstract; the moderators need the full text before this moves above MAY.
+    checks:
+      - The thing that moves is the phenomenon, at a stated time scale (data time versus playback time, truth floor).
+    validation: >
+      model-judge rounds 1-2 (B05, B09, B14): no separation (ceiling).
+    refutation: >
+      For process briefs, the best static key-frame sequence with arrows matches the animation on
+      blind comprehension.
+
+  - id: motion.25
+    class: MOTION
+    principle: In scroll-driven pieces, tie each step to the reader's scroll position, keep the text and its graphic state aligned, never take over the scroll, and offer a non-scroll fallback.
+    force: SHOULD
+    evidence_tier: B
+    contexts: [web]
+    platforms: {powerpoint: n/a, keynote: n/a, google_slides: n/a}
+    practitioner_only: true
+    exceptions: ["scrolling by script in answer to an explicit reader action (a Next button or key) is stepping, not taking over the scroll; scrolljacking means intercepting or re-timing the reader's own scroll gestures"]
+    sources: [P13, P17, P26, P37, P25]
+    rationale: >
+      P13: three of ten interviewees were frustrated aligning text with transitions in a
+      continuous scroller, and the authors report it is "often detrimental" to make navigation feel
+      laggy or overridden (scrolljacking); this is community practice, not their measurement. P13
+      found no engagement difference between stepper and scroller. WCAG 2.3.3 (P17): scrolling
+      movement the user controls is allowed; added non-essential scroll animation must be
+      switchable. Pudding and Flourish practice (P26, P25) and Scrollama's step model (P37) are
+      practitioner sources.
+    checks:
+      - Scrolling back restores the earlier graphic state; scroll speed is never altered by script.
+    validation: >
+      model-judge rounds 1-2 (B11): no separation (ceiling); captures stepped programmatically, so scroll behaviour itself was not exercised.
+    refutation: >
+      A scroll-jacked version is followed and understood as well, blind, as the scroll-linked one.
+
+  - id: motion.26
+    class: MOTION
+    principle: Before planning a transition that keeps marks identifiable, check whether the slide app can match those objects across slides; where it cannot (charts in PowerPoint Morph, no matched-object transition found in Google Slides), use a stepped static sequence or chart elements drawn as shapes.
+    force: ESCALATE
+    evidence_tier: B
+    contexts: [slides]
+    platforms: {powerpoint: partial, keynote: partial, google_slides: unsupported}
+    practitioner_only: true
+    exceptions: [self-contained HTML and video builds, where the builder controls mark identity directly]
+    sources: [P22, P23, P41, P35]
+    rationale: >
+      Microsoft (P22): Morph animates objects common to two slides, but "charts don't morph, they
+      cross-fade". Keynote (P23): Magic Move animates objects present on both slides, and objects
+      only on the first fade out. Google Slides help (P41) lists object animations and slide
+      transitions and nothing that matches objects across slides; that is absence in one help
+      page, not a verified incapacity. reveal.js (P35) matches by data-id. A cross-fade between
+      two charts is a hard cut with a blur and gives none of the object constancy motion.02 counts on.
+    checks:
+      - For each planned matched-object transition, the target app's matching rule is named and the chart is built so it applies.
+    validation: >
+      untested: no slide-app build in rounds 1-2 (HTML only); manual app check (brief Q10) still open.
+    refutation: >
+      Not a communication claim; the manual app check (brief Q10) confirms or refutes the platform
+      facts. Refuted if Google Slides is found to match objects across slides, or PowerPoint
+      Morph to interpolate native charts.
+
+  - id: motion.27
+    class: MOTION
+    principle: For interface elements around the data (panels, menus, notices, not data marks), let entering elements decelerate and exiting ones accelerate, make exits shorter than entrances, and keep the motion productive (quick and quiet) except at rare important moments.
+    force: MAY
+    evidence_tier: B
+    contexts: [web]
+    platforms: {powerpoint: n/a, keynote: n/a, google_slides: n/a}
+    practitioner_only: true
+    exceptions: ["data marks, which follow motion.05, motion.08 and motion.09", "pieces whose interface chrome does not move (static buttons), where it has nothing to govern"]
+    sources: [P19, P21, P20]
+    rationale: >
+      Material (P19): enter with decelerate, exit permanently with accelerate, and exits are
+      shorter "because they require less attention". It also says this easing system is no longer
+      maintained and has been replaced by springs, whose spatial tokens overshoot and bounce
+      (conflict section 14). Carbon (P21) uses the same entrance and exit split and separates
+      productive from expressive motion. Apple (P20): brief, precise feedback, and avoid motion
+      on frequent interactions. These are interface design systems, not data-communication evidence.
+    checks:
+      - Interface chrome motion is under about 0.5 s and does not overshoot.
+    validation: >
+      untested: no moving interface chrome in any build.
+    refutation: >
+      Out of scope for the animated-vs-static test (it concerns interface chrome). It is refuted
+      only if the interface-motion convention, when applied to data marks, beats motion.08 and
+      motion.09 there.
+
+  - id: motion.28
+    class: MOTION
+    principle: Use a progressive reveal or animated change only when the change itself is the message and its moment lands with the narration (or caption); do not progressively reveal a chart whose final frame already carries all the meaning, since withholding parts of it without a point per step conceals rather than communicates.
+    force: SHOULD
+    evidence_tier: C
+    contexts: [slides, web, video, narrative]
+    platforms: {powerpoint: holds, keynote: holds, google_slides: holds}
+    practitioner_only: true
+    exceptions: [a build where each step carries its own stated point (motion.23), a process whose content is the motion (motion.24), outreach whose stated goal is affect (motion.01)]
+    sources: [P27, P04, P03, P10]
+    rationale: >
+      Fisher (P27): "what function does the animation serve?" and animation's complexity
+      "should pay off"; if the reader can get it from the final image, motion adds burden. P04
+      calls frivolous animation "temporal chart junk". P03's temporal contiguity (narration at
+      the same time as the motion, d = 1.30) and P10's climactic pause account for why a reveal
+      timed to the narrated point can earn its place. The rule itself is the owner's judgment
+      from a blind viewing (n=1, 2026-10-28, RESULTS_ROUND2.md): motion earned its place only
+      when the change was the message and was revealed as the narration landed it (B02's
+      drop); a reveal of a chart whose final frame held all the meaning was "just fluff".
+      That is owner judgment, not research; tier C reflects P27, the only source stating it.
+    checks:
+      - The brief names, for each reveal step, the message that the change itself carries and the narration or caption it lands with.
+      - If the final frame alone carries the whole message and no step has its own point, the chart is shown whole.
+    validation: >
+      owner blind rating only (n=1, 2026-10-28): B01-N 'just fluff', B01-P 'motion had no meaning other than to conceal part of the graph', B02-N valued. Model-judge rounds 1-2 cannot test it (ceiling).
+    refutation: >
+      Blind viewers (humans, real time) shown a progressive reveal of a chart whose final frame
+      carries everything comprehend and recall it better than viewers shown the whole chart
+      while the same narration plays.
+
+  - id: motion.29
+    class: MOTION
+    principle: Morph between chart types only when marks map one to one (bars to wedges, bars to bars, a total line to the stack of its parts); route marks so they do not occlude each other, keep each mark's value and the shared invariant intact, keep the deformed frames brief, and otherwise cut with matched labels.
+    force: SHOULD
+    evidence_tier: A
+    contexts: [slides, web, video, view_change]
+    platforms: {powerpoint: unsupported, keynote: partial, google_slides: unsupported}
+    practitioner_only: false
+    exceptions: [slide apps that cannot match chart objects (motion.26), where a stepped static sequence replaces the morph]
+    sources: [P04, P27, P22]
+    rationale: >
+      P04 section 4.1.5 morphs bars into wedges by interpolating in polar coordinates, reverses
+      the radial order to avoid "massive occlusion", and interpolates stacked-to-grouped bars
+      in stages to avoid overlap; its Bar to Donut transition was tested and animation beat the
+      static cut for tracking (staged versus direct at the .10 level). Fisher (P27) warns that
+      a bar-to-pie morph broke the invariant when bars grew both long and fat. Microsoft
+      (P22): charts do not Morph, they cross-fade. The guidance on routing and invariants is a
+      design guideline stated in a tier-A paper; only the bar-to-donut case was tested.
+    checks:
+      - Every mark in the source chart maps to one mark in the target, named in the plan.
+      - Sampled mid-morph frames keep the invariant (a split's parts sum to the total) and show no overlapping paths that hide a mark.
+    validation: >
+      untested as such; B08 and B11 morphs built in arm P; model-judge rounds 1-2: no separation (ceiling); no automated mid-frame validity check exists.
+    refutation: >
+      For a chart-type change, viewers of a hard cut with matched labels track marks and
+      estimate values as accurately as viewers of the morph.

@@ -1,0 +1,25 @@
+#!/bin/zsh
+# Run each argument as a command in a NEW Terminal window, then minimize ONLY that window
+# (by id; never activates Terminal, never touches windows the owner opened).
+# Usage: term-bg-launch [--dry-run] [--self] "cmd" ...   --self also minimizes the window running this script.
+# Turn off: export WAYPOINT_NO_MINIMIZE=1 (windows are then left open as before).
+dry=0; self=0
+while [[ "$1" == --* ]]; do case "$1" in --dry-run) dry=1;; --self) self=1;; esac; shift; done
+mini=true; [[ -n "$WAYPOINT_NO_MINIMIZE" ]] && mini=false
+for c in "$@"; do
+  esc=${c//\\/\\\\}; esc=${esc//\"/\\\"}
+  if (( dry )); then echo "would: do script \"$esc\"; miniaturize=$mini"; continue; fi
+  osascript <<OSA
+tell application "Terminal"
+  set t to do script "$esc"
+  set wid to id of (first window whose tabs contains t)
+  if $mini then set miniaturized of (first window whose id is wid) to true
+end tell
+OSA
+done
+if (( self && ! dry )) && [[ "$mini" == true ]]; then
+  osascript -e "tell application \"Terminal\" to repeat with w in windows
+if tty of selected tab of w is \"$(tty)\" then set miniaturized of w to true
+end repeat" 2>/dev/null
+fi
+exit 0

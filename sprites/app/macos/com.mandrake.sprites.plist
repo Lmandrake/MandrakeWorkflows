@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.mandrake.sprites</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>__HOME__/Applications/Sprites.app/Contents/MacOS/Sprites</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <!-- review R1_MACOS #12: relaunch after a crash, not after Quit (exit 0); at most once per 30 s; GUI sessions only.
+         ProgramArguments is the copy `make install` puts in ~/Applications (install-agent runs install first). -->
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+    <key>LimitLoadToSessionType</key>
+    <string>Aqua</string>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/ClaudeWork/sprites/logs/sprites.err.log</string>
+</dict>
+</plist>

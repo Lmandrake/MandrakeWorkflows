@@ -127,5 +127,5 @@ def test_every_visual_skill_is_a_default_root():
         if (d / "SKILL.md").exists()
         and (d.name.startswith("visual-") or d.name == "scientific-visualization")
     }
-    assert len(visual) == 8
+    assert len(visual) == 9
     assert visual == set(check_skills.DEFAULT_ROOTS)

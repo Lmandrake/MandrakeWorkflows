@@ -1,0 +1,778 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Lmandrake/MandrakeWorkflows/augur/schema/snapshot.schema.json",
+  "title": "Augur snapshot, version 1.1",
+  "description": "One measurement of this Mac, written atomically by Augur (augur/DESIGN.md). Levels and counts only: no titles, senders, subjects, session names, command lines or remote addresses. RULES: (1) a field with no source is ABSENT, never zero; (2) every Signal carries observed_at and valid_until (epoch seconds, wall clock); a reader that finds now > valid_until treats every value in that Signal as unknown, never as its last value; (3) a Signal whose source exists but failed carries `unknown` (a reason) and NO value keys; (4) readers ignore keys they do not know (minor versions only add optional keys); a reader refuses a major version it does not know; a key whose MEANING changes is a new key (or a new major), never the old key re-defined. (5) `off: true` wins over every clock: an off file is not stale, it is off. 1.1 added sessions_at, sessions[].tasks.background, projects[].counts.as_of, and named the keys 1.0 builds had already added (machine.api, tasks.bg_shells, tasks.other, load.method).",
+  "type": "object",
+  "required": [
+    "schema",
+    "version",
+    "producer",
+    "written_at",
+    "valid_until",
+    "seq",
+    "cadence_s",
+    "machine",
+    "sessions",
+    "projects"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "schema": {
+      "const": "augur.snapshot"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^1\\.[0-9]+$",
+      "description": "major.minor. Major 1 is this file; minor bumps only add optional keys (1.1: sessions_at, tasks.background, counts.as_of)."
+    },
+    "producer": {
+      "type": "object",
+      "required": [
+        "name",
+        "rev",
+        "pid",
+        "platform",
+        "machine",
+        "started_at"
+      ],
+      "properties": {
+        "name": {
+          "const": "augur"
+        },
+        "rev": {
+          "type": "string",
+          "description": "git short sha of the augur/ tree that is running"
+        },
+        "pid": {
+          "type": "integer"
+        },
+        "platform": {
+          "enum": [
+            "darwin",
+            "linux",
+            "windows"
+          ]
+        },
+        "machine": {
+          "type": "string",
+          "description": "Waypoint machine key, else the short hostname"
+        },
+        "started_at": {
+          "type": "number"
+        }
+      }
+    },
+    "written_at": {
+      "type": "number",
+      "description": "epoch seconds of this write"
+    },
+    "valid_until": {
+      "type": "number",
+      "description": "written_at + 5 x the fast cadence. Past it the WHOLE file is stale: every Signal reads unknown (the producer is dead, asleep or stopped)."
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "write counter since producer start; a reader can see a restart (seq drops) or a skipped write. SidePulse clears its windows on a drop (CONTRACT R1 N1)"
+    },
+    "off": {
+      "type": "boolean",
+      "description": "present and true only when the kill switch is set: machine, sessions and projects are then empty and the reader shows nothing (not idle, not stale). off wins over valid_until: the producer writes the off file once and lets it age, so a reader checks off BEFORE the clock"
+    },
+    "cadence_s": {
+      "type": "object",
+      "description": "the tiers actually configured on this run (DESIGN.md, Cadence)",
+      "properties": {
+        "fast": {
+          "type": "number"
+        },
+        "agents": {
+          "type": "number"
+        },
+        "probes": {
+          "type": "number"
+        },
+        "counts": {
+          "type": "number"
+        }
+      }
+    },
+    "machine": {
+      "type": "object",
+      "description": "machine-wide signals. A key is absent when this platform or machine has no source for it (e.g. power on the Desktop).",
+      "additionalProperties": true,
+      "properties": {
+        "cpu": {
+          "$ref": "#/$defs/cpu"
+        },
+        "memory": {
+          "$ref": "#/$defs/memory"
+        },
+        "thermal": {
+          "$ref": "#/$defs/thermal"
+        },
+        "strain": {
+          "$ref": "#/$defs/strain"
+        },
+        "net": {
+          "$ref": "#/$defs/machine_net"
+        },
+        "vpn": {
+          "$ref": "#/$defs/vpn"
+        },
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "bandwidth": {
+          "$ref": "#/$defs/bandwidth"
+        },
+        "power": {
+          "$ref": "#/$defs/power"
+        },
+        "api": {
+          "$ref": "#/$defs/api"
+        }
+      }
+    },
+    "sessions": {
+      "type": "array",
+      "description": "one entry per live Claude Code session on this machine (a process whose executable path contains /claude/versions/, matched to ~/.claude/sessions/<pid>.json by start time)",
+      "items": {
+        "$ref": "#/$defs/session"
+      }
+    },
+    "sessions_at": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/stamp"
+        }
+      ],
+      "description": "the sessions LIST's own stamp (1.1). When it carries `unknown` (the sweep failed, was switched off, was cut by the cost meter, or has not run yet: warming_up) or now > valid_until, `sessions` is UNMEASURED, not empty: a reader must not read [] as 'no sessions', 'nobody waiting' or '0 Claude CPU'. Absent only from a 1.0 producer, or on a platform with no sessions collector."
+    },
+    "projects": {
+      "type": "array",
+      "description": "one entry per project with a live session, plus the Lodestar entry ALWAYS, plus (when Lodestar is readable) every managed project with a non-zero count",
+      "items": {
+        "$ref": "#/$defs/project"
+      }
+    },
+    "cost": {
+      "$ref": "#/$defs/cost"
+    }
+  },
+  "$defs": {
+    "stamp": {
+      "type": "object",
+      "required": [
+        "observed_at",
+        "valid_until"
+      ],
+      "properties": {
+        "observed_at": {
+          "type": "number",
+          "description": "epoch seconds when Augur READ the source (read time, not the data's age: for projects[].counts the data's own age is counts.as_of)"
+        },
+        "valid_until": {
+          "type": "number",
+          "description": "epoch seconds after which the values must be read as unknown; set to observed_at + 2.5 x that signal's cadence"
+        },
+        "unknown": {
+          "type": "string",
+          "description": "present only when the source exists but this reading failed or is warming up; then NO value keys are present. Short machine words: warming_up, read_failed, timeout, counter_reset, gap_after_sleep, disabled, not_permitted, stale, truncated"
+        },
+        "provisional": {
+          "type": "boolean",
+          "description": "true while the signal's thresholds or method are not yet validated (DESIGN.md, Status column)"
+        }
+      }
+    },
+    "level5": {
+      "enum": [
+        "light",
+        "medium",
+        "full",
+        "overload",
+        "danger"
+      ]
+    },
+    "cpu": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/stamp"
+        }
+      ],
+      "properties": {
+        "busy_pct": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "non-idle CPU over the last fast interval, all cores"
+        },
+        "cores_busy": {
+          "type": "number",
+          "minimum": 0,
+          "description": "busy_pct x ncpu / 100"
+        },
+        "ncpu": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "memory": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/stamp"
+        }
+      ],
+      "properties": {
+        "pressure": {
+          "enum": [
+            0,
+            1,
+            2
+          ],
+          "description": "the kernel's own verdict: 0 normal, 1 warn, 2 critical (macOS kern.memorystatus_vm_pressure_level 1/2/4)"
+        },
+        "available_pct": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "(free + inactive + speculative + purgeable) / physical"
+        },
+        "swap_out_per_s": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "thermal": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/stamp"
+        }
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "description": "0 nominal, 1 fair, 2 serious, 3 critical (the OS thermal-state notification). Sprites clamps to 0..2."
+        },
+        "low_power": {
+          "type": "boolean"
+        }
+      }
+    },
+    "strain": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/stamp"
+        }
+      ],
+      "description": "the five shared load levels (Lodestar load_levels semantics): overall = worst(cpu, scheduling delay); memory reported apart and not folded in",
+      "properties": {
+        "level": {
+          "$ref": "#/$defs/level5"
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 4,
+          "description": "continuous: the index of `level` (light 0 .. danger 4) plus the fraction of the way the worst input has travelled toward the next level's entry threshold. Sprites' 0..3 = score x 0.75."
+        },
+        "cpu_level": {
+          "$ref": "#/$defs/level5"
+        },
+        "delay_level": {
+          "$ref": "#/$defs/level5"
+        },
+        "memory_level": {
+          "$ref": "#/$defs/level5"
+        },
+        "background_level": {
+          "$ref": "#/$defs/level5"
+        },
+        "sched_delay_x": {
+          "type": "number",
+          "minimum": 0,
+          "description": "wall/CPU of one 20 ms burst at UTILITY QoS, median of the last 5"
+        },
+        "agent_wait_s_per_s": {
+          "type": "number",
+          "minimum": 0,
+          "description": "runnable-but-not-running seconds per second, summed over every Claude session tree"
+        }
+      }
+    },
+    "machine_net": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/stamp"
+        }
+      ],
+      "properties": {
+        "rx_mbps": {
+          "type": "number",
+          "minimum": 0,
+          "description": "physical default-route interface, Mbit/s over the last fast interval (also the fallback when a session's own rx is absent)"
+        },
+        "tx_mbps": {
+          "type": "number",
+          "minimum": 0
+        },
+        "link": {
+          "enum": [
+            "wifi",
+            "ethernet",
+            "other",
+            "none"
+          ],
+          "description": "none = no physical default route (no network at all: not the same as VPN down)"
+        }
+      }
+    },
+    "vpn": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/stamp"
+        }
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "up",
+            "down"
+          ],
+          "description": "up = a tunnel interface holds the primary default route"
+        },
+        "on_site": {
+          "type": "boolean",
+          "description": "the Wi-Fi network is the on-site one, where no VPN is expected (from LodestarSSID's ssid.json; absent when unreadable). A creature's lost-VPN behaviour should fire on down AND NOT on_site."
+        },
+        "changed_at": {
+          "type": "number",
+          "description": "epoch of the last up/down transition this producer saw"
+        }
+      }
+    },
+    "path": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/stamp"
+        }
+      ],
+      "properties": {
+        "level": {
+          "enum": [
+            "ok",
+            "degraded",
+            "bad"
+          ]
+        },
+        "rtt_ms": {
+          "type": "number",
+          "minimum": 0,
+          "description": "median of the last 12 echoes to the upstream anchor, bound to the physical interface"
+        },
+        "loss_pct": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
+    },
+    "bandwidth": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/stamp"
+        }
+      ],
+      "description": "ABSENT from the file until pilot 2 validates it (DESIGN.md, Bandwidth strain). Then present, provisional at first.",
+      "properties": {
+        "strain": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "0..1: the path is not carrying what is asked of it"
+        },
+        "basis": {
+          "enum": [
+            "sendq",
+            "retx",
+            "rtt_inflation",
+            "path_loss"
+          ],
+          "description": "which input set the value (the maximum)"
+        }
+      }
+    },
+    "power": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/stamp"
+        }
+      ],
+      "properties": {
+        "on_battery": {
+          "type": "boolean"
+        },
+        "battery_pct": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
+    },
+    "session": {
+      "type": "object",
+      "required": [
+        "id",
+        "pid",
+        "started_at",
+        "project",
+        "project_key"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9]+@[0-9]+$",
+          "description": "pid@start-epoch: stable for the session's life and never inherited by a reused pid"
+        },
+        "pid": {
+          "type": "integer"
+        },
+        "started_at": {
+          "type": "number"
+        },
+        "project": {
+          "type": "string",
+          "description": "display name: the registry Name when managed (e.g. SidePulse), else the git toplevel's (or cwd's) basename"
+        },
+        "project_key": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "description": "join key into projects[]: the registry Id when managed, else the lowercased basename"
+        },
+        "managed": {
+          "type": "boolean",
+          "description": "true = the session's git toplevel is an active row of Lodestar's sync/registry.md for this machine. false = not in the registry, or Lodestar is not installed here (then nothing is managed). ABSENT when the registry exists but cannot be read or parsed. Consumers draw managed:false sessions white, a different shape, no action data."
+        },
+        "attention": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/stamp"
+            }
+          ],
+          "properties": {
+            "state": {
+              "enum": [
+                "working",
+                "idle",
+                "needs_you",
+                "stopped"
+              ],
+              "description": "needs_you = a permission prompt, elicitation or a turn that ended on a question; stopped = finished a turn and is not waiting on him; idle = no turn for a while"
+            },
+            "since": {
+              "type": "number"
+            }
+          }
+        },
+        "load": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/stamp"
+            }
+          ],
+          "properties": {
+            "cpu_cores": {
+              "type": "number",
+              "minimum": 0,
+              "description": "CPU-seconds per second of the session's process tree"
+            },
+            "mem_gb": {
+              "type": "number",
+              "minimum": 0,
+              "description": "sum of phys_footprint over the tree, GB (1e9)"
+            },
+            "procs": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "OS processes in the tree, root included (MCP servers, tool shells, helpers)"
+            },
+            "wait_s_per_s": {
+              "type": "number",
+              "minimum": 0,
+              "description": "runnable-but-not-running seconds per second over the tree"
+            },
+            "starved": {
+              "type": "boolean",
+              "description": "'asking for more than it is getting': wait_s_per_s >= 0.5 held for 10 s (provisional)"
+            },
+            "method": {
+              "enum": [
+                "sampled_with_reap_reconciliation"
+              ],
+              "description": "how cpu_cores is measured: periodic cumulative samples of the tree plus reaped-children time reconciled against exits. Not exact: an interval of a child that exited unseen is inferred from its parent's child time"
+            },
+            "pending_reconciliation_cpu_s": {
+              "type": "number",
+              "minimum": 0,
+              "description": "CPU-seconds of exited tree processes whose reap has not yet shown in a parent's child time (credited when it does)"
+            }
+          }
+        },
+        "tasks": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/stamp"
+            }
+          ],
+          "properties": {
+            "shells": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Bash-tool shells alive in the tree (foreground and background alike); kept for readers, not part of total"
+            },
+            "subagents": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "subagents running (see method)"
+            },
+            "total": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "shells + subagents (the 1.0 meaning, kept: DESIGN s11). For the count of background work use `background`"
+            },
+            "background": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "(1.1) background work: bg_shells + subagents + other (the dot count). Foreground tool shells, MCP servers and the harness's own helpers are excluded. Absent when any part is unmeasured"
+            },
+            "method": {
+              "enum": [
+                "hook",
+                "tree+transcripts"
+              ],
+              "description": "hook = exact counts from the session's own hook events; tree+transcripts = the heuristic (DESIGN.md)"
+            },
+            "bg_shells": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Bash-tool shells running in the background (run_in_background, by the session or its subagents): stdout is a harness task file whose launch the transcripts announce"
+            },
+            "other": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "workers the session launched that left its tree (nohup, double fork) and are still alive"
+            }
+          }
+        },
+        "net": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/stamp"
+            }
+          ],
+          "description": "the session tree's own sockets. ABSENT when per-flow accounting is disabled or failed to start; consumers then fall back to machine.net.",
+          "properties": {
+            "rx_mbps": {
+              "type": "number",
+              "minimum": 0
+            },
+            "tx_mbps": {
+              "type": "number",
+              "minimum": 0
+            },
+            "flows": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "retx_pct": {
+              "type": "number",
+              "minimum": 0,
+              "description": "retransmitted / sent bytes on the tree's TCP flows over the interval"
+            }
+          }
+        }
+      }
+    },
+    "project": {
+      "type": "object",
+      "required": [
+        "key",
+        "name",
+        "kind",
+        "sessions"
+      ],
+      "properties": {
+        "key": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]*$"
+        },
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "lodestar",
+            "managed",
+            "unmanaged"
+          ],
+          "description": "lodestar = Lodestar itself AND all non-project work (always present); managed = an active registry row (a burning key that resolves to no registry row is never published as managed); unmanaged = a session's project outside the registry (never carries counts)"
+        },
+        "sessions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "counts": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/stamp"
+            }
+          ],
+          "description": "ABSENT for unmanaged projects and whenever Lodestar is unreadable (absent, never zero)",
+          "properties": {
+            "burning": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "burning_red": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "burning_amber": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "burning_verify": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "open": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "everything of his open here: live Reckoning items + project-list items (Orders' view) + tickets_open"
+            },
+            "waiting": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "blocked tickets, plus Reckoning items owned by others once Lodestar publishes them per project (see basis)"
+            },
+            "unmapped_burning": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Lodestar entry only: burning items no rule could attribute to a project"
+            },
+            "basis": {
+              "type": "string",
+              "description": "short words naming what the counts include, e.g. 'waiting=tickets-only'"
+            },
+            "tickets_open": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "open + active tickets in the project's ticket home (Sprites' 'todos')"
+            },
+            "as_of": {
+              "type": "number",
+              "description": "(1.1) epoch seconds of the OLDEST input these counts were built from: the Companion burning view's built_at, the tickets homes-cache time, whatnow's built_at. The data can be this old even while observed_at (read time) is fresh. Absent when any input's age is unknown"
+            }
+          }
+        }
+      }
+    },
+    "cost": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/stamp"
+        }
+      ],
+      "description": "Augur's own self-cost meter (DESIGN.md, Self-cost meter): published so consumers and tests can check it",
+      "properties": {
+        "cpu_pct_1core_60s": {
+          "type": "number",
+          "minimum": 0,
+          "description": "self + reaped children CPU over the last 60 s, percent of one core"
+        },
+        "cpu_pct_1core_1h": {
+          "type": "number",
+          "minimum": 0
+        },
+        "rss_mb": {
+          "type": "number",
+          "minimum": 0,
+          "description": "current resident size (proc_pid_rusage ri_resident_size); the budget is judged on this"
+        },
+        "spawns_per_h": {
+          "type": "number",
+          "minimum": 0
+        },
+        "collectors": {
+          "type": "object",
+          "description": "collector name -> percent of one core over the last hour (thread CPU + its children)",
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "verdict": {
+          "enum": [
+            "pass",
+            "watch",
+            "fail"
+          ],
+          "description": "against the budget in DESIGN.md"
+        },
+        "rss_peak_mb": {
+          "type": "number",
+          "minimum": 0,
+          "description": "lifetime peak (ru_maxrss), reported only"
+        }
+      }
+    },
+    "api": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/stamp"
+        }
+      ],
+      "description": "Are the agents' API calls failing now? Read from Claude Code transcripts (assistant lines with isApiErrorMessage). ABSENT when no session made a call in the last 2 min (idle agents are unmeasured, never ok). Provisional.",
+      "properties": {
+        "state": {
+          "enum": [
+            "ok",
+            "failing"
+          ],
+          "description": "failing = an API error in the last 60 s with no successful call after it in any session; ok = a successful call in the last 2 min after the last error"
+        },
+        "failing_sessions": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "sessions whose newest API outcome in the last 60 s is an error"
+        },
+        "last_error_at": {
+          "type": "number",
+          "description": "epoch of the newest API error seen (any session)"
+        },
+        "last_ok_at": {
+          "type": "number",
+          "description": "epoch of the newest successful assistant message seen (any session)"
+        },
+        "error_kind": {
+          "enum": [
+            "network",
+            "server",
+            "rate_limit",
+            "other"
+          ],
+          "description": "class of the newest error. Only network should drive a lost-connection behaviour (Sprites' huddle); server and rate_limit are the provider's, not the link's"
+        }
+      }
+    }
+  }
+}

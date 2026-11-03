@@ -78,7 +78,9 @@ what is data. They cost almost nothing in colour or composition.
    such as zero.
 7. **Effects are declared.** Glow, depth shading, bloom and trails are either
    data-derived transforms or independent decoration, and the colophon says which.
-   Every hidden renderer default is bound or switched off (step 3).
+   Every hidden renderer default is bound or switched off (step 3). Decoration never
+   borrows a data idiom: motes or bridges between marks read as exchange (Visitors), a
+   blend linking far regions as a connection (OpenFlights), a settling solver as change.
 8. **Network and embedding groups say what they mean**: a source attribute, an algorithm
    result, or only the layout (NET-03). Layout distance between clusters means nothing.
 9. **Time:** state data time against playback time and any interpolation ("hourly
@@ -146,6 +148,10 @@ third score to trade.
   a combined candidate that rates at or above both poles is the target.
 - **Record ratings and notes** in a FEEDBACK file beside the study, and fold any lesson
   that holds across studies back into this skill as a rule.
+- *Provisional format for motion pieces* (worked once, Visitors 2026-10-31): an open grid,
+  concepts as columns and single-variable looping clips as rows, a replay modal and per-cell
+  up/down marks; the blind sheet beside it overflowed the screen. Template:
+  `~/dev/MandrakeWorkflows/visualize/evaluation/runs/2026-10-31-visitors/tools/build_gallery.py`.
 - These ratings are formative. They place candidates for this user; they are not
   evidence that the family works for other readers.
 

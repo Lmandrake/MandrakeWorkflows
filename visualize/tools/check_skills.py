@@ -9,7 +9,7 @@ mechanically beats remembering.
 No skill may name a renderer (decision D6): skills ask for capabilities by property, and
 the names to refuse are read from registry/renderers.yaml.
 
-Run with no arguments to check the eight visual skills (MandrakeWorkflows/skills/, named in
+Run with no arguments to check the nine visual skills (MandrakeWorkflows/skills/, named in
 VISUAL_SKILLS); pass explicit roots to narrow it. REPO is the visualize/ directory.
 """
 from __future__ import annotations
@@ -155,7 +155,7 @@ def check_skill(skill_md: Path, tracked: set[str]) -> list[str]:
 SKILLS_DIR = REPO.parent / "skills"
 VISUAL_SKILLS = (
     "scientific-visualization", "visual-beautiful", "visual-composition", "visual-critic",
-    "visual-encoding", "visual-intent", "visual-portfolio", "visual-render-qa",
+    "visual-encoding", "visual-intent", "visual-portfolio", "visual-presentation", "visual-render-qa",
 )
 DEFAULT_ROOTS = tuple(SKILLS_DIR / name for name in VISUAL_SKILLS)
 

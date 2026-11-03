@@ -1,0 +1,15 @@
+{"_doc": "Sprites backdrops (owner, 2026-11-01 08:05: 'Implement them all as choices, with adjustable speed settings'). speed is a multiplier of the designed motion: 0 = frozen (delivered as a wallpaper PNG), default = as designed, max = the concept's limit. fps = the live window's fixed frame rate. Design notes and budgets: visualize/docs/MACHINE_BACKGROUNDS.md. Shader: backdrops.sl.",
+ "backdrops": [
+  {"id": "b01", "n": 1, "name": "Abyssal Starfield", "desc": "A deep, still night: sparse colourless stars over navy dust.", "moving": false, "speed": 0, "max": 0, "fps": 0},
+  {"id": "b02", "n": 2, "name": "Slow Tide", "desc": "Broad bands of dark indigo and teal that swell and recede over 11 to 23 minutes.", "moving": true, "speed": 1, "max": 4, "fps": 2},
+  {"id": "b03", "n": 3, "name": "Threshold Tunnel", "desc": "A very faint spiral tunnel. The rings never move (moving rings look like the needs-you ripple); speed turns only its hue and petals.", "moving": false, "speed": 0, "max": 4, "fps": 2},
+  {"id": "b04", "n": 4, "name": "Caustic Floor", "desc": "The faint light-net on a sea floor far below the surface, re-forming slowly.", "moving": true, "speed": 1, "max": 4, "fps": 2},
+  {"id": "b05", "n": 5, "name": "Aurora Veil", "desc": "A dim green-teal curtain low across the top, swaying over 9 to 14 minutes. No red.", "moving": true, "speed": 1, "max": 4, "fps": 2},
+  {"id": "b06", "n": 6, "name": "Nebula Dust", "desc": "Cold interstellar dust with dark lanes for the sprites to glow in.", "moving": false, "speed": 0, "max": 0, "fps": 0},
+  {"id": "b07", "n": 7, "name": "Ink Bloom", "desc": "A plume of indigo ink unfurling in still water over an hour and a half.", "moving": true, "speed": 1, "max": 6, "fps": 2},
+  {"id": "b08", "n": 8, "name": "Interference Field", "desc": "Soft fringes of two far-off ripples. Caution: the sweeping fringes resemble the VPN-lost searchlight.", "moving": true, "speed": 1, "max": 4, "fps": 2},
+  {"id": "b09", "n": 9, "name": "Marine Snow", "desc": "Faint grey flakes sinking through dark water. Moving points: watch that they never read as sprites.", "moving": true, "speed": 1, "max": 4, "fps": 4},
+  {"id": "b10", "n": 10, "name": "Hadal Glow", "desc": "One enormous, barely-there glow from below. The quietest choice.", "moving": false, "speed": 0, "max": 0, "fps": 0},
+  {"id": "b11", "n": 11, "name": "Starfield", "desc": "Still stars. Every ten minutes or so a faint comet crosses slowly, far away.", "moving": true, "speed": 1, "max": 3, "fps": 4},
+  {"id": "b12", "n": 12, "name": "Starfield, travelling", "desc": "Stars drifting past very slowly, as though you are travelling, with the same distant comets.", "moving": true, "speed": 1, "max": 5, "fps": 4}
+ ]}

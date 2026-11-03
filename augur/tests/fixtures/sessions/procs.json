@@ -1,0 +1,11 @@
+{"_note": "synthetic libproc sweep: pid -> [ppid, uid, start_epoch, comm, pidpath, cmdline, cwd]; rusage separate per tick",
+ "procs": {
+  "101": [1, 501, 1793500000, "2.1.292", "/opt/x/.local/share/claude/versions/2.1.292", "claude", "{repo_a}/src"],
+  "102": [101, 501, 1793500100, "zsh", "/bin/zsh", "/bin/zsh -c source {home}/.claude/shell-snapshots/snapshot-zsh-1.sh 2>/dev/null || true && eval 'sleep 99'", "{repo_a}"],
+  "103": [101, 501, 1793500010, "python3.12", "/usr/bin/python3", "python3 mcp_server.py", "{repo_a}"],
+  "104": [102, 501, 1793500101, "sleep", "/bin/sleep", "sleep 99", "{repo_a}"],
+  "105": [101, 501, 1793500020, "zsh", "/bin/zsh", "/bin/zsh -i", "{repo_a}"],
+  "201": [1, 501, 1793501000, "2.1.292", "/opt/x/.local/share/claude/versions/2.1.292", "claude", "{repo_b}"],
+  "301": [1, 501, 1793502000, "2.1.292", "/opt/x/.local/share/claude/versions/2.1.292", "claude -p", "{repo_b}"],
+  "900": [1, 0, 1793400000, "launchd", "/sbin/launchd", "", "/"]
+ }}

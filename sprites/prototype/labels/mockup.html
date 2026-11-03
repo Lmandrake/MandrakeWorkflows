@@ -1,0 +1,91 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Sprites hover labels: mockup</title>
+<style>html,body{margin:0;background:#000;overflow:hidden}canvas{display:block}
+#ui{position:fixed;right:10px;bottom:10px;font:12px -apple-system,system-ui;color:#ccd;background:rgba(0,0,0,.6);padding:6px 9px;border-radius:7px}
+#ui a{color:#9cf;margin:0 4px}</style></head>
+<body><canvas id="c"></canvas>
+<div id="ui"></div>
+<!-- Hover-label design mockup (2026-11-01). NOT the app: real creature stills (captured from app/stage.html, live mode,
+     transparent, assets/sprite_*.png) composited over a real desktop screenshot (assets/desktop.jpg), plus one drawn
+     light window so legibility on white can be judged. Labels come from labels.js, names from shortname.js.
+     URL: ?opt=1..5  &mode=scene|close  &e=0..1 (appear progress; omit = live hover with the mouse)  &out=1 (disappearing)
+          &size=0.5..2 (the Size slider)  &t=seconds (pulse/twinkle clock)  &ui=0 -->
+<script src="shortname.js"></script>
+<script src="labels.js"></script>
+<script>
+"use strict";
+const q = new URLSearchParams(location.search), num = (k, d) => { const v = parseFloat(q.get(k)); return isFinite(v) ? v : d; };
+const OPT = +(q.get("opt") || 1), MODE = q.get("mode") || "scene", SIZE = num("size", 1), FIXE = q.has("e") ? num("e", 1) : null;
+const OUT = q.get("out") === "1", T0 = num("t", 2.2), GROUND = q.get("ground") || "auto";   // ground=dark reproduces v2 (no halo anywhere)
+const W = 1728, H = 1117; let DPR = 2; const cv = document.getElementById("c"), ctx = cv.getContext("2d");
+// real Waypoint colours (launches.md ]10;#hex); MandrakeWorkflows has none, so its hue is the stage's hashed default (75)
+const HEX = { Lodestar: "#FFCA42", KestrelWorks_Mandrake: "#40C888", Ember28: "#8888EE", ProjectCert_Mandrake: "#3388EE" };
+const HASHHUE = { MandrakeWorkflows: 75 };
+function hexHue(h) { const n = parseInt(h.slice(1), 16), r = (n >> 16) / 255, g = (n >> 8 & 255) / 255, b = (n & 255) / 255,
+  mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn; if (!d) return 0;
+  const x = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return Math.round((x * 60 + 360) % 360); }
+// shortnames from the rule (the alias KesMine comes from Waypoint launches.md)
+const SN = SpritesShortNames.shortNames([{ name: "Lodestar", alias: "Lodestar" }, { name: "KestrelWorks_Mandrake", alias: "KesMine" },
+  { name: "Ember28", alias: "Ember28" }, { name: "MandrakeWorkflows" }, { name: "ProjectCert_Mandrake", alias: "ProjectCert" }]).short;
+// scene: where each creature rests (CSS px of the 1728x1117 desktop) and what is under it
+const SCENE = [
+  { name: "Lodestar", x: 180, y: 560, under: "red wallpaper" },
+  { name: "KestrelWorks_Mandrake", x: 1505, y: 985, under: "white window" },
+  { name: "Ember28", x: 1180, y: 330, under: "dark terminal (non-focus)" },
+];
+const WHITE_WIN = [1370, 800, 280, 250];   // a light document window, drawn (none was open in the screenshot)
+const ext = {}; let EXT = null;
+const imgs = {}, bg = new Image();
+const need = [...new Set(SCENE.map(s => s.name))];
+let left = need.length + 2;
+function done() { if (--left === 0) start(); }
+fetch("assets/sprites.json").then(r => r.json()).then(j => { EXT = j; done(); });
+bg.onload = done; bg.src = "assets/desktop.jpg";
+for (const n of need) { const im = new Image(); im.onload = done; im.src = "assets/sprite_" + n + ".png"; imgs[n] = im; }
+
+let mouse = null, hov = {}, last = performance.now(), tNow = T0;
+addEventListener("mousemove", e => { const r = cv.getBoundingClientRect(); mouse = [(e.clientX - r.left) * vw / r.width + vx, (e.clientY - r.top) * vh / r.height + vy]; });
+let vx = 0, vy = 0, vw = W, vh = H;
+function setView() {
+  if (MODE === "close") { const s = SCENE[+(q.get("who") || 0)], R = 120 * Math.max(1, SIZE); vw = R * 2.6; vh = R * 1.6; vx = s.x - vw / 2; vy = s.y - vh * 0.42; }
+  DPR = innerWidth * (devicePixelRatio || 1) / vw; cv.width = Math.round(vw * DPR); cv.height = Math.round(vh * DPR); cv.style.width = innerWidth + "px"; cv.style.height = innerWidth * vh / vw + "px"; }
+function lightWindow(c) { const [x, y, w, h] = WHITE_WIN;
+  c.save(); c.shadowColor = "rgba(0,0,0,.45)"; c.shadowBlur = 30; c.fillStyle = "#fbfbfa"; rr(c, x, y, w, h, 10); c.fill(); c.restore();
+  c.fillStyle = "#ececea"; rr(c, x, y, w, 28, 10); c.fill(); c.fillRect(x, y + 18, w, 10);
+  ["#ff5f57", "#febc2e", "#28c840"].forEach((col, i) => { c.fillStyle = col; c.beginPath(); c.arc(x + 16 + i * 20, y + 14, 6, 0, 7); c.fill(); });
+  c.fillStyle = "#555"; c.font = "600 12px -apple-system"; c.fillText("Notes.txt", x + 88, y + 18);
+  c.fillStyle = "#2b2b2b"; c.font = "12px -apple-system";
+  const lines = ["Ember28 notes", "- tidy the data loader", "- rerun the baseline", "- compare against last week",
+    "- plots for the review", "", "KestrelWorks: draft the summary", "second pass on the figures", "before Friday.", "", "Open: check the disk quota"];
+  lines.forEach((l, i) => c.fillText(l, x + 14, y + 50 + i * 16)); }
+function rr(c, x, y, w, h, r) { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
+function cursorAt(c, x, y) { c.save(); c.translate(x, y); c.beginPath(); c.moveTo(0, 0); c.lineTo(0, 17); c.lineTo(4.2, 13); c.lineTo(7.2, 19.5);
+  c.lineTo(9.6, 18.5); c.lineTo(6.8, 12.2); c.lineTo(12, 12.2); c.closePath(); c.fillStyle = "#000"; c.strokeStyle = "#fff"; c.lineWidth = 1.3; c.fill(); c.stroke(); c.restore(); }
+function frame() {
+  const now = performance.now(), dt = (now - last) / 1000; last = now; if (FIXE === null) tNow += dt;
+  ctx.setTransform(DPR, 0, 0, DPR, -vx * DPR, -vy * DPR);
+  ctx.drawImage(bg, 0, 0, W, H); lightWindow(ctx);
+  const k = Math.sqrt(SIZE), env = { k, W, H, dpr: DPR };
+  const L = [];
+  for (const s of SCENE) {
+    const im = imgs[s.name], e = EXT[s.name], sc = SIZE, half = 130 * sc;
+    ctx.drawImage(im, s.x - half, s.y - half, half * 2, half * 2);
+    const r = Math.max(e.left, e.right) * sc, rt = e.top * sc, rb = e.bot * sc;
+    const hue = HEX[s.name] ? hexHue(HEX[s.name]) : HASHHUE[s.name];
+    let h = hov[s.name] || (hov[s.name] = { e: 0, out: false });
+    if (FIXE !== null) { h.e = FIXE; h.out = OUT; }
+    else { const near = mouse && Math.hypot(mouse[0] - s.x, mouse[1] - s.y) < Math.max(24, r * 1.1);
+      const o = SpritesLabels.OPTIONS[OPT];
+      if (near) { if (h.out) { h.out = false; h.e = 0; } h.e = Math.min(1, h.e + dt / o.inS); }
+      else if (h.e > 0) { if (!h.out) { h.out = true; h.e = 1; } h.e = Math.max(0, h.e - dt / o.outS); if (h.e === 0) h.out = false; } }
+    L.push({ name: SpritesShortNames.display(SN[s.name]), hue, x: s.x, y: s.y, r, rt, rb, e: h.e, out: h.out, t: tNow,
+      seed: s.name.length * 1.7, pulse: 2.8 + s.name.length % 3 * 0.4 }); }
+  for (const l of L) { l.ground = GROUND === "auto" ? SpritesLabels.groundAt([{ x: WHITE_WIN[0], y: WHITE_WIN[1], w: WHITE_WIN[2], h: WHITE_WIN[3] }],
+      SpritesLabels.labelBox(l.x, l.y, l.r, SIZE, l.name)) : GROUND; SpritesLabels.drawRaw(ctx, OPT, l, env); }
+  if (FIXE === null && mouse) cursorAt(ctx, mouse[0], mouse[1]);
+  if (q.get("cursor") !== "0" && FIXE !== null) { const s = SCENE[+(q.get("who") || 0)]; cursorAt(ctx, s.x + 9, s.y + 6); }
+  if (FIXE === null) requestAnimationFrame(frame); else window.__done = true; }
+function start() { setView(); frame();
+  const ui = document.getElementById("ui"); if (q.get("ui") === "0") { ui.remove(); return; }
+  ui.innerHTML = "Option: " + [1, 2, 3, 4, 5].map(i => `<a href="?opt=${i}&mode=${MODE}">${i} ${SpritesLabels.OPTIONS[i].title}</a>`).join("") + " · hover a creature"; }
+</script></body></html>

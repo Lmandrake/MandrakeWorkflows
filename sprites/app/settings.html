@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sprites Settings</title>
+<link rel="stylesheet" href="settings.css">
+</head><body>
+<div id="sky"></div>
+<header>
+  <div class="brand"><span class="orb"></span>Sprites</div>
+  <div class="sub" id="sub">Choose a species for each focus project</div>
+  <label class="size" title="Overall size of the sprites on your desktop">Size
+    <input type="range" id="size" min="0.5" max="2" step="0.05" value="1"><span id="sizeVal">100%</span></label>
+  <nav class="tabs" id="tabs"><button data-tab="species" class="on">Species</button><button data-tab="behaviours">Behaviours</button><button data-tab="labels">Name label</button><button data-tab="backdrop">Backdrop</button></nav>
+  <div class="saved" id="saved">Saved</div>
+</header>
+<main id="speciesView">
+  <aside id="side">
+    <div class="cap" id="sideCap">Focus projects</div>
+    <ul id="projects"></ul>
+    <div id="nowp" class="hidden">
+      <div class="calm"><span class="orb big"></span>
+        <p class="lead">Waypoint isn't installed.</p>
+        <p>Sprites pick a random species for each Claude session, kept for that session.</p>
+        <p class="dim">Browse the species here. With Waypoint, each focus project can keep a species of its own.</p>
+      </div>
+    </div>
+  </aside>
+  <section id="right">
+    <div class="heroRow">
+      <div class="hero" id="hero"><div class="halo" id="halo"></div><div class="slot" id="heroSlot"></div></div>
+      <div class="info">
+        <div class="pname" id="pname"></div>
+        <label class="short" id="shortRow" title="The name shown when you hover over this project's sprite">Short name
+          <input id="short" type="text" maxlength="12" spellcheck="false" autocomplete="off"></label>
+        <div class="sname" id="sname"></div>
+        <div class="vname" id="vname"></div>
+        <p class="blurb" id="blurb"></p>
+        <button id="surprise" class="pill"><span class="spark"></span>Surprise me</button>
+      </div>
+    </div>
+    <div class="cap">Species</div>
+    <div class="row species" id="species"></div>
+    <div class="cap">Form <span class="dim" id="formOf"></span></div>
+    <div class="row variants" id="variants"></div>
+  </section>
+</main>
+<main id="behView" class="hidden">
+  <div class="behWrap">
+    <div class="demoRow"><div class="rt"><div class="rl">Demo Mode</div><div class="rd">Show a random assortment of sprites cycling through every behaviour. Mirrors the menu item.</div></div>
+      <button class="sw" id="demoSw" role="switch" aria-checked="false" aria-label="Demo Mode"></button></div>
+    <div class="demoRow"><div class="rt"><div class="rl">Show Sprites</div><div class="rd">Show or hide every sprite (and a moving backdrop). Mirrors Hide Sprites in the menu.</div></div>
+      <button class="sw" id="showSw" role="switch" aria-checked="true" aria-label="Show Sprites"></button></div>
+    <div class="demoRow"><div class="rt"><div class="rl">Meeting Mode <kbd id="meetKey"></kbd></div><div class="rd" id="meetDesc">Hide everything at once for a shared screen; press the hotkey again to bring them back. Mirrors the menu item.</div></div>
+      <button class="sw" id="meetSw" role="switch" aria-checked="false" aria-label="Meeting Mode"></button></div>
+    <div class="demoRow dimRow"><div class="rt"><div class="rl">Dim desktop icons</div><div class="rd">Lay a soft dark veil over your desktop icons so the sprites stand out. 0 is off.</div></div>
+      <label class="size dimSize" title="0 = off; default 45%"><input type="range" id="dimIcons" min="0" max="80" step="1" value="45" aria-label="Dim desktop icons"><span id="dimVal">45%</span></label></div>
+    <div class="behGrid" id="behGrid"></div>
+  </div>
+</main>
+<main id="labView" class="hidden">
+  <div class="labWrap">
+    <div class="labHead"><div class="rt"><div class="rl">Name label</div>
+      <div class="rd">How a sprite shows its name when the cursor rests on it. Previews use <span id="labWho"></span>.</div></div></div>
+    <div class="row labels" id="labels"></div>
+    <p class="rd dim" id="labNote"></p>
+  </div>
+</main>
+<main id="bdView" class="hidden">
+  <div class="bdWrap">
+    <div class="labHead bdHead"><div class="rt"><div class="rl">Backdrop</div>
+      <div class="rd">A very dark desktop behind the sprites. Still choices (or speed 0) become your wallpaper; moving ones are drawn by Sprites just above it, under your icons. None keeps your own wallpaper. <label class="boost"><input type="checkbox" id="bdBoost"> brighten previews</label></div></div>
+      <label class="size bdSpeed" id="bdSpeedRow" title="0 = frozen; the middle mark is the designed speed">Speed
+        <input type="range" id="bdSpeed" min="0" max="4" step="0.05" value="1"><span id="bdSpeedVal">1.0x</span></label></div>
+    <div class="row backdrops" id="backdrops"></div>
+    <p class="rd dim" id="bdNote"></p>
+  </div>
+</main>
+<script src="backdrops/bd.js"></script>
+<script src="../prototype/labels/shortname.js"></script>
+<script src="projects.js"></script>
+<script src="../prototype/labels/labels.js"></script>
+<script src="behaviors.js"></script>
+<script src="settings.js"></script>
+</body></html>

@@ -1,0 +1,403 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Visitors C4 Kaleidoscope Seeds</title></head>
+<body>
+<script id="COLOPHON" type="application/json">[
+ "colour + seed figure (one of 8: lotus, trefoil, pentagram, snowflake, quatrefoil, spirograph, dandelion, honeycomb, each with its own symmetry order) = which session (fixed); seed size (area) = memory, outer dot rings = more memory",
+ "petal spin + light running out along petals = CPU tempo (still bud = idle, slow breath); orbiting pixel seeds = background tasks (count)",
+ "rises under the menu bar, breathes and sends soft rings = needs you",
+ "network: blue-white beads stream IN along the arms (rim to core) = download; gold beads stream OUT (core to rim) = upload; more Mbit/s = more, brighter beads; link too slow = beads jam and pile up at the rim, stuttering",
+ "machine strain: red ember glow behind and inside the seed, rising with level; symmetry breaks (arms knocked out of true); red sparks inside = heat; rings squeeze = memory pressure",
+ "VPN lost: frozen, folded, grey, broken outer ring, tight huddle + searching beam + small blinking red beacon; bloom = back. Two idle seeds drifting together for one short twirl = play (no data). Glow = decoration"
+]</script>
+<script src="timelines.js"></script>
+<script src="scenarios.js"></script>
+<script src="visitors_runtime.js"></script>
+<script>
+(function () {
+"use strict";
+const TAU = Math.PI * 2;
+const clamp = (x, a, b) => x < a ? a : x > b ? b : x;
+const sm = x => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+const ease = (dt, tau) => 1 - Math.exp(-dt / tau);
+const mixHue = (a, b, w) => { const d = ((b - a + 540) % 360) - 180; return (a + d * w + 360) % 360; };
+const q = v => Math.round(v / 4) * 4;
+const ORDER = { blue: 6, amber: 5, green: 8, pink: 7, teal: 9 };
+function orderFor(id, i) { if (ORDER[id]) return ORDER[id]; let h = 7; for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) % 997; return 5 + (h + i) % 5; }
+
+// ---------- individualizer: 8 seed FORMS (silhouette + symmetry order), never a data channel ----------
+// Data already spent: size + dot-ring count = memory, spin + chase = CPU, orbit pluses = tasks, openness = state,
+// symmetry breaking + ember glow = strain, arm beads = network, broken ring = VPN, a short twirl = play.
+// So a variant may only change the petal FIGURE and its order k; it never changes size, spin, ring count.
+const VARIANT_NAMES = ["Lotus", "Trefoil", "Pentagram", "Snowflake", "Quatrefoil", "Spirograph", "Dandelion", "Honeycomb"];
+window.VARIANT_NAMES = VARIANT_NAMES;
+const FORM_K = [8, 3, 5, 6, 4, 7, 12, 6];
+// Each figure is generated whole in unit space (tip radius 1), then binned into sector 0 by angle, so the piece
+// can rotate, open and strain-break it arm by arm. Points are [x, y, u] with u = outwardness for the CPU chase.
+function bin(pts, k) { const w = TAU / k, out = [];
+  for (const [x, y] of pts) { const a = Math.atan2(y, x), p = Math.round(a / w); const r = -p * w, c = Math.cos(r), s = Math.sin(r);
+    const X = x * c - y * s, Y = x * s + y * c; if (Math.atan2(Y, X) < -w / 2 + 1e-6 || Math.atan2(Y, X) >= w / 2 - 1e-6) continue;
+    out.push([X, Y, clamp((Math.hypot(x, y) - 0.25) / 0.75, 0, 1)]); }
+  return out; }
+function line(out, x0, y0, x1, y1, n) { for (let e = 0; e <= n; e++) { const u = e / n; out.push([x0 + (x1 - x0) * u, y0 + (y1 - y0) * u]); } }
+function rot(k, f) { const out = []; for (let p = 0; p < k; p++) { const a = p * TAU / k, c = Math.cos(a), s = Math.sin(a);
+  for (const [x, y] of f()) out.push([x * c - y * s, x * s + y * c]); } return out; }
+function buildForm(v, kIn, d) {
+  const k = kIn || FORM_K[v], N = n => Math.max(3, Math.round(n * d));
+  let arm = [], tips = [[1, 0]], inner = [];
+  if (v === 0) {           // Lotus: almond petals + counter-turning inner petals (the original seed)
+    const m = N(9); for (let e = 1; e <= m; e++) { const u = e / m, r = 0.26 + 0.74 * u, hw = (Math.PI / k) * 0.8 * Math.pow(Math.sin(Math.PI * u), 0.9);
+      if (e === m) arm.push([r, 0, u]); else { arm.push([r * Math.cos(hw), r * Math.sin(hw), u]); arm.push([r * Math.cos(hw), -r * Math.sin(hw), u]); } }
+    const m2 = Math.max(3, Math.round(m * 0.55)); for (let e = 1; e <= m2; e++) { const u = e / m2, r = 0.14 + 0.28 * u, hw = (Math.PI / k) * 0.6 * Math.sin(Math.PI * u);
+      if (e === m2) inner.push([r, 0]); else { inner.push([r * Math.cos(hw), r * Math.sin(hw)]); inner.push([r * Math.cos(hw), -r * Math.sin(hw)]); } }
+  } else if (v === 1) {    // Trefoil: three fat rose lobes (r = cos 3t) with an echo inside each
+    const n = N(30); for (let e = 0; e <= n; e++) { const t = -Math.PI / 6 + (Math.PI / 3) * e / n, r = 0.2 + 0.8 * Math.cos(3 * t);
+      arm.push([r * Math.cos(t), r * Math.sin(t)]); }
+    const n2 = N(16); for (let e = 0; e <= n2; e++) { const t = -Math.PI / 6 + (Math.PI / 3) * e / n2, r = 0.32 + 0.4 * Math.cos(3 * t);
+      arm.push([r * Math.cos(t), r * Math.sin(t)]); }
+    arm = arm.map(([x, y]) => [x, y, clamp((Math.hypot(x, y) - 0.2) / 0.8, 0, 1)]);
+    const n3 = N(10); for (let e = 0; e <= n3; e++) { const t = -Math.PI / 6 + (Math.PI / 3) * e / n3, r = 0.1 + 0.26 * Math.cos(3 * t); inner.push([r * Math.cos(t), r * Math.sin(t)]); }
+  } else if (v === 2) {    // Pentagram {5/2}: straight chords of dots, crossing; a small inverted star inside
+    const V5 = j => [Math.cos(j * TAU / 5), Math.sin(j * TAU / 5)];
+    arm = bin(rot(1, () => { const o = []; for (let j = 0; j < 5; j++) { const a = V5(j), b = V5(j + 2); line(o, a[0], a[1], b[0], b[1], N(17)); } return o; }), 5);
+    const o = []; for (let j = 0; j < 5; j++) { const a = V5(j + 0.5), b = V5(j + 2.5); line(o, a[0] * 0.36, a[1] * 0.36, b[0] * 0.36, b[1] * 0.36, N(7)); }
+    inner = bin(o, 5).map(([x, y]) => [x, y]);
+  } else if (v === 3) {    // Snowflake: spine with two pairs of side branches and a diamond tip
+    const o = []; line(o, 0.22, 0, 0.92, 0, N(9));
+    for (const [u, L] of [[0.46, 0.26], [0.7, 0.18]]) for (const sg of [1, -1]) line(o, u + 0.05, 0, u + 0.05 + L * 0.5, sg * L * 0.87, N(4));
+    o.push([1, 0], [0.92, 0.05], [0.92, -0.05], [0.84, 0]);
+    arm = o.map(([x, y]) => [x, y, clamp((Math.hypot(x, y) - 0.22) / 0.78, 0, 1)]);
+  } else if (v === 4) {    // Quatrefoil: four round dotted lobes that interlock, each with a bead at its heart
+    const n = N(28); for (let e = 0; e < n; e++) { const t = e / n * TAU; arm.push([0.58 + 0.42 * Math.cos(t), 0.42 * Math.sin(t)]); }
+    const n2 = N(10); for (let e = 0; e < n2; e++) { const t = e / n2 * TAU; arm.push([0.58 + 0.13 * Math.cos(t), 0.13 * Math.sin(t)]); }
+    arm = bin(rot(4, () => arm), 4); tips = [[1, 0]];
+  } else if (v === 5) {    // Spirograph: hypotrochoid z = A e^it + B e^-6it, seven looping lobes
+    const o = [], n = N(17) * 7, A = 0.6, B = 0.4; for (let e = 0; e < n; e++) { const t = e / n * TAU; o.push([A * Math.cos(t) + B * Math.cos(-6 * t), A * Math.sin(t) + B * Math.sin(-6 * t)]); }
+    arm = bin(o, 7);
+  } else if (v === 6) {    // Dandelion: twelve fine rays, each ending in a small seed fork
+    const o = []; line(o, 0.3, 0, 0.88, 0, N(7)); line(o, 0.88, 0, 1, 0.07, 2); line(o, 0.88, 0, 1, -0.07, 2);
+    arm = o.map(([x, y]) => [x, y, clamp((Math.hypot(x, y) - 0.3) / 0.7, 0, 1)]); tips = [[1, 0.07], [1, -0.07]];
+  } else {                 // Honeycomb: a hexagonal tile of lattice dots, six sectors
+    const o = [], sp = 0.15 / Math.sqrt(d); for (let j = -8; j <= 8; j++) for (let i = -8; i <= 8; i++) {
+      const x = (i + j * 0.5) * sp, y = j * sp * 0.866, r = Math.hypot(x, y); if (r < 0.34) continue;
+      const a = Math.atan2(y, x), w = TAU / 6, aa = ((a % w) + w) % w - w / 2; if (r * Math.cos(aa) > 0.88) continue; o.push([x, y]); }
+    for (let j = 0; j < 6; j++) o.push([Math.cos((j + 0.5) * TAU / 6), Math.sin((j + 0.5) * TAU / 6)]);
+    arm = bin(o, 6); tips = [[Math.cos(TAU / 12), Math.sin(TAU / 12)]];
+  }
+  return { k, arm, tips, inner };
+}
+
+let C = [], M = [], G = {};
+// ---------- glow sprites, cached per quantised colour (sat multiplier lives inside V.hsl) ----------
+const SPR = new Map();
+function sprite(V, h, s, l) {
+  const key = V.hsl(q(h), q(s), q(l), 1); let c = SPR.get(key); if (c) return c;
+  c = document.createElement("canvas"); c.width = c.height = 64; const x = c.getContext("2d");
+  const g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, V.hsl(q(h), q(s), q(l), 1)); g.addColorStop(0.22, V.hsl(q(h), q(s), q(l), 0.42));
+  g.addColorStop(0.55, V.hsl(q(h), q(s), q(l), 0.10)); g.addColorStop(1, V.hsl(q(h), q(s), q(l), 0));
+  x.fillStyle = g; x.fillRect(0, 0, 64, 64); SPR.set(key, c); return c;
+}
+function glow(V, ctx, h, s, l, x, y, r, a) { if (a <= 0.003 || r < 0.5) return; ctx.globalAlpha = Math.min(1, a);
+  ctx.drawImage(sprite(V, h, s, l), x - r, y - r, 2 * r, 2 * r); ctx.globalAlpha = 1; }
+
+// ---------- homes: free space away from the focused window, menu bar and dock ----------
+function rectDist(x, y, f) { if (!f) return 1e4; const [rx, ry, rw, rh] = f;
+  const dx = Math.max(rx - x, 0, x - (rx + rw)), dy = Math.max(ry - y, 0, y - (ry + rh)); return (dx || dy) ? Math.hypot(dx, dy) : -1; }
+function gridHomes(V) {      // no focused window: an even grid of cells, reading order = session order
+  const L = C.filter(c => !c.ghost), n = L.length; if (!n) return;
+  const top = V.TOP, h = V.H - V.TOP - V.BOT;
+  const rows = clamp(Math.round(Math.sqrt(n * h / V.W)), 1, n), out = [];
+  for (let r = 0, i = 0; r < rows; r++) { const cols = Math.ceil((n - i) / (rows - r));
+    for (let cI = 0; cI < cols; cI++, i++) out.push([V.W * (cI + 0.5) / cols, top + h * (r + 0.5) / rows]); }
+  L.forEach((c, i) => { c.home = out[i]; });
+}
+function computeHomes(V, f) {
+  if (!f) return gridHomes(V);
+  const L = C.filter(c => !c.ghost); if (!L.length) return;
+  const g = V.H / 800, st = Math.max(8, Math.round(20 * g)), mg = Math.max(16, 44 * g);
+  const Rm = Math.max(...L.map(c => c.R)) + 16 * g, slots = [];
+  for (let y = V.TOP + mg + Rm; y <= V.H - V.BOT - 4 * g - Rm; y += st) for (let x = mg + Rm; x <= V.W - mg - Rm; x += st) {
+    const d = rectDist(x, y, f); if (d > Rm + 34 * g) slots.push([x, y, d]); }
+  if (!slots.length) for (let x = 120 * g; x <= V.W - 120 * g; x += 40 * g) slots.push([x, V.H - V.BOT - 4 * g - Rm, 0]);
+  const chosen = []; let best = slots[0];
+  for (const s of slots) if (s[2] > best[2]) best = s; chosen.push(best);
+  while (chosen.length < L.length) { let bs = slots[0], bd = -1;
+    for (const s of slots) { let m = 1e9; for (const c of chosen) m = Math.min(m, Math.hypot(s[0] - c[0], s[1] - c[1]));
+      m = Math.min(m, 230 * g); m += Math.min(s[2], 300 * g) * 0.15; if (m > bd) { bd = m; bs = s; } }
+    chosen.push(bs); }
+  const free = chosen.slice(), order = L.map((c, i) => i).sort((a, b) => L[a].x - L[b].x);
+  for (const i of order) { let bi = 0, bd = 1e9;
+    free.forEach((s, j) => { const d = Math.hypot(s[0] - L[i].x, s[1] - L[i].y); if (d < bd) { bd = d; bi = j; } });
+    L[i].home = [free[bi][0], free[bi][1]]; free.splice(bi, 1); }
+}
+function knockSpot(V, f, c, taken) { // just under the menu bar, clear of the window, nearest the seed
+  const g = V.H / 800; let best = null, bd = 1e9; const y = V.TOP + Math.max(Math.max(10, 26 * g) + c.R * 1.15, ringMax(V, c.R) + 6 * g);
+  const xm = Math.max(50 * g + c.R, ringMax(V, c.R) + 6 * g);
+  for (let x = xm; x <= V.W - xm; x += 5) {
+    if (rectDist(x, y, f) < c.R * 1.15 + 24 * g) continue;
+    if (taken.some(t => Math.abs(t - x) < c.R * 2 + 40 * g)) continue;
+    const d = Math.abs(x - c.x); if (d < bd) { bd = d; best = x; } }
+  if (best === null) best = clamp(c.x, 60 * g, V.W - 60 * g);
+  taken.push(best); return [best, y];
+}
+
+// area true to memory. The trial stage (with chrome) keeps 38 px per sqrt(GB); a gallery cell scales the seed to the
+// stage and to how many seeds share it (one common factor for all seeds, so relative area stays honest)
+let BASE = 38;
+const netLvl = m => clamp(Math.log(1 + Math.max(0, m)) / Math.log(26), 0, 1);   // 0 .. ~25 Mbit/s, log
+function ringMax(V, R) { return R * 1.15 + 0.6 * R + 18 * V.H / 800 + 3; }   // outermost needs-you ring
+function radiusFor(V, mem) { return BASE * Math.sqrt(Math.max(0.15, mem)) * V.P.size; }
+
+const URL_IV = new URLSearchParams(location.search).has("iv");
+const FORMS = new Map();
+function formFor(V, s, i) {   // trial sessions (named ids, no iv override) keep the original Lotus at their own order
+  const legacy = ORDER[s.id] && !URL_IV, v = legacy ? 0 : ((s.iv | 0) % 8 + 8) % 8, k = legacy ? ORDER[s.id] : FORM_K[v];
+  const key = v + ":" + k + ":" + V.P.density; let F = FORMS.get(key);
+  if (!F) { F = buildForm(v, k, V.P.density); F.v = v; FORMS.set(key, F); } return F; }
+let SNAP = {}, GSNAP = null;   // live: state of the previous roster, restored by id in carry()
+function init(V, S) {
+  SNAP = {}; C.forEach(c => { SNAP[c.id] = c; }); GSNAP = G;
+  BASE = V.TOP > 0 || V.LIVE ? 38 * V.H / 800 : 0.16 * V.H * Math.min(1, Math.pow(3 / V.sessions.length, 0.35));
+  C = V.sessions.map((s, i) => { const st = S.s[s.id], F = formFor(V, s, i);
+    return { id: s.id, hue: s.hue, F, k: F.k, x: V.W / 2, y: V.H / 2, R: radiusFor(V, st.mem), rot: V.rand() * TAU,
+      rot2: V.rand() * TAU, chase: 0, seedA: V.rand() * TAU, gear: 0, nt: V.rand() * 40, act: st.state === "idle" ? 0 : 1,
+      need: 0, bloom: 0, jx: 0, jy: 0, home: [V.W / 2, V.H / 2], nr: 1, emberAcc: 0, procs: st.procs,
+      ghost: !!s.ghost, rx: st.rx || 0, tx: st.tx || 0, phIn: V.rand(), phOut: V.rand(), breath: V.rand() * TAU }; });
+  // seed initial positions spread on a line, then pull to homes
+  C.forEach((c, i) => { c.x = V.W * (0.55 + 0.09 * i); c.y = V.H * (0.37 + 0.2 * (i % 2)); });
+  G = { fkey: "", vd: S.net.vpn === "down" ? 1 : 0, prevVpn: S.net.vpn, pa: 0, pAng: 0, beam: 0, strain: 0, crown: [0, 0, 0],
+        hud: 1, sa: 1, hx: V.W / 2, hy: V.H / 2, mbps: S.net.mbps, bw: S.net.strain || 0, ia: -1, ib: -1 };
+  M = [];
+  C.forEach(c => { if (c.ghost) c.home = [V.W - c.R - 18, V.H / 2]; });
+  computeHomes(V, S.focus); C.forEach(c => { c.x = c.home[0]; c.y = c.home[1]; });
+  G.fkey = S.focus ? S.focus.join() : "";
+}
+
+// live: surviving creatures keep their place and state across a roster change; new ids start at their home
+function carry(V, S, prev) {
+  for (const c of C) { const o = SNAP[c.id];
+    if (o) { for (const k of ["x", "y", "rot", "rot2", "chase", "seedA", "gear", "nt", "act", "need", "bloom", "jx", "jy", "nr", "emberAcc",
+        "procs", "rx", "tx", "phIn", "phOut", "breath", "R", "lin", "lout", "jam"]) if (o[k] !== undefined) c[k] = o[k]; }
+    else if (prev && prev[c.id]) { c.x = prev[c.id].x; c.y = prev[c.id].y; } }
+  if (GSNAP && GSNAP.beam !== undefined) for (const k of ["vd", "strain", "crown", "mbps", "bw", "beam", "pa", "pAng"]) if (GSNAP[k] !== undefined) G[k] = GSNAP[k];
+}
+// live: running lights for burning items, a short arc of beads on the outer ring at the bottom
+function lightSpots(V, id, n) { const c = C.find(q => q.id === id); if (!c) return null;
+  const x = c.x + c.jx, y = c.y + c.jy, rr = c.R * 0.93, span = Math.min(1.1, 0.14 * Math.max(1, n - 1)), out = [];
+  for (let j = 0; j < n; j++) { const a = Math.PI / 2 + (n > 1 ? (j / (n - 1) - 0.5) * 2 * span : 0); out.push([x + Math.cos(a) * rr, y + Math.sin(a) * rr]); }
+  return out; }
+
+function step(V, S, dt) {
+  const t = V.t, P = V.P, f = S.focus;
+  const fk = f ? f.map(Math.round).join() : ""; if (fk !== G.fkey) { G.fkey = fk; computeHomes(V, f); }
+  const down = S.net.vpn === "down";
+  G.hud = V.on("vpnHuddle") ? 1 : 0; G.sa = V.on("strainAgitation") ? 1 : 0;
+  if (G.prevVpn === "down" && !down && V.reconnected(S.net)) {      // reconnect: one joyful bloom
+    C.forEach(c => { c.bloom = 1;
+      for (let j = 0; j < Math.round(28 * P.density); j++) { const a = V.rand() * TAU, sp = 40 + 90 * V.rand();
+        M.push({ kind: 0, x: c.x, y: c.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0, max: 1.1 + 0.6 * V.rand(), h: c.hue, sz: 2 }); } }); }
+  G.prevVpn = S.net.vpn;
+  G.vd += ((down ? 1 : 0) - G.vd) * ease(dt, down ? 0.45 : 0.35);
+  const vd = G.vd, L = S.m.level;
+  G.strain += (clamp(L / 3, 0, 1) - G.strain) * ease(dt, 0.4);
+  G.crown = [0.5, 1.5, 2.5].map((th, j) => G.crown[j] + (sm((L - th) / 0.3 + 0.5) - G.crown[j]) * ease(dt, 0.3));
+  G.mbps += (S.net.mbps - G.mbps) * ease(dt, 0.6);
+  G.bw += ((S.net.strain || 0) - G.bw) * ease(dt, 0.4);
+  G.beam += dt * TAU / 7;
+  // play pair
+  const pr = (S.play && S.play.pair) || []; G.ia = C.findIndex(c => c.id === pr[0]); G.ib = C.findIndex(c => c.id === pr[1]);
+  const paT = (V.on("play") && G.ia >= 0 && G.ib >= 0 && G.ia !== G.ib && !C[G.ia].ghost && !C[G.ib].ghost) ? S.play.amt || 0 : 0;
+  G.pa += (paT - G.pa) * ease(dt, 0.9); G.pAng += dt * 0.9 * Math.pow(G.pa, 3);
+  // huddle centre for VPN loss
+  const LC = C.filter(c => !c.ghost), NL = LC.length ? LC : C;
+  let hx = 0, hy = 0; NL.forEach(c => { hx += c.home[0]; hy += c.home[1]; }); hx /= NL.length; hy /= NL.length;
+  { let bd = 1e9; NL.forEach(c => { const d = Math.hypot(c.home[0] - hx, c.home[1] - hy); if (d < bd) { bd = d; G.hx = c.home[0]; G.hy = c.home[1]; } }); }
+  if (V.LIVE && V.huddlePt) { G.hx = V.huddlePt[0]; G.hy = V.huddlePt[1]; }   // live: ONE shared point chosen by the stage
+  { const ord = C.map((c, i) => i).filter(i => !C[i].ghost).sort((a, b) => Math.hypot(C[a].home[0] - G.hx, C[a].home[1] - G.hy) - Math.hypot(C[b].home[0] - G.hx, C[b].home[1] - G.hy));
+    G.rank = []; ord.forEach((ci, r) => { G.rank[ci] = r; }); G.Ravg = NL.reduce((a, c) => a + c.R, 0) / NL.length; }
+  const s = G.strain, taken = [];
+  C.forEach((c, i) => {
+    const st = S.s[c.id]; if (!st) return;
+    c.R += (radiusFor(V, st.mem) - c.R) * ease(dt, 0.6);
+    c.nr = clamp(1 + Math.floor(st.mem * 1.4), 1, 4);
+    c.procs += (st.procs - c.procs) * ease(dt, 0.3);
+    c.act += ((st.state === "working" ? 1 : st.state === "needs" ? 0.7 : 0) - c.act) * ease(dt, 0.7);
+    c.need += ((st.state === "needs" ? 1 : 0) - c.need) * ease(dt, 0.5);
+    const w = (0.035 + 0.42 * st.cpu) * (1 + 0.9 * s * G.sa) * (1 - 0.97 * vd);
+    c.rot += w * dt; c.rot2 -= w * 0.62 * (1 + 1.2 * s * G.sa) * dt;
+    c.chase += dt * (0.25 + 0.55 * st.cpu) * (1 - vd) * clamp(c.act * 1.4, 0, 1);
+    c.seedA += dt * 0.35 * (0.45 + 0.55 * clamp(c.act, 0, 1)) * (1 - 0.9 * vd);
+    c.breath += dt * TAU / 7;
+    // network beads: per-session rx (in) / tx (out), log scale; jam = the link can't keep up (only for sessions moving data)
+    c.rx += ((st.rx || 0) - c.rx) * ease(dt, 0.5); c.tx += ((st.tx || 0) - c.tx) * ease(dt, 0.5);
+    c.lin = netLvl(c.rx); c.lout = netLvl(c.tx); c.jam = clamp(G.bw, 0, 1) * clamp((c.rx + c.tx) / 2, 0, 1) * (1 - vd);
+    const stut = 1 - c.jam * (V.vnoise(t * 2.6 + i * 3, 4.4) > 0.5 ? 0.95 : 0.55);
+    c.phIn += dt * (0.32 + 0.3 * c.lin) * stut * (1 - vd); c.phOut += dt * (0.32 + 0.3 * c.lout) * stut * (1 - vd);
+    if (c.bloom > 0) c.bloom = Math.max(0, c.bloom - dt / 1.6);
+    // idle drift: slow wander about home (the only data-free motion besides play), stops when VPN lost
+    c.nt += dt * 0.07 * P.drift * (1 - vd);
+    const g = V.H / 800;
+    let tx = c.home[0] + (V.vnoise(c.nt + i * 9.1, 3.3) - 0.5) * 80 * g, ty = c.home[1] + (V.vnoise(c.nt + i * 4.7, 8.8) - 0.5) * 50 * g;
+    // VPN: huddle toward the group centre
+    { const rk = G.rank ? G.rank[i] : i, Ra = G.Ravg || c.R, ang = rk * 2.4 + 0.6, dd = rk ? Math.sqrt(rk) * Ra * 0.7 : 0;
+      const hk = (V.LIVE && V.huddlePt ? 1 : 0.9) * vd * G.hud;
+      if (!c.ghost) tx += (G.hx + Math.cos(ang) * dd - tx) * hk; if (!c.ghost) ty += (G.hy + Math.sin(ang) * dd * 0.8 - ty) * hk; }
+    // play: the pair drift together, make one short twirl about their shared centre, part (no exchange)
+    if (G.pa > 0.002 && (i === G.ia || i === G.ib)) {
+      const A = C[G.ia], B = C[G.ib], d = A.R + B.R + 16 * g, mx = (A.home[0] + B.home[0]) / 2, my = (A.home[1] + B.home[1]) / 2;
+      const sg = i === G.ia ? 1 : -1, ox = Math.cos(G.pAng) * d / 2 * sg, oy = Math.sin(G.pAng) * d / 2 * sg;
+      tx += (mx + ox - tx) * sm(G.pa); ty += (my + oy - ty) * sm(G.pa);
+    }
+    // needs-you: rise to just under the menu bar
+    if (c.need > 0.002 && !c.ghost && V.on("needsApproach")) { const kp = knockSpot(V, f, c, taken); tx += (kp[0] - tx) * sm(c.need); ty += (kp[1] - ty) * sm(c.need); }
+    if (V.LIVE) [tx, ty] = V.steer(c.id, tx, ty, c.R);
+    if (V.LIVE) [tx, ty] = (c.need < 0.5 ? V.nav : V.navNeed)(c.id, c.x, c.y, tx, ty, c.need < 0.5 ? ringMax(V, c.R) * 0.8 : c.R * 1.15);   // fit + reachable + around the focus (needs-you: round it to the knock spot)
+    const tau = c.need > 0.05 ? 0.55 : (V.LIVE && V.huddlePt && vd > 0.5 && G.hud) ? 0.4 : (G.pa > 0.3 && (i === G.ia || i === G.ib)) ? 0.3 : 0.6;
+    let nx = c.x + (tx - c.x) * ease(dt, tau), ny = c.y + (ty - c.y) * ease(dt, tau);
+    const mv = Math.hypot(nx - c.x, ny - c.y), cap = 700 * g * dt; if (mv > cap) { nx = c.x + (nx - c.x) * cap / mv; ny = c.y + (ny - c.y) * cap / mv; }
+    c.x = nx; c.y = ny;
+    if (c.need < 0.5 && (vd < 0.5 || (V.LIVE && V.huddlePt))) { const a = V.avoid(c.x, c.y, 50 * g + c.R); c.x += a[0] * 1.8; c.y += a[1] * 1.8; }
+    const amp = Math.pow(s, 1.5) * 3.2 * (1 - vd) * G.sa;
+    c.jx = (V.vnoise(t * 11 + i * 5.5, 1.7) - 0.5) * 2 * amp; c.jy = (V.vnoise(t * 11 + i * 3.1, 9.2) - 0.5) * 2 * amp;
+    // thermal embers
+    c.emberAcc += dt * S.m.thermal * 3 * P.density * (1 - vd);
+    while (c.emberAcc >= 1) { c.emberAcc -= 1; const a = V.rand() * TAU, rr = c.R * 0.65 * Math.sqrt(V.rand());
+      M.push({ kind: 2, x: c.x + Math.cos(a) * rr, y: c.y + Math.sin(a) * rr, vx: (V.rand() - 0.5) * 6, vy: -6 - 6 * V.rand(), life: 0, max: 0.9 + 0.5 * V.rand(), h: 6 + 12 * V.rand(), sz: 2 }); }
+  });
+  // separation: seeds never overlap (play pair excepted: they mesh at rim distance)
+  for (let i = 0; i < C.length; i++) for (let j = i + 1; j < C.length; j++) {
+    const A = C[i], B = C[j]; if (A.ghost || B.ghost) continue;
+    const pair = G.pa > 0.05 && ((i === G.ia && j === G.ib) || (i === G.ib && j === G.ia));
+    if (pair) continue;
+    const dx = B.x - A.x, dy = B.y - A.y, d = Math.hypot(dx, dy) || 1e-3, want = (A.R + B.R) * (1.18 - 0.85 * G.vd * G.hud) + 14 * V.H / 800 * (1 - G.vd * G.hud);
+    if (d < want) { const k = (want - d) * 0.5 * Math.min(1, 6 * dt); A.x -= dx / d * k; A.y -= dy / d * k; B.x += dx / d * k; B.y += dy / d * k; } }
+  // particles
+  for (const m of M) { m.life += dt;
+    m.x += m.vx * dt; m.y += m.vy * dt; if (m.kind === 0) { m.vx *= 0.97; m.vy *= 0.97; } }
+  C.forEach(c => V.report(c.id, c.x + c.jx, c.y + c.jy, c.R * 1.12));
+  M = M.filter(m => m.life < m.max); if (M.length > 700) M.splice(0, M.length - 700);
+}
+
+// ---------- drawing ----------
+function draw(V, S, ctx) {
+  const t = V.t, P = V.P, s = G.strain, vd = G.vd;
+  const dsz = 1.9 * Math.sqrt(P.size);
+  ctx.globalCompositeOperation = "lighter";
+  if (vd > 0.02 && G.hud && !V.LIVE) drawBeam(V, S, ctx, vd);
+  C.forEach((c, i) => {
+    const st = S.s[c.id]; if (!st) return;
+    V.creature(c.id, () => {
+    const x = c.x + c.jx, y = c.y + c.jy, R = c.R, k = c.k, act = c.act;
+    const br = c.need > 0.01 ? 0.5 + 0.5 * Math.sin(TAU * 0.45 * t) : 0;
+    const bl = c.bloom > 0 ? Math.sin(Math.PI * (1 - c.bloom)) : 0;
+    const open = (0.62 + 0.38 * Math.max(act, c.need)) * (1 - 0.6 * vd) + 0.12 * c.need * br + 0.35 * bl;
+    const satB = 80 * (1 - 0.45 * vd), lumB = (50 + 12 * act + 8 * c.need * br) * (1 - 0.18 * vd);
+    const calm = clamp(1 - act - c.need, 0, 1), aB = (0.42 + 0.48 * act + 0.2 * c.need) * (1 - 0.25 * vd) * (1 - 0.12 * calm * (0.5 + 0.5 * Math.sin(c.breath)));
+    // machine strain: red ember glow behind and inside the seed, rising with level (no rings, no flashing)
+    if (s > 0.02) { const fl = 0.85 + 0.15 * V.vnoise(t * 0.9 + i * 7, 2.2), es = Math.pow(s, 1.2) * fl * (1 - vd);
+      glow(V, ctx, 4, 92, 46, x, y, R * 2.0, 0.65 * es); glow(V, ctx, 10, 95, 50, x, y, R * 1.15, 0.75 * es);
+      glow(V, ctx, 0, 95, 52, x, y, R * 0.55, 0.5 * es); }
+    const mp = S.m.mempress;
+    // soft halo (decoration, scaled by glow)
+    glow(V, ctx, c.hue, satB, 55, x, y, R * 1.55, (0.10 + 0.12 * act + 0.22 * c.need * br + 0.35 * bl) * P.glow);
+    // --- outer dot rings: count = memory; squeeze inward with memory pressure; broken by VPN loss
+    for (let j = 0; j < c.nr; j++) {
+      const rr = R * (0.86 + 0.14 * (c.nr > 1 ? j / (c.nr - 1) : 0.5)) * (1 - 0.05 * mp * (j + 1));
+      const n = Math.max(8, Math.round(k * (3 + j) * P.density)), ang0 = c.rot2 * (j % 2 ? -1 : 1) * (1 + 0.25 * j);
+      ctx.fillStyle = V.hsl(c.hue, satB * 0.9 + 10 * vd, lumB + 6, aB * (0.55 - 0.08 * j));
+      for (let d = 0; d < n; d++) { const a = ang0 + d * TAU / n;
+        if (vd > 0.02) { const ph = ((a % (TAU / 3)) + TAU / 3) % (TAU / 3); if (ph < vd * 0.3 * TAU / 3) continue; }
+        ctx.fillRect(x + Math.cos(a) * rr - dsz * 0.4, y + Math.sin(a) * rr - dsz * 0.4, dsz * 0.8, dsz * 0.8); }
+    }
+    // --- the seed's figure (its variant: shape family + symmetry order k), drawn arm by arm so that
+    //     spin + outward chase = CPU and per-arm angle/length jitter = strain apply to every form alike
+    const F = c.F, PR = R * 0.78 * open, wid = 0.55 + 0.45 * open;
+    const inR = R * (0.7 + 0.3 * open);
+    for (let p = 0; p < k; p++) {
+      const s15 = Math.pow(s, 1.5) * G.sa, brk = s15 * 0.55 * (V.vnoise(p * 7.3 + k, t * 2.4) - 0.5) * 2;
+      const a = c.rot + p * TAU / k + brk, ca = Math.cos(a), sa = Math.sin(a);
+      const tipR = PR * (1 + s15 * 0.32 * (V.vnoise(p * 3.1 + 40, t * 3.1) - 0.5) * 2);
+      const ox = x + s15 * R * 0.13 * (V.vnoise(p * 5.7 + 11, t * 2.9) - 0.5) * 2, oy = y + s15 * R * 0.13 * (V.vnoise(p * 4.3 + 71, t * 2.7) - 0.5) * 2;
+      const flick = G.sa && s > 0.3 && V.vnoise(p * 13, t * 9) > 0.62 ? 1 - 0.55 * (s - 0.3) : 1;
+      for (const [X, Y0, u] of F.arm) { const Y = Y0 * wid, ch = 0.5 + 0.5 * Math.cos(TAU * (u - c.chase));
+        const al = aB * (0.5 + 0.5 * act * ch * ch) * flick;
+        ctx.fillStyle = V.hsl(mixHue(c.hue, 6, 0.75 * s * (1 - 0.5 * u)), satB, lumB + 14 * u + 6 * s, al);
+        ctx.fillRect(ox + (X * ca - Y * sa) * tipR - dsz / 2, oy + (X * sa + Y * ca) * tipR - dsz / 2, dsz, dsz); }
+      for (const [X, Y0] of F.tips) { const Y = Y0 * wid;
+        glow(V, ctx, mixHue(c.hue, 6, 0.5 * s), satB, 62, ox + (X * ca - Y * sa) * tipR, oy + (X * sa + Y * ca) * tipR,
+          7 * Math.sqrt(P.size), aB * (0.35 + 0.5 * act) * P.glow / Math.sqrt(F.tips.length)); }
+      if (F.inner.length) {   // inner kaleidoscope layer, counter-turning, offset by half an arm
+        const a2 = -c.rot * 0.7 + (p + 0.5) * TAU / k + brk * 0.6, c2 = Math.cos(a2), s2 = Math.sin(a2);
+        ctx.fillStyle = V.hsl(c.hue, satB * 0.85, lumB + 16, aB * 0.62);
+        for (const [X, Y] of F.inner) ctx.fillRect(x + (X * c2 - Y * s2) * inR - dsz * 0.4, y + (X * s2 + Y * c2) * inR - dsz * 0.4, dsz * 0.8, dsz * 0.8); }
+    }
+    // --- network: beads along the seed's own arms. IN (download) = cool white-blue, rim -> core, on the arm axes;
+    //     OUT (upload) = warm gold, core -> rim, between the arms. More Mbit/s = more, bigger, brighter beads (log).
+    //     Jam (link too slow): beads stall and pile up in a bright clogged band at the rim, stuttering.
+    drawBeads(V, ctx, c, x, y, R * 0.8 * (0.8 + 0.2 * open), c.lin, c.phIn, 1, 0);
+    drawBeads(V, ctx, c, x, y, R * 0.8 * (0.8 + 0.2 * open), c.lout, c.phOut, -1, 0.5);
+    if (c.jam > 0.03) { const n = 3 * k, rr = R * 0.8;
+      for (let d = 0; d < n; d++) { const a = c.rot + d * TAU / n, fl = V.vnoise(d * 3.3 + i, t * 7) > 0.45 ? 1 : 0.45;
+        glow(V, ctx, 48, 40, 84, x + Math.cos(a) * rr, y + Math.sin(a) * rr, 6 * Math.sqrt(P.size), 0.55 * c.jam * fl * (1 - vd)); } }
+    // --- core: bright 8-bit cross (always visible: idle is dim, never gone)
+    glow(V, ctx, c.hue, satB, 60, x, y, R * 0.5, (0.35 + 0.35 * act) * P.glow * (1 - 0.3 * vd));
+    const px = Math.max(1.5, 2.2 * Math.sqrt(P.size));
+    ctx.fillStyle = V.hsl(c.hue, satB * (0.55 + 0.4 * vd), 82 - 10 * vd, 0.95);
+    [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].forEach(([u, v]) => ctx.fillRect(x + u * px - px / 2, y + v * px - px / 2, px, px));
+    // --- processes: orbiting pixel seeds (count = procs)
+    const np = Math.round(c.procs), orR = R * 1.02 + 9 * Math.sqrt(P.size);
+    ctx.fillStyle = V.hsl(c.hue, satB * 0.8, 72, 0.55 + 0.35 * act);
+    for (let j = 0; j < np; j++) { const a = c.seedA + j * TAU / Math.max(np, 1), sx = x + Math.cos(a) * orR, sy = y + Math.sin(a) * orR;
+      ctx.fillRect(sx - px, sy - px * 0.5, px * 2, px); ctx.fillRect(sx - px * 0.5, sy - px, px, px * 2); }
+    // --- needs-you: slow soft rings out of the seed (0.45 Hz, smooth envelope)
+    if (c.need > 0.02) for (let j = 0; j < 2; j++) {
+      const u = ((t / 2.2) + j * 0.5) % 1, rad = R * 1.15 + u * (0.6 * R + 18 * V.H / 800), al = Math.sin(Math.PI * u) * 0.45 * c.need;
+      ctx.strokeStyle = V.hsl(c.hue, 85, 66, al * P.glow); ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(x, y, rad, 0, TAU); ctx.stroke();
+      ctx.strokeStyle = V.hsl(c.hue, 70, 82, al); ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(x, y, rad, 0, TAU); ctx.stroke(); }
+    // --- reconnect bloom ring
+    if (bl > 0.01) { ctx.strokeStyle = V.hsl(c.hue, 90, 72, bl * 0.7); ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(x, y, R * (1.1 + 1.8 * (1 - c.bloom)), 0, TAU); ctx.stroke(); }
+    });
+  });
+  // particles: bloom motes, heat sparks (inside the seed)
+  for (const m of M) { const u = m.life / m.max, a = Math.sin(Math.PI * Math.min(1, u * 1.2)) * (m.kind === 2 ? 0.7 : 0.9);
+    ctx.fillStyle = m.kind === 2 ? V.hsl(m.h, 95, 60, a) : V.hsl(m.h, 85, 72, a);
+    const z = m.sz * Math.sqrt(P.size); ctx.fillRect(m.x - z / 2, m.y - z / 2, z, z); }
+  if (vd > 0.02 && G.hud && !V.LIVE) drawBeacon(V, ctx, vd);
+  ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1;
+}
+function drawBeam(V, S, ctx, vd) {   // slow searching beam from the huddle, never over the focused window
+  const f = S.focus; ctx.save();
+  if (f) { ctx.beginPath(); ctx.rect(0, 0, V.W, V.H); ctx.rect(f[0] - 6, f[1] - 6, f[2] + 12, f[3] + 12); ctx.clip("evenodd"); }
+  const a = G.beam, L = 300 * Math.max(0.6, V.H / 800), sp = 0.17, x = G.hx, y = G.hy;
+  const g = ctx.createRadialGradient(x, y, 10, x, y, L);
+  g.addColorStop(0, V.hsl(205, 35, 70, 0.13 * vd)); g.addColorStop(1, V.hsl(205, 35, 70, 0));
+  ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, L, a - sp, a + sp); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+function drawBeads(V, ctx, c, x, y, rim, lvl, ph, dir, off) {
+  if (lvl < 0.03) return;
+  const P = V.P, k = c.k, n = 1 + Math.round(3 * lvl), jam = c.jam, ex = 1 + 4 * jam;
+  const z = (1.8 + 2.6 * lvl) * Math.sqrt(P.size), r0 = c.R * 0.16;
+  const h = dir > 0 ? 205 : 44, sat = dir > 0 ? 55 : 92, lum = dir > 0 ? 86 : 66, al = (0.35 + 0.65 * lvl) * (1 - G.vd);
+  for (let p = 0; p < k; p++) { const a = c.rot + (p + off) * TAU / k, ca = Math.cos(a), sa = Math.sin(a);
+    for (let j = 0; j < n; j++) { const f = (ph + j / n + p * 0.37 / k) % 1;
+      let pos = dir > 0 ? 1 - Math.pow(f, ex) : 1 - Math.pow(1 - f, ex);    // radial 0 = core, 1 = rim; jam bunches at the rim
+      const env = Math.sin(Math.PI * Math.min(1, f * 1.15 + 0.02)) * (1 - jam) + jam, r = r0 + (rim - r0) * pos;
+      const bx = x + ca * r, by = y + sa * r;
+      glow(V, ctx, h, sat, lum, bx, by, z * 3.4, al * env * 0.9 * P.glow);
+      ctx.fillStyle = V.hsl(h, sat, lum + 6, al * env); ctx.fillRect(bx - z / 2, by - z / 2, z, z);
+      // comet tail behind the bead shows its direction (shrinks to nothing when jammed: stalled beads leave no trail)
+      const tl = (1 - jam) * (rim - r0) * 0.07;
+      for (let e = 1; e <= 3; e++) { const rt = r + dir * tl * e, zz = z * (1 - 0.22 * e);
+        ctx.fillStyle = V.hsl(h, sat, lum, al * env * (0.55 - 0.15 * e)); ctx.fillRect(x + ca * rt - zz / 2, y + sa * rt - zz / 2, zz, zz); } } } }
+function drawBeacon(V, ctx, vd) {   // a small red beacon blinking above the huddle (flash 0.18 s every 1.3 s)
+  const u = (V.t % 1.3) / 1.3, on = u < 0.14 ? 1 : 0.12, px = 2.6 * Math.sqrt(V.P.size);
+  const x = G.hx, y = Math.max(V.TOP + 8, G.hy - Math.max(...C.map(c => c.R)) * 1.25 - 8);
+  glow(V, ctx, 0, 95, 55, x, y, 14 * Math.sqrt(V.P.size), 0.9 * on * vd);
+  ctx.fillStyle = V.hsl(0, 95, 62, (0.3 + 0.7 * on) * vd); ctx.fillRect(x - px, y - px, 2 * px, 2 * px);
+  ctx.fillStyle = V.hsl(0, 30, 35, 0.6 * vd); ctx.fillRect(x - px * 0.5, y + px, px, px * 2.2); }
+function place(V, id, x, y) { const c = C.find(q => q.id === id); if (c) { c.x = x; c.y = y; } }
+V.piece({ init, carry, lightSpots, step, draw, place });
+})();
+</script></body></html>

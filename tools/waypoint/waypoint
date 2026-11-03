@@ -1,0 +1,2420 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+waypoint — a tiny navigational-shortcut manager for the shell.
+================================================================
+
+WHAT IT DOES
+------------
+Waypoint keeps a curated list of "project root" directories and exposes each one
+to your shell in two ways:
+
+  1. As an environment variable, e.g.  $NOTES  ->  /home/you/dev/Notes_v2
+  2. As a jump target for the `wp` function, e.g.  `wp notes`  ->  cd's you there.
+
+It does this by writing a single, clearly-labelled, self-managed block into your
+shell login file (default: ~/.zshrc). Waypoint owns that block exclusively and
+rewrites it wholesale on every `sync`. Nothing outside the block is ever touched.
+
+THE SOURCE OF TRUTH IS THE DATABASE, NOT THE SHELL FILE
+-------------------------------------------------------
+Waypoint's authoritative record of what it tracks is a human-readable Markdown
+table at:
+
+    $WAYPOINT_DATA/waypoints.md   (default ~/.config/waypoint/waypoints.md)
+
+Everything Waypoint renders into your shell file is derived from that database.
+This separation is deliberate and gives you two independent recovery paths:
+
+  * If your ~/.zshrc gets corrupted or clobbered:   `waypoint sync`
+        -> rebuilds the managed block exactly from waypoints.md.
+
+  * If waypoints.md is ever lost or damaged:        `waypoint import`
+        -> reconstructs the database by reading the managed block back out of
+           your shell file.
+
+So the two artifacts back each other up. As long as either survives, the other
+can be regenerated.
+
+DESIGN PRINCIPLES
+-----------------
+  * Idempotent:  re-running `sync` with an unchanged database produces a
+                 byte-for-byte identical managed block.
+  * Non-destructive:  the shell login file is backed up (timestamped, into
+                 <data dir>/backups/) before every modification.
+  * Surgical:  only the region between the BEGIN/END sentinels is ever replaced.
+                 Your own aliases, functions, and settings are left alone.
+  * Warn-but-export:  if a tracked directory no longer exists on disk, Waypoint
+                 STILL defines the variable (so the name keeps working if the
+                 path returns) but prints a warning. `waypoint doctor` reports
+                 every missing path.
+  * Zero dependencies:  standard-library Python 3 only. No pip installs.
+
+COMMANDS  (run `waypoint <command> -h` for details on each)
+-----------------------------------------------------------
+  add NAME PATH [--note ...] [--machine M]  Add or update a waypoint, then sync.
+  remove NAME [--machine M]   Remove a waypoint (all machines, or just one), then sync.
+  list                        Show tracked waypoints (with existence check).
+  sync                        Regenerate the managed block from the database.
+  doctor                      Verify the database and every tracked path.
+  import                      Rebuild the database from the shell file's block.
+  install                     Ensure the managed block exists in the shell file.
+  uninstall                   Remove the managed block from the shell file.
+  path                        Print the resolved shell-file and database paths.
+  machine                     Print this machine's resolved identity key.
+  launch add|remove|list|template   Manage `launch <name>` aliases (launches.md).
+  focus add|remove NAME       Mark/unmark a launch alias as current focus.
+  focus list                  Show focus launches and where they resolve here.
+  focus launch [--dry-run] [--only NAME] [--arrange]   Start iTerm2 if needed; open a window per
+                              focus launch not already open (reusing a restored idle window
+                              titled for it), on its saved Space/bounds when layouts.md has a
+                              row. --arrange then runs `layout apply` on the reused ones.
+  layout [show|save|forget NAME|profiles]  Per-machine window Space + bounds (layouts.md).
+
+MULTI-MACHINE SCOPING
+----------------------
+Keep the data directory in a private synced repo (symlink ~/.config/waypoint into it)
+and the same tables reach every machine you use. Each
+row has an optional Machine column: blank means "universal fallback," used by any
+machine with no more specific row for that Name. Give `--machine NAME` BEFORE the
+subcommand to override this machine's identity for a `list`/`doctor`/`sync` run,
+or to scope an `add`/`remove` to one particular machine instead of the default
+universal row. Run `waypoint machine` to see this machine's own resolved key.
+
+After any command that changes your shell file, open a new terminal (or run
+`source ~/.zshrc`) for the changes to take effect.
+
+See README.md for the tour.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as _dt
+import json
+import os
+import plistlib
+import re
+import shutil
+import socket
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+# --------------------------------------------------------------------------- #
+# Constants
+# --------------------------------------------------------------------------- #
+
+# Where this script lives, and where its databases live. They are separate on purpose: the
+# tool is shareable code, the tables are one person's private map of their disk. The data
+# directory is $WAYPOINT_DATA if set, else ~/.config/waypoint (which may be a symlink into a
+# private synced repo, so every machine shares one set of tables). `waypoint install` creates
+# it, and links this executable into it as `waypoint` so other tools find the CLI beside its
+# data.
+HERE = Path(__file__).resolve().parent
+DATA_DIR = Path(os.path.expanduser(os.environ.get("WAYPOINT_DATA") or "~/.config/waypoint"))
+DB_PATH = DATA_DIR / "waypoints.md"
+BACKUP_DIR = DATA_DIR / "backups"
+
+# The sentinels that fence off Waypoint's exclusive territory in the shell file.
+# `sync` replaces everything between these two lines (inclusive). Text outside
+# them is never modified. Do not change these strings casually: existing managed
+# blocks are located by matching them literally.
+BEGIN = "# >>> waypoint (managed — do not edit by hand) >>>"
+END = "# <<< waypoint (managed) <<<"
+
+# Launch aliases live in a SECOND managed block, rendered in parallel to the
+# waypoints block above. It defines a `launch <name>` shell function that cds
+# into a directory and runs a command (e.g. start a Claude session in a project
+# root). Its source of truth is launches.md, beside waypoints.md.
+LAUNCH_DB_PATH = DATA_DIR / "launches.md"
+LAUNCH_BEGIN = "# >>> waypoint-launch (managed — do not edit by hand) >>>"
+LAUNCH_END = "# <<< waypoint-launch (managed) <<<"
+
+# The default command a launch alias runs unless it sets its own. Tokens {NAME}
+# and {DIR} are substituted per alias. Overridable per-database via a "Default
+# launch template:" line in launches.md.
+DEFAULT_LAUNCH_TEMPLATE = "claude --dangerously-skip-permissions -n {NAME}"
+
+# A variable name must be a valid POSIX shell identifier so that `export NAME=...`
+# is legal. We render names in UPPER_CASE by convention.
+VALID_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+# ANSI colours (suppressed automatically when output is not a TTY).
+class _C:
+    def __init__(self, enabled: bool):
+        self.g = "\033[32m" if enabled else ""   # green  (ok)
+        self.y = "\033[33m" if enabled else ""    # yellow (warn)
+        self.r = "\033[31m" if enabled else ""    # red    (error)
+        self.b = "\033[34m" if enabled else ""    # blue   (info)
+        self.d = "\033[2m" if enabled else ""     # dim
+        self.x = "\033[0m" if enabled else ""     # reset
+
+C = _C(sys.stdout.isatty())
+
+
+# --------------------------------------------------------------------------- #
+# Small helpers
+# --------------------------------------------------------------------------- #
+
+def _now_stamp() -> str:
+    """Filesystem-safe timestamp for backup filenames."""
+    return _dt.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+
+
+def _iso_today() -> str:
+    """Human date recorded in the database when a waypoint is added."""
+    return _dt.date.today().isoformat()
+
+
+def info(msg: str) -> None:
+    print(f"{C.b}•{C.x} {msg}")
+
+
+def ok(msg: str) -> None:
+    print(f"{C.g}✓{C.x} {msg}")
+
+
+def warn(msg: str) -> None:
+    print(f"{C.y}⚠{C.x} {msg}")
+
+
+def err(msg: str) -> None:
+    print(f"{C.r}✗{C.x} {msg}", file=sys.stderr)
+
+
+def die(msg: str, code: int = 1) -> "NoReturn":  # type: ignore[name-defined]
+    err(msg)
+    sys.exit(code)
+
+
+def expand(path: str) -> str:
+    """Expand ~ and environment variables, returning an absolute path string.
+
+    We store absolute, tilde-free paths in the database so the record is
+    unambiguous, but we accept ~ and $VARS on input for convenience.
+    """
+    return str(Path(os.path.expandvars(os.path.expanduser(path))).resolve(strict=False))
+
+
+def current_machine(override: str | None = None) -> str:
+    """Resolve this machine's identity key for per-machine waypoint rows.
+
+    Precedence: an explicit --machine CLI override, then $WAYPOINT_MACHINE (set
+    by hand outside the managed block — useful because corporate-imaged Macs
+    often have an asset-tag hostname like 'MT-ABC123' rather than something
+    readable, and that tag can change on a re-image), then the OS hostname
+    itself, normalized (lowercased, trailing '.local' stripped).
+    """
+    raw = override or os.environ.get("WAYPOINT_MACHINE") or socket.gethostname()
+    raw = raw.strip()
+    if raw.lower().endswith(".local"):
+        raw = raw[: -len(".local")]
+    return raw.lower()
+
+
+# --------------------------------------------------------------------------- #
+# Shell-quoting
+# --------------------------------------------------------------------------- #
+
+def sh_squote(value: str) -> str:
+    """Single-quote a string safely for POSIX sh/zsh.
+
+    Single quotes preserve everything literally except a single quote itself,
+    which we emit using the classic '\\'' escape. This makes paths containing
+    spaces, parentheses, and other metacharacters safe in `export VAR=...`.
+    """
+    return "'" + value.replace("'", "'\\''") + "'"
+
+
+# --------------------------------------------------------------------------- #
+# Shell-file resolution
+# --------------------------------------------------------------------------- #
+
+def default_shell_file() -> Path:
+    """Choose the login file to manage.
+
+    Order of precedence:
+      1. $WAYPOINT_SHELL_FILE  (explicit override, honoured everywhere)
+      2. ~/.zshrc if the current shell looks like zsh OR the file already exists
+      3. ~/.bashrc as a fallback for bash users
+
+    NOTE: the `wp` jump function is a *shell function*, and functions (unlike
+    exported variables) are NOT inherited by child shells. They must therefore
+    live in a file that every interactive shell sources — which is ~/.zshrc for
+    zsh (the macOS default) and ~/.bashrc for bash. That is why we target the
+    interactive rc file rather than a login-only profile.
+    """
+    override = os.environ.get("WAYPOINT_SHELL_FILE")
+    if override:
+        return Path(expand(override))
+
+    home = Path.home()
+    shell = os.environ.get("SHELL", "")
+    zshrc = home / ".zshrc"
+    bashrc = home / ".bashrc"
+
+    if "zsh" in shell or zshrc.exists():
+        return zshrc
+    if "bash" in shell or bashrc.exists():
+        return bashrc
+    # Default to zsh on modern macOS.
+    return zshrc
+
+
+# --------------------------------------------------------------------------- #
+# Database (Markdown) read/write
+# --------------------------------------------------------------------------- #
+#
+# The database is a GitHub-flavoured Markdown document with a single table:
+#
+#   | Name | Path | Added | Status | Notes |
+#   |------|------|-------|--------|-------|
+#   | NOTES | /abs/path | 2026-08-17 | active | ... |
+#
+# We parse only that table. Prose above/below the table is preserved on rewrite
+# via a fixed header/footer template, so the file always stays readable.
+# --------------------------------------------------------------------------- #
+
+class Waypoint:
+    """One tracked shortcut.
+
+    `machine` is optional. Blank means "universal fallback": this row applies on
+    any machine that has no more specific row for the same `name`. A `name` may
+    have multiple rows as long as each has a distinct `machine` (at most one of
+    which is blank) — see resolve_for_machine().
+    """
+
+    __slots__ = ("name", "path", "added", "status", "notes", "machine")
+
+    def __init__(self, name: str, path: str, added: str = "", status: str = "active", notes: str = "",
+                 machine: str = ""):
+        self.name = name
+        self.path = path
+        self.added = added or _iso_today()
+        self.status = status or "active"
+        self.notes = notes or ""
+        self.machine = machine or ""
+
+    def exists(self) -> bool:
+        return Path(self.path).is_dir()
+
+
+DB_HEADER = """\
+# Waypoints — navigational shortcuts database
+
+This file is the **authoritative source of truth** for the `waypoint` tool.
+Every environment variable and `wp` jump target in your shell is rendered from
+the table below. Edit here (or via `waypoint add` / `waypoint remove`) and then
+run `waypoint sync` to push changes into your shell login file.
+
+If your shell login file is ever damaged, `waypoint sync` rebuilds it from this
+table. If *this* file is ever lost, `waypoint import` rebuilds it from the
+managed block in your shell login file.
+
+Columns:
+- **Name** — the shortcut name; becomes `$NAME` and `wp name`. Must be a valid
+  shell identifier (letters, digits, underscore; not starting with a digit).
+- **Path** — absolute directory path (no `~`).
+- **Added** — date the waypoint was first recorded.
+- **Status** — `active` normally; free-form otherwise (e.g. `stale`).
+- **Notes** — optional human note.
+- **Machine** — optional. Blank = universal fallback, used on any machine with
+  no more specific row for this Name. A Name may have several rows as long as
+  each has a distinct Machine (see `waypoint machine` to find this machine's
+  key, and the README for the full resolution rule).
+
+| Name | Path | Added | Status | Notes | Machine |
+|------|------|-------|--------|-------|---------|
+"""
+
+DB_FOOTER = """
+<!-- Managed by waypoint. You may edit the table by hand; keep the header row
+     and the separator row intact, then run `waypoint sync`. -->
+"""
+
+
+def load_db() -> list[Waypoint]:
+    """Read and parse the Markdown database. Returns [] if it doesn't exist."""
+    if not DB_PATH.exists():
+        return []
+
+    rows: list[Waypoint] = []
+    in_table = False
+    seen_separator = False
+
+    for raw in DB_PATH.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line.startswith("|"):
+            # A non-table line ends the table region once we've been inside it.
+            if in_table:
+                in_table = False
+            continue
+
+        cells = [c.strip() for c in line.strip("|").split("|")]
+
+        # Detect the header row and the |---|---| separator row and skip them.
+        lowered = [c.lower() for c in cells]
+        if lowered[:2] == ["name", "path"]:
+            in_table = True
+            seen_separator = False
+            continue
+        if in_table and not seen_separator and set("".join(cells)) <= set("-: "):
+            seen_separator = True
+            continue
+
+        if in_table and seen_separator:
+            # Pad short rows so optional trailing columns (including the newer
+            # Machine column) are tolerated.
+            while len(cells) < 6:
+                cells.append("")
+            name, path, added, status, notes, machine = cells[:6]
+            if not name:
+                continue
+            rows.append(Waypoint(name=name, path=path, added=added, status=status, notes=notes,
+                                  machine=machine))
+
+    return rows
+
+
+def save_db(waypoints: list[Waypoint]) -> None:
+    """Write the database back out, sorted by (name, machine) for stable diffs."""
+    waypoints = sorted(waypoints, key=lambda w: (w.name.upper(), w.machine.lower()))
+    lines = [DB_HEADER.rstrip("\n")]
+    for w in waypoints:
+        # Escape any pipe characters that might appear in notes/paths.
+        def esc(s: str) -> str:
+            return s.replace("|", "\\|")
+        lines.append(
+            f"| {esc(w.name)} | {esc(w.path)} | {esc(w.added)} | {esc(w.status)} | {esc(w.notes)} | {esc(w.machine)} |"
+        )
+    lines.append(DB_FOOTER)
+    DB_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+# --------------------------------------------------------------------------- #
+# Launch aliases (second database: launches.md)
+# --------------------------------------------------------------------------- #
+#
+# A launch alias binds a name to a directory + a command. The directory comes
+# either from an existing waypoint (preferred — so it follows that waypoint's
+# per-machine resolution automatically) or from an explicit path. The command
+# is the shared default template unless the alias overrides it.
+# --------------------------------------------------------------------------- #
+
+class Launch:
+    """One launch alias.
+
+    Exactly one of `waypoint` (a waypoint name to cd into) or `path` (an explicit
+    directory) provides the working directory; `waypoint` is preferred because it
+    inherits that waypoint's multi-machine resolution. `command` blank means "use
+    the database's default template". `machine` scoping mirrors Waypoint.
+    """
+
+    __slots__ = ("name", "waypoint", "path", "command", "added", "status", "notes", "machine", "focus")
+
+    def __init__(self, name: str, waypoint: str = "", path: str = "", command: str = "",
+                 added: str = "", status: str = "active", notes: str = "", machine: str = "",
+                 focus: bool = False):
+        self.name = name
+        self.waypoint = waypoint or ""
+        self.path = path or ""
+        self.command = command or ""
+        self.added = added or _iso_today()
+        self.status = status or "active"
+        self.notes = notes or ""
+        self.machine = machine or ""
+        self.focus = bool(focus)
+
+
+FOCUS_TRUE = {"yes", "y", "true", "1", "x"}
+
+
+def parse_focus(cell: str) -> bool:
+    return cell.strip().lower() in FOCUS_TRUE
+
+
+LAUNCH_TEMPLATE_LABEL = "Default launch template:"
+
+LAUNCH_DB_HEADER_TMPL = """\
+# Launch aliases database
+
+This file is the **authoritative source of truth** for `waypoint`'s launch
+aliases — the second managed block in your shell file, which defines a
+`launch <name>` function that cds into a directory and runs a command (for
+example, starting a Claude session in a project root). Edit here (or via
+`waypoint launch add` / `waypoint launch remove`) then run `waypoint sync`.
+
+{label} {template}
+
+Columns:
+- **Name** — the alias; becomes `launch name`. Also substituted for `{{NAME}}`
+  in the command template (verbatim casing). Must be a valid shell identifier.
+- **Waypoint** — name of a waypoint to cd into (preferred; follows that
+  waypoint's per-machine resolution). Leave blank to use Path instead.
+- **Path** — an explicit absolute directory, used only when Waypoint is blank.
+- **Command** — the command to run; blank means use the default template above.
+  `{{NAME}}` and `{{DIR}}` are substituted. Colour markers: the text colour is
+  `printf '\\033]10;#RRGGBB\\007'` (iTerm2 foreground; Lodestar colorboard.py
+  reads it); an optional `: led=#RRGGBB;` right after it is the project's
+  SidePulse LED colour (a shell no-op; absent means the LED uses the text hex).
+- **Added** / **Status** / **Notes** — as in waypoints.md.
+- **Machine** — optional; blank = universal fallback (same rule as waypoints).
+- **Focus** — `yes` marks a current-focus project: `waypoint focus launch`
+  opens an iTerm2 window for it if none is open. Blank = not in focus. Purely a
+  launcher marker; it has no effect on Lodestar's background sync.
+
+| Name | Waypoint | Path | Command | Added | Status | Notes | Machine | Focus |
+|------|----------|------|---------|-------|--------|-------|---------|-------|
+"""
+
+LAUNCH_DB_FOOTER = """
+<!-- Managed by waypoint. You may edit the table by hand; keep the header row
+     and the separator row intact, then run `waypoint sync`. -->
+"""
+
+
+def load_launch_template() -> str:
+    """Read the default command template from launches.md, or the built-in default."""
+    if not LAUNCH_DB_PATH.exists():
+        return DEFAULT_LAUNCH_TEMPLATE
+    for raw in LAUNCH_DB_PATH.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if line.startswith(LAUNCH_TEMPLATE_LABEL):
+            return line[len(LAUNCH_TEMPLATE_LABEL):].strip() or DEFAULT_LAUNCH_TEMPLATE
+    return DEFAULT_LAUNCH_TEMPLATE
+
+
+def load_launches() -> list[Launch]:
+    """Read and parse launches.md. Returns [] if it doesn't exist."""
+    if not LAUNCH_DB_PATH.exists():
+        return []
+
+    rows: list[Launch] = []
+    in_table = False
+    seen_separator = False
+
+    for raw in LAUNCH_DB_PATH.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line.startswith("|"):
+            if in_table:
+                in_table = False
+            continue
+
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        lowered = [c.lower() for c in cells]
+        if lowered[:2] == ["name", "waypoint"]:
+            in_table = True
+            seen_separator = False
+            continue
+        if in_table and not seen_separator and set("".join(cells)) <= set("-: "):
+            seen_separator = True
+            continue
+
+        if in_table and seen_separator:
+            while len(cells) < 9:
+                cells.append("")
+            name, waypoint, path, command, added, status, notes, machine, focus = cells[:9]
+            if not name:
+                continue
+            rows.append(Launch(name=name, waypoint=waypoint, path=path, command=command,
+                               added=added, status=status, notes=notes, machine=machine,
+                               focus=parse_focus(focus)))
+
+    return rows
+
+
+def save_launches(launches: list[Launch], template: str | None = None) -> None:
+    """Write launches.md back out, sorted by (name, machine) for stable diffs."""
+    if template is None:
+        template = load_launch_template()
+    launches = sorted(launches, key=lambda l: (l.name.upper(), l.machine.lower()))
+    header = LAUNCH_DB_HEADER_TMPL.format(label=LAUNCH_TEMPLATE_LABEL, template=template)
+    lines = [header.rstrip("\n")]
+
+    def esc(s: str) -> str:
+        return s.replace("|", "\\|")
+
+    for l in launches:
+        lines.append(
+            f"| {esc(l.name)} | {esc(l.waypoint)} | {esc(l.path)} | {esc(l.command)} | "
+            f"{esc(l.added)} | {esc(l.status)} | {esc(l.notes)} | {esc(l.machine)} | "
+            f"{'yes' if l.focus else ''} |"
+        )
+    lines.append(LAUNCH_DB_FOOTER)
+    LAUNCH_DB_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+# --------------------------------------------------------------------------- #
+# Rendering the managed block
+# --------------------------------------------------------------------------- #
+
+def is_blocked(w: "Waypoint") -> bool:
+    """A waypoint whose status is 'blocked' is a deliberate exclusion.
+
+    Blocked entries are RECORDED in the database (so the decision persists and
+    neither the tool nor a human re-adds them by accident) but are NEVER
+    rendered into the shell file — no export, no jump target.
+    """
+    return w.status.strip().lower() == "blocked"
+
+
+def resolve_for_machine(waypoints: list[Waypoint], machine: str) -> list[Waypoint]:
+    """Pick exactly one row per Name for the given machine.
+
+    Per Name: an exact (case-insensitive) Machine match wins; otherwise the
+    blank/wildcard row (if any) is used as a universal fallback; otherwise this
+    Name simply has nothing to offer on this machine and is omitted — that is
+    not an error, just "not tracked here."
+
+    Blocked rows are excluded up front so a block always wins regardless of
+    machine scoping.
+    """
+    by_name: dict[str, list[Waypoint]] = {}
+    for w in waypoints:
+        if is_blocked(w):
+            continue
+        by_name.setdefault(w.name.upper(), []).append(w)
+
+    winners: list[Waypoint] = []
+    machine_lower = machine.lower()
+    for rows in by_name.values():
+        exact = next((w for w in rows if w.machine.lower() == machine_lower), None)
+        chosen = exact or next((w for w in rows if not w.machine), None)
+        if chosen is not None:
+            winners.append(chosen)
+    return winners
+
+
+def render_block(waypoints: list[Waypoint], machine: str = "") -> str:
+    """Produce the exact text of the managed block (between the sentinels).
+
+    Resolves one row per Name for `machine` first (see resolve_for_machine), so
+    the rendered block only ever contains what this machine should see. The
+    output is deterministic: an unchanged database + machine always renders
+    identical bytes (idempotency guarantee).
+    """
+    wps = sorted(resolve_for_machine(waypoints, machine), key=lambda w: w.name.upper())
+
+    lines: list[str] = [BEGIN]
+    lines.append("# Generated by waypoint. Do not edit inside these markers by hand;")
+    lines.append("# your edits will be overwritten on the next `waypoint sync`.")
+    lines.append(f"# Source of truth: {DB_PATH}")
+    lines.append(f"# Rendered for machine: {machine}")
+    lines.append("#")
+
+    if not wps:
+        lines.append("# (no waypoints defined yet)")
+    else:
+        # 1) Environment-variable exports, under the canonical UPPERCASE name.
+        for w in wps:
+            lines.append(f"export {w.name.upper()}={sh_squote(w.path)}")
+
+        # 1b) Shell variables cannot be case-insensitive, so the other spellings
+        #     people actually type ($thesis, $Thesis, the DB's own casing) are
+        #     plain (unexported) shell variables, kept out of child environments.
+        aliases = [(a, w) for w in wps for a in case_aliases(w.name)]
+        if aliases:
+            lines.append("")
+            lines.append("# Case variants of the names above ($thesis, $Thesis): shell-only, not exported.")
+            for a, w in aliases:
+                lines.append(f"{a}={sh_squote(w.path)}")
+
+        # 2) A name->path lookup used by the `wp` jump function. We build it as a
+        #    portable case statement so it works in both zsh and bash without
+        #    associative-array syntax differences.
+        lines.append("")
+        lines.append("# wp <name>: jump (cd) to a waypoint's root directory.")
+        lines.append("# `wp` with no argument lists the available names.")
+        lines.append("wp() {")
+        lines.append("  local _wp_target _wp_key")
+        lines.append("  if [ -z \"$1\" ]; then")
+        names_display = " ".join(w.name.lower() for w in wps)
+        lines.append(f"    echo \"waypoints: {names_display}\"")
+        lines.append("    return 0")
+        lines.append("  fi")
+        # Fold the argument to lowercase so matching is fully case-insensitive.
+        # bash and zsh share no portable in-shell lowercase operator, so we shell
+        # out to tr; the case labels below are all lowercase to match.
+        lines.append("  _wp_key=$(printf '%s' \"$1\" | tr '[:upper:]' '[:lower:]')")
+        lines.append("  case \"$_wp_key\" in")
+        # Each arm also answers to its folder's name (`wp rimmandrake` for
+        # RIMMASTER -> .../RimMandrake), unless that is another waypoint's name.
+        taken = {w.name.lower() for w in wps}
+        for w in wps:
+            pat = w.name.lower()
+            base = Path(w.path.rstrip("/")).name.lower()
+            if base != pat and base not in taken and VALID_NAME.match(base):
+                taken.add(base)
+                pat = f"{pat}|{base}"
+            lines.append(f"    {pat}) _wp_target={sh_squote(w.path)} ;;")
+        lines.append("    *) echo \"wp: unknown waypoint '$1'\" >&2; return 1 ;;")
+        lines.append("  esac")
+        lines.append("  cd \"$_wp_target\" || return 1")
+        lines.append("}")
+
+    lines.append(END)
+    return "\n".join(lines)
+
+
+# Lowercase parameter names zsh/bash already own; a waypoint alias must never
+# assign one (e.g. `path=...` would clobber zsh's $PATH array).
+SHELL_RESERVED = frozenset("""
+    path fpath cdpath manpath mailpath module_path psvar watch status pipestatus
+    argv prompt prompt2 prompt3 prompt4 histchars signals options parameters
+    commands functions aliases builtins modules history historywords dirstack
+    nameddirs userdirs funcstack funcfiletrace funcsourcetrace termcap terminfo
+    mapfile reswords saliases galiases keymaps widgets jobstates jobtexts jobdirs
+    sysparams errnos epochtime zsh_eval_context zsh_scheduled_events match mbegin
+    mend reply
+""".split())
+
+
+def case_aliases(name: str) -> list[str]:
+    """Non-canonical spellings of a waypoint name to define as shell variables.
+
+    lowercase, Capitalized and the DB's verbatim casing, minus the canonical
+    UPPERCASE export and anything a shell reserves.
+    """
+    out: list[str] = []
+    for a in (name.lower(), name[:1].upper() + name[1:].lower(), name):
+        if a != name.upper() and a not in out and a.lower() not in SHELL_RESERVED:
+            out.append(a)
+    return out
+
+
+def resolve_launch_dir(launch: "Launch", wp_paths: dict[str, str]) -> str | None:
+    """The directory a launch should cd into on this machine, or None if unavailable.
+
+    A waypoint reference is resolved against `wp_paths` (name.upper() -> path,
+    already resolved for this machine). If the referenced waypoint isn't tracked
+    here, the launch simply can't run on this machine and is skipped — not an
+    error, consistent with how a machine-scoped waypoint is skipped elsewhere. An
+    explicit path is used as-is.
+    """
+    if launch.waypoint:
+        return wp_paths.get(launch.waypoint.upper())
+    if launch.path:
+        return launch.path
+    return None
+
+
+def render_launch_template(template: str, name: str, directory: str) -> str:
+    """Substitute the {NAME}/{DIR} tokens in a launch command template."""
+    return template.replace("{NAME}", name).replace("{DIR}", directory)
+
+
+def render_launch_block(launches: list[Launch], waypoints: list[Waypoint],
+                        machine: str = "", template: str | None = None) -> str:
+    """Produce the exact text of the launch managed block (between its sentinels).
+
+    Deterministic like render_block: same databases + machine -> identical bytes.
+    Launches whose directory can't be resolved on this machine are omitted.
+    """
+    if template is None:
+        template = DEFAULT_LAUNCH_TEMPLATE
+    wp_paths = {w.name.upper(): w.path for w in resolve_for_machine(waypoints, machine)}
+    chosen = sorted(resolve_for_machine(launches, machine), key=lambda l: l.name.upper())
+
+    # Pair each renderable launch with its resolved (dir, command).
+    entries: list[tuple[Launch, str, str]] = []
+    for l in chosen:
+        directory = resolve_launch_dir(l, wp_paths)
+        if directory is None:
+            continue
+        command = render_launch_template(l.command or template, l.name, directory)
+        entries.append((l, directory, command))
+
+    lines: list[str] = [LAUNCH_BEGIN]
+    lines.append("# Generated by waypoint. Do not edit inside these markers by hand;")
+    lines.append("# your edits will be overwritten on the next `waypoint sync`.")
+    lines.append(f"# Source of truth: {LAUNCH_DB_PATH}")
+    lines.append(f"# Rendered for machine: {machine}")
+    lines.append("#")
+
+    if not entries:
+        lines.append("# (no launch aliases defined yet)")
+    else:
+        lines.append("# launch <name>: cd into a project and run its command.")
+        lines.append("# `launch` with no argument lists the available names.")
+        lines.append("launch() {")
+        lines.append("  local _launch_key")
+        lines.append("  if [ -z \"$1\" ]; then")
+        names_display = " ".join(l.name.lower() for l, _, _ in entries)
+        lines.append(f"    echo \"launches: {names_display}\"")
+        lines.append("    return 0")
+        lines.append("  fi")
+        # Case-insensitive match, same tr-based lowercase fold as wp().
+        lines.append("  _launch_key=$(printf '%s' \"$1\" | tr '[:upper:]' '[:lower:]')")
+        lines.append("  case \"$_launch_key\" in")
+        for l, directory, command in entries:
+            pat = l.name.lower()
+            # The directory is single-quoted (it's data); the command is embedded
+            # literally (it's meant to be executed as the user wrote it).
+            lines.append(f"    {pat}) cd {sh_squote(directory)} && {command} ;;")
+        lines.append("    *) echo \"launch: unknown alias '$1'\" >&2; return 1 ;;")
+        lines.append("  esac")
+        lines.append("}")
+
+    lines.append(LAUNCH_END)
+    return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------- #
+# Shell-file editing (backup + surgical block replacement)
+# --------------------------------------------------------------------------- #
+
+def backup_shell_file(shell_file: Path) -> Path | None:
+    """Copy the shell file into ./backups/, stamped with machine + time.
+
+    The machine key is part of the filename because backups/ lives beside the
+    database — i.e. on shared cloud storage visible to every machine. Without it,
+    two machines syncing in the same second would collide, and (far worse) you
+    could not tell whose ~/.zshrc a given backup is a snapshot of, which makes it
+    unsafe to restore from. We deliberately use the *physical* machine identity
+    here (no --machine override): a backup records where the file came from, not
+    whichever machine's view was being rendered.
+    """
+    if not shell_file.exists():
+        return None
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    dest = BACKUP_DIR / f"{shell_file.name}.{current_machine()}.{_now_stamp()}.bak"
+    shutil.copy2(shell_file, dest)
+    return dest
+
+
+def find_all_blocks(text: str, begin: str = BEGIN, end: str = END) -> list[tuple[int, int]]:
+    """Return (start, end) spans for EVERY managed block of the given kind.
+
+    We scan for all begin…end pairs, not just the first. This is what makes the
+    tool self-healing: if a previous bug (or a hand-edit) ever left more than one
+    managed block in the file, the next write collapses them all into one.
+    Unmatched/half blocks (a begin with no following end) are ignored so we never
+    delete arbitrary user content.
+    """
+    spans: list[tuple[int, int]] = []
+    pos = 0
+    while True:
+        b = text.find(begin, pos)
+        if b == -1:
+            break
+        e = text.find(end, b)
+        if e == -1:
+            break  # dangling begin with no end: leave it alone
+        e_end = e + len(end)
+        spans.append((b, e_end))
+        pos = e_end
+    return spans
+
+
+def extract_block(text: str, begin: str = BEGIN, end: str = END) -> str | None:
+    """Return the FIRST managed block body (between sentinels) or None."""
+    spans = find_all_blocks(text, begin, end)
+    if not spans:
+        return None
+    b, e = spans[0]
+    return text[b:e]
+
+
+def count_blocks(text: str, begin: str = BEGIN, end: str = END) -> int:
+    return len(find_all_blocks(text, begin, end))
+
+
+def _apply_block(text: str, block: str, begin: str = BEGIN, end: str = END) -> tuple[str, str]:
+    """Pure string transform: insert/replace/dedupe one kind of block in `text`.
+
+    Replaces the FIRST matching block in place and REMOVES any additional ones,
+    guaranteeing exactly one block of this kind afterward (self-healing against
+    duplicates). If none exist, appends a fresh block at the end. Returns
+    (new_text, action) where action is created/updated/deduped+updated/unchanged.
+    """
+    spans = find_all_blocks(text, begin, end)
+    if spans:
+        first_start, first_end = spans[0]
+        head = text[:first_start]
+        tail = text[first_end:]
+        for b, e in reversed(spans[1:]):
+            tail = tail[: b - first_end] + tail[e - first_end :]
+        new_text = head + block + tail
+        action = "deduped+updated" if len(spans) > 1 else "updated"
+    else:
+        sep = "" if text == "" or text.endswith("\n\n") else ("\n" if text.endswith("\n") else "\n\n")
+        new_text = text + sep + block + "\n"
+        action = "created"
+    if new_text == text:
+        action = "unchanged"
+    return new_text, action
+
+
+def write_blocks(shell_file: Path, specs: list[tuple[str, str, str]]) -> list[tuple[str, str]]:
+    """Insert/replace several managed blocks in one read → backup → write pass.
+
+    `specs` is a list of (label, block_text, begin_sentinel) — the end sentinel is
+    derived by pairing (waypoints vs launch) so callers stay terse. Backs up the
+    file at most once, and only if something actually changed. Returns a list of
+    (label, action) for reporting.
+    """
+    original = shell_file.read_text(encoding="utf-8") if shell_file.exists() else ""
+    text = original
+    results: list[tuple[str, str]] = []
+    for label, block, begin in specs:
+        end = LAUNCH_END if begin == LAUNCH_BEGIN else END
+        text, action = _apply_block(text, block, begin, end)
+        results.append((label, action))
+
+    if text != original:
+        backup_shell_file(shell_file)
+        shell_file.parent.mkdir(parents=True, exist_ok=True)
+        shell_file.write_text(text, encoding="utf-8")
+    return results
+
+
+# --------------------------------------------------------------------------- #
+# Command implementations
+# --------------------------------------------------------------------------- #
+
+def cmd_sync(args) -> int:
+    shell_file = Path(args.shell_file) if args.shell_file else default_shell_file()
+    wps = load_db()
+    launches = load_launches()
+    template = load_launch_template()
+    machine = current_machine(args.machine)
+
+    wp_block = render_block(wps, machine)
+    launch_block = render_launch_block(launches, wps, machine, template)
+    results = write_blocks(shell_file, [
+        ("waypoints", wp_block, BEGIN),
+        ("launch", launch_block, LAUNCH_BEGIN),
+    ])
+
+    changed = [(lbl, act) for lbl, act in results if act != "unchanged"]
+    if not changed:
+        ok(f"Shell file already up to date ({shell_file}).")
+    else:
+        for lbl, act in results:
+            if act == "unchanged":
+                continue
+            if act == "deduped+updated":
+                ok(f"{lbl} block updated in {shell_file}.")
+                warn(f"Found and removed duplicate {lbl} block(s); collapsed to exactly one.")
+            else:
+                ok(f"{lbl} block {act} in {shell_file}.")
+
+    # Post-sync existence check (warn-but-export policy), scoped to whatever this
+    # machine actually resolves. Blocked entries are excluded — they aren't exported.
+    for w in resolve_for_machine(wps, machine):
+        if not w.exists():
+            warn(f"{w.name} -> {w.path} (directory not found; variable still exported)")
+
+    # Launches whose directory can't be resolved here are skipped (not an error).
+    wp_paths = {w.name.upper(): w.path for w in resolve_for_machine(wps, machine)}
+    for l in resolve_for_machine(launches, machine):
+        if resolve_launch_dir(l, wp_paths) is None:
+            ref = f"waypoint '{l.waypoint}'" if l.waypoint else "path"
+            warn(f"launch {l.name}: {ref} not available on this machine; not rendered here.")
+
+    if changed:
+        info("Open a new terminal or run:  source " + str(shell_file))
+    return 0
+
+
+def cmd_add(args) -> int:
+    name = args.name
+    if not VALID_NAME.match(name):
+        die(f"'{name}' is not a valid shell identifier (letters/digits/underscore, not starting with a digit).")
+
+    abspath = expand(args.path)
+    # Unlike the read commands, a missing --machine here means "universal"
+    # (blank), NOT "this machine" — otherwise a plain `add` would silently stop
+    # propagating to every other machine, breaking today's default behavior.
+    machine_key = (args.machine or "").strip().lower()
+    wps = load_db()
+
+    # A block is name-wide and machine-independent: it shouldn't be possible to
+    # sneak a new machine-scoped row under a blocked name without --force.
+    blocked_row = next((w for w in wps if w.name.upper() == name.upper() and is_blocked(w)), None)
+    if blocked_row and not args.force:
+        die(f"'{name}' is blocked (a deliberate exclusion). Re-add with --force to override, "
+            f"or run `waypoint unblock {name}` first.")
+
+    existing = {(w.name.upper(), w.machine.lower()): w for w in wps}
+    scope = f" (machine: {machine_key})" if machine_key else ""
+    key = (name.upper(), machine_key)
+
+    if key in existing:
+        w = existing[key]
+        w.path = abspath
+        w.status = "active"
+        if args.note is not None:
+            w.notes = args.note
+        info(f"Updated existing waypoint {w.name}{scope}.")
+    else:
+        wps.append(Waypoint(name=name, path=abspath, notes=args.note or "", machine=machine_key))
+        info(f"Added waypoint {name}{scope}.")
+
+    if not Path(abspath).is_dir():
+        warn(f"Path does not currently exist: {abspath} (adding anyway).")
+
+    save_db(wps)
+    return cmd_sync(args)
+
+
+def cmd_remove(args) -> int:
+    name = args.name
+    wps = load_db()
+
+    if args.machine is not None:
+        machine_key = args.machine.strip().lower()
+        kept = [w for w in wps if not (w.name.upper() == name.upper() and w.machine.lower() == machine_key)]
+        scope = f" (machine: {machine_key or 'universal'})"
+    else:
+        kept = [w for w in wps if w.name.upper() != name.upper()]
+        scope = " (all machines)"
+
+    if len(kept) == len(wps):
+        die(f"No waypoint named '{name}'{scope}.")
+    save_db(kept)
+    ok(f"Removed waypoint {name}{scope}.")
+    return cmd_sync(args)
+
+
+def cmd_block(args) -> int:
+    """Mark a name as a deliberate exclusion.
+
+    Works whether or not the name is currently tracked: if it exists it is
+    flipped to 'blocked' (and dropped from the shell file on the following
+    sync); if it doesn't exist yet, a placeholder blocked entry is recorded so
+    the exclusion is remembered for the future. A path is optional.
+    """
+    name = args.name
+    if not VALID_NAME.match(name):
+        die(f"'{name}' is not a valid shell identifier.")
+    wps = load_db()
+    existing = {w.name.upper(): w for w in wps}
+    if name.upper() in existing:
+        w = existing[name.upper()]
+        w.status = "blocked"
+        if args.note is not None:
+            w.notes = args.note
+    else:
+        wps.append(Waypoint(name=name, path=expand(args.path) if args.path else "",
+                            status="blocked", notes=args.note or "deliberate exclusion"))
+    save_db(wps)
+    ok(f"Blocked {name} (recorded as an exclusion; will not be exported).")
+    return cmd_sync(args)
+
+
+def cmd_unblock(args) -> int:
+    """Lift a block. The entry becomes active again (needs a valid path to export)."""
+    name = args.name
+    wps = load_db()
+    existing = {w.name.upper(): w for w in wps}
+    if name.upper() not in existing:
+        die(f"No entry named '{name}'.")
+    w = existing[name.upper()]
+    if not is_blocked(w):
+        info(f"{name} is not blocked; nothing to do.")
+        return 0
+    w.status = "active"
+    save_db(wps)
+    ok(f"Unblocked {name}." + ("" if w.path else " Note: it has no path yet — set one with `waypoint add`."))
+    return cmd_sync(args)
+
+
+def cmd_list(args) -> int:
+    wps = sorted(load_db(), key=lambda w: (w.name.upper(), w.machine.lower()))
+    if not wps:
+        info("No waypoints defined. Add one with:  waypoint add NAME PATH")
+        return 0
+
+    machine = current_machine(args.machine)
+    winners = {id(w) for w in resolve_for_machine(wps, machine)}
+
+    name_w = max(len(w.name) for w in wps)
+    mach_w = max((len(w.machine) for w in wps), default=1)
+    mach_w = max(mach_w, len("MACHINE"), 1)
+    print(f"{C.d}{'NAME'.ljust(name_w)}  STATUS   {'MACHINE'.ljust(mach_w)}  PATH{C.x}")
+    for w in wps:
+        mach_label = (w.machine or "*").ljust(mach_w)
+        if is_blocked(w):
+            mark = f"{C.d}block{C.x}"
+            line = f"{C.d}{w.name.ljust(name_w)}{C.x}  {mark}    {mach_label}  {C.d}{w.path or '(no path)'}{C.x}"
+        elif id(w) in winners:
+            exists = w.exists()
+            mark = f"{C.g}ok{C.x}   " if exists else f"{C.r}MISS{C.x} "
+            line = f"{w.name.ljust(name_w)}  {mark}   {mach_label}  {w.path}"
+            if not exists:
+                line += f"  {C.y}(not found){C.x}"
+        else:
+            # A row scoped to a different machine than this one: informational,
+            # not an existence check (it isn't expected to exist here).
+            line = f"{C.d}{w.name.ljust(name_w)}  other   {mach_label}  {w.path}{C.x}"
+        print(line)
+        if w.notes:
+            print(f"{' ' * name_w}         {C.d}{w.notes}{C.x}")
+    return 0
+
+
+def cmd_doctor(args) -> int:
+    shell_file = Path(args.shell_file) if args.shell_file else default_shell_file()
+    wps = load_db()
+    machine = current_machine(args.machine)
+
+    launches = load_launches()
+    template = load_launch_template()
+
+    print(f"{C.b}Waypoint doctor{C.x}")
+    print(f"  database   : {DB_PATH} {'(ok)' if DB_PATH.exists() else C.r + '(MISSING)' + C.x}")
+    print(f"  launches   : {LAUNCH_DB_PATH} {'(ok)' if LAUNCH_DB_PATH.exists() else C.y + '(none yet)' + C.x}")
+    print(f"  shell file : {shell_file} {'(ok)' if shell_file.exists() else C.y + '(not present)' + C.x}")
+    print(f"  machine    : {machine}")
+
+    # Are both managed blocks present, singular, and matching what we'd render?
+    if shell_file.exists():
+        text = shell_file.read_text(encoding="utf-8")
+        for label, begin, end, expected in (
+            ("waypoints", BEGIN, END, render_block(wps, machine)),
+            ("launch", LAUNCH_BEGIN, LAUNCH_END, render_launch_block(launches, wps, machine, template)),
+        ):
+            n_blocks = count_blocks(text, begin, end)
+            if n_blocks == 0:
+                warn(f"{label} block not found in shell file. Run `waypoint sync` to create it.")
+                continue
+            if n_blocks > 1:
+                err(f"{n_blocks} {label} blocks found (should be 1). This can break shell startup. "
+                    f"Run `waypoint sync` to collapse them into one.")
+            current = extract_block(text, begin, end)
+            if current == expected and n_blocks == 1:
+                ok(f"{label} block is present and in sync with the database.")
+            elif current != expected:
+                warn(f"{label} block is OUT OF SYNC with the database. Run `waypoint sync`.")
+
+    # Duplicate detection: (name, machine) is the real uniqueness key now, since
+    # the same name may legitimately have one row per machine.
+    seen: dict[tuple[str, str], int] = {}
+    for w in wps:
+        seen[(w.name.upper(), w.machine.lower())] = seen.get((w.name.upper(), w.machine.lower()), 0) + 1
+    dups = [k for k, c in seen.items() if c > 1]
+    if dups:
+        err("Duplicate (name, machine) rows in database: "
+            + ", ".join(f"{n}@{m or '*'}" for n, m in dups))
+
+    lseen: dict[tuple[str, str], int] = {}
+    for l in launches:
+        lseen[(l.name.upper(), l.machine.lower())] = lseen.get((l.name.upper(), l.machine.lower()), 0) + 1
+    ldups = [k for k, c in lseen.items() if c > 1]
+    if ldups:
+        err("Duplicate (name, machine) launch rows: "
+            + ", ".join(f"{n}@{m or '*'}" for n, m in ldups))
+
+    # Path existence, scoped to what this machine actually resolves (blocked
+    # entries are excluded by resolve_for_machine — they aren't exported).
+    resolved = resolve_for_machine(wps, machine)
+    n_ok = 0
+    for w in resolved:
+        if w.exists():
+            n_ok += 1
+        else:
+            warn(f"{w.name}: path missing -> {w.path}")
+    blocked_names = sorted({w.name for w in wps if is_blocked(w)})
+    if blocked_names:
+        info(f"{len(blocked_names)} blocked (excluded): {', '.join(blocked_names)}")
+
+    total = len(resolved)
+    print(f"\n{C.g if n_ok == total else C.y}{n_ok}/{total} tracked paths exist on this machine ({machine}).{C.x}")
+
+    # Launch aliases: how many resolve to a runnable directory on this machine.
+    wp_paths = {w.name.upper(): w.path for w in resolved}
+    lresolved = resolve_for_machine(launches, machine)
+    l_ok = 0
+    for l in lresolved:
+        directory = resolve_launch_dir(l, wp_paths)
+        if directory is None:
+            ref = f"waypoint '{l.waypoint}'" if l.waypoint else "path"
+            warn(f"launch {l.name}: {ref} not resolvable here; not rendered.")
+        elif not Path(directory).is_dir():
+            warn(f"launch {l.name}: directory missing -> {directory}")
+        else:
+            l_ok += 1
+    l_total = len(lresolved)
+    if l_total:
+        print(f"{C.g if l_ok == l_total else C.y}{l_ok}/{l_total} launch aliases runnable on this machine ({machine}).{C.x}")
+
+    healthy = (n_ok == total and l_ok == l_total and not dups and not ldups)
+    return 0 if healthy else 1
+
+
+def cmd_import(args) -> int:
+    """Rebuild the database from the managed block in the shell file.
+
+    This is the recovery path for a lost/damaged waypoints.md. We parse the
+    `export NAME='PATH'` lines out of the managed block. Notes/added-dates are
+    not stored in the shell file, so recovered entries get today's date and an
+    'imported' note; edit waypoints.md afterward if you want to restore them.
+    """
+    shell_file = Path(args.shell_file) if args.shell_file else default_shell_file()
+    if not shell_file.exists():
+        die(f"Shell file not found: {shell_file}")
+
+    block = extract_block(shell_file.read_text(encoding="utf-8"))
+    if block is None:
+        die("No managed block found in the shell file; nothing to import.")
+
+    # Match:  export NAME='...'   (single-quoted, with '\'' escapes)
+    export_re = re.compile(r"^export\s+([A-Za-z_][A-Za-z0-9_]*)=(.+)$")
+    recovered: list[Waypoint] = []
+    for line in block.splitlines():
+        m = export_re.match(line.strip())
+        if not m:
+            continue
+        name, rawval = m.group(1), m.group(2).strip()
+        path = _unquote_sh(rawval)
+        recovered.append(Waypoint(name=name, path=path, notes="imported from shell block"))
+
+    if not recovered:
+        die("Managed block contained no exports to import.")
+
+    if DB_PATH.exists() and not args.force:
+        die(f"{DB_PATH} already exists. Re-run with --force to overwrite it from the shell block.")
+
+    save_db(recovered)
+    ok(f"Recovered {len(recovered)} waypoint(s) into {DB_PATH}.")
+    info("Recovered rows are universal (blank Machine): the shell file only ever holds "
+         "the single already-resolved path for whichever machine rendered it, so any "
+         "machine-specific scoping from before is lost. Re-add --machine overrides by hand if needed.")
+    for w in sorted(recovered, key=lambda w: w.name.upper()):
+        print(f"  {w.name} -> {w.path}")
+
+    # Best-effort launch recovery from the launch block, if present. This is
+    # lossy: the block records only the resolved directory and final command, not
+    # the original waypoint reference or template, so recovered launches are
+    # stored as explicit-path rows with the literal command.
+    lblock = extract_block(shell_file.read_text(encoding="utf-8"), LAUNCH_BEGIN, LAUNCH_END)
+    if lblock is not None:
+        arm_re = re.compile(r"^\S+?\|(\S+)\)\s+cd\s+(.+?)\s+&&\s+(.+?)\s*;;\s*$")
+        lrecovered: list[Launch] = []
+        for line in lblock.splitlines():
+            m = arm_re.match(line.strip())
+            if not m:
+                continue
+            lname, rawdir, cmd = m.group(1), m.group(2).strip(), m.group(3).strip()
+            lrecovered.append(Launch(name=lname, path=_unquote_sh(rawdir), command=cmd,
+                                     notes="imported from shell block"))
+        if lrecovered:
+            if LAUNCH_DB_PATH.exists() and not args.force:
+                warn(f"{LAUNCH_DB_PATH} exists; not overwriting launches (re-run import with --force).")
+            else:
+                save_launches(lrecovered, DEFAULT_LAUNCH_TEMPLATE)
+                ok(f"Recovered {len(lrecovered)} launch alias(es) into {LAUNCH_DB_PATH}.")
+                for l in sorted(lrecovered, key=lambda l: l.name.upper()):
+                    print(f"  launch {l.name} -> {l.path}")
+    return 0
+
+
+def _unquote_sh(token: str) -> str:
+    """Inverse of sh_squote for the single-quoted forms we emit."""
+    token = token.strip()
+    if len(token) >= 2 and token[0] == "'" and token[-1] == "'":
+        inner = token[1:-1]
+        return inner.replace("'\\''", "'")
+    # Fallback: strip surrounding double quotes if present.
+    if len(token) >= 2 and token[0] == '"' and token[-1] == '"':
+        return token[1:-1]
+    return token
+
+
+def link_cli_into_data_dir() -> None:
+    """Make `<data dir>/waypoint` a symlink to this executable (idempotent).
+
+    Tools that read the tables (a dashboard, a repo-rename census) then find the CLI that
+    edits them in the same directory, without knowing where this checkout lives."""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    link, exe = DATA_DIR / "waypoint", HERE / "waypoint"
+    if link.is_symlink() and Path(os.readlink(link)) == exe:
+        return
+    if link.exists() and not link.is_symlink():
+        warn(f"{link} exists and is not a symlink; leaving it alone.")
+        return
+    if link.is_symlink():
+        link.unlink()
+    link.symlink_to(exe)
+    info(f"Linked {link} -> {exe}")
+
+
+def cmd_install(args) -> int:
+    """Ensure both managed blocks exist (idempotent; same as sync but friendlier)."""
+    link_cli_into_data_dir()
+    if not DB_PATH.exists():
+        info(f"No waypoints database yet; creating an empty one at {DB_PATH}.")
+        save_db([])
+    if not LAUNCH_DB_PATH.exists():
+        info(f"No launches database yet; creating an empty one at {LAUNCH_DB_PATH}.")
+        save_launches([], DEFAULT_LAUNCH_TEMPLATE)
+    return cmd_sync(args)
+
+
+def cmd_uninstall(args) -> int:
+    shell_file = Path(args.shell_file) if args.shell_file else default_shell_file()
+    if not shell_file.exists():
+        die(f"Shell file not found: {shell_file}")
+    text = shell_file.read_text(encoding="utf-8")
+
+    # Remove BOTH managed blocks (waypoints and launch), each wherever it appears.
+    spans: list[tuple[int, int]] = []
+    for begin, end in ((BEGIN, END), (LAUNCH_BEGIN, LAUNCH_END)):
+        spans.extend(find_all_blocks(text, begin, end))
+    if not spans:
+        info("No managed blocks present; nothing to uninstall.")
+        return 0
+    # Excise from the tail forward so offsets stay valid.
+    for b, e in sorted(spans, reverse=True):
+        tail = text[e:]
+        if tail.startswith("\n"):
+            e += 1
+        text = text[:b] + text[e:]
+    # Tidy any excess blank lines left behind.
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    backup_shell_file(shell_file)
+    shell_file.write_text(text, encoding="utf-8")
+    ok(f"Removed managed block(s) from {shell_file}. Databases left intact.")
+    info("Open a new terminal or run:  source " + str(shell_file))
+    return 0
+
+
+def cmd_path(args) -> int:
+    shell_file = Path(args.shell_file) if args.shell_file else default_shell_file()
+    print(f"shell_file : {shell_file}")
+    print(f"data dir   : {DATA_DIR}")
+    print(f"database   : {DB_PATH}")
+    print(f"launches   : {LAUNCH_DB_PATH}")
+    print(f"backups    : {BACKUP_DIR}")
+    return 0
+
+
+def cmd_machine(args) -> int:
+    """Print this machine's resolved identity key for use in the Machine column."""
+    if args.machine:
+        source = "--machine override"
+    elif os.environ.get("WAYPOINT_MACHINE"):
+        source = "$WAYPOINT_MACHINE"
+    else:
+        source = "hostname"
+    print(current_machine(args.machine))
+    info(f"source: {source}  (raw hostname: {socket.gethostname()})")
+    return 0
+
+
+# --------------------------------------------------------------------------- #
+# Launch-alias commands
+# --------------------------------------------------------------------------- #
+
+def cmd_launch_add(args) -> int:
+    name = args.name
+    if not VALID_NAME.match(name):
+        die(f"'{name}' is not a valid shell identifier (letters/digits/underscore, not starting with a digit).")
+    if bool(args.waypoint) == bool(args.path):
+        die("Provide exactly one of --waypoint NAME (preferred) or --path DIR.")
+
+    machine_key = (args.machine or "").strip().lower()
+    launches = load_launches()
+    template = load_launch_template()
+
+    wp_ref, path_val = "", ""
+    if args.waypoint:
+        wp_ref = args.waypoint
+        if wp_ref.upper() not in {w.name.upper() for w in load_db()}:
+            warn(f"No waypoint named '{wp_ref}' in the database yet (adding the alias anyway).")
+    else:
+        path_val = expand(args.path)
+        if not Path(path_val).is_dir():
+            warn(f"Path does not currently exist: {path_val} (adding anyway).")
+
+    existing = {(l.name.upper(), l.machine.lower()): l for l in launches}
+    scope = f" (machine: {machine_key})" if machine_key else ""
+    key = (name.upper(), machine_key)
+    if key in existing:
+        l = existing[key]
+        l.waypoint, l.path = wp_ref, path_val
+        if args.cmd is not None:
+            l.command = args.cmd
+        if args.note is not None:
+            l.notes = args.note
+        l.status = "active"
+        info(f"Updated launch alias {l.name}{scope}.")
+    else:
+        launches.append(Launch(name=name, waypoint=wp_ref, path=path_val,
+                               command=args.cmd or "", notes=args.note or "", machine=machine_key))
+        info(f"Added launch alias {name}{scope}.")
+
+    save_launches(launches, template)
+    return cmd_sync(args)
+
+
+def cmd_launch_remove(args) -> int:
+    name = args.name
+    launches = load_launches()
+    template = load_launch_template()
+    if args.machine is not None:
+        machine_key = args.machine.strip().lower()
+        kept = [l for l in launches if not (l.name.upper() == name.upper() and l.machine.lower() == machine_key)]
+        scope = f" (machine: {machine_key or 'universal'})"
+    else:
+        kept = [l for l in launches if l.name.upper() != name.upper()]
+        scope = " (all machines)"
+    if len(kept) == len(launches):
+        die(f"No launch alias named '{name}'{scope}.")
+    save_launches(kept, template)
+    ok(f"Removed launch alias {name}{scope}.")
+    return cmd_sync(args)
+
+
+def cmd_launch_list(args) -> int:
+    launches = sorted(load_launches(), key=lambda l: (l.name.upper(), l.machine.lower()))
+    template = load_launch_template()
+    print(f"{C.d}default template: {template}{C.x}")
+    if not launches:
+        info("No launch aliases yet. Add one with:  waypoint launch add NAME --waypoint WP")
+        return 0
+
+    machine = current_machine(args.machine)
+    wp_paths = {w.name.upper(): w.path for w in resolve_for_machine(load_db(), machine)}
+    winners = {id(l) for l in resolve_for_machine(launches, machine)}
+
+    name_w = max(len(l.name) for l in launches)
+    mach_w = max(max((len(l.machine) for l in launches), default=1), len("MACHINE"))
+    print(f"{C.d}{'NAME'.ljust(name_w)}  STATUS  {'MACHINE'.ljust(mach_w)}  DIR / COMMAND{C.x}")
+    for l in launches:
+        mach_label = (l.machine or "*").ljust(mach_w)
+        target = f"waypoint:{l.waypoint}" if l.waypoint else (l.path or "(no dir)")
+        if id(l) in winners:
+            directory = resolve_launch_dir(l, wp_paths)
+            if directory is None:
+                mark = f"{C.y}skip{C.x}"
+            elif Path(directory).is_dir():
+                mark = f"{C.g}ok{C.x}  "
+            else:
+                mark = f"{C.r}MISS{C.x}"
+            print(f"{l.name.ljust(name_w)}  {mark}  {mach_label}  {target}")
+            cmd = render_launch_template(l.command or template, l.name, directory or "{DIR}")
+            print(f"{' ' * name_w}          {C.d}$ {cmd}{C.x}")
+        else:
+            print(f"{C.d}{l.name.ljust(name_w)}  other {mach_label}  {target}{C.x}")
+        if l.focus:
+            print(f"{' ' * name_w}          {C.b}focus{C.x}")
+        if l.notes:
+            print(f"{' ' * name_w}          {C.d}{l.notes}{C.x}")
+    return 0
+
+
+def cmd_launch_template(args) -> int:
+    if args.template is None:
+        print(load_launch_template())
+        return 0
+    save_launches(load_launches(), args.template)
+    ok(f"Default launch template set to: {args.template}")
+    return cmd_sync(args)
+
+
+# --------------------------------------------------------------------------- #
+# Focus: the current-focus subset of launch aliases, bulk-opened in iTerm2
+# --------------------------------------------------------------------------- #
+#
+# How "already open" is detected -- two signals, either one is enough, because
+# the priority is NEVER opening a duplicate (a missed open costs one `launch`).
+#
+# 1. Title. Every interactive `claude` goes through the wrapper in
+#    a shell wrapper, which titles the terminal
+#    "Claude: ${PWD:t}" -- the BASENAME OF THE START DIRECTORY, not the -n value.
+#    iTerm2 shows it as "Claude: <basename> (<job>)". Titles drift (a live
+#    session can end up titled "<basename> (claude)"), so the bare
+#    "<basename> (claude)" form is accepted too. The basename is compared
+#    exactly, never as a substring: "ATLAS" does not match "ATLAS2".
+# 2. Process cwd. A `claude` process on an iTerm2 session's tty whose working
+#    directory is the launch directory. Also imperfect -- a session's cwd can
+#    move (a session started in one project may sit in another) -- which is
+#    why the signals are OR-ed rather than either being trusted alone.
+
+ITERM_LIST_SCRIPT = """
+if application id "com.googlecode.iterm2" is not running then return ""
+tell application id "com.googlecode.iterm2"
+  set outList to {}
+  repeat with w in windows
+    repeat with t in tabs of w
+      repeat with s in sessions of t
+        set end of outList to (name of s) & " ||| " & (tty of s)
+      end repeat
+    end repeat
+  end repeat
+  set AppleScript's text item delimiters to linefeed
+  return outList as text
+end tell
+"""
+
+# The command text arrives as argv, so it never needs AppleScript escaping.
+# Run the command in an existing (restored, idle) session, found by tty.
+ITERM_REUSE_SCRIPT = """
+on run argv
+  tell application id "com.googlecode.iterm2"
+    repeat with w in windows
+      repeat with t in tabs of w
+        repeat with s in sessions of t
+          if (tty of s) is (item 2 of argv) then
+            tell s to write text (item 1 of argv)
+            return "ok"
+          end if
+        end repeat
+      end repeat
+    end repeat
+  end tell
+  error "no iTerm2 session on " & (item 2 of argv)
+end run
+"""
+
+ITERM_OPEN_SCRIPT = """
+on run argv
+  tell application id "com.googlecode.iterm2"
+    set newWindow to (create window with default profile)
+    tell current session of newWindow
+      write text (item 1 of argv)
+    end tell
+  end tell
+end run
+"""
+
+
+# A session whose job suffix is a bare shell is a window iTerm2 restored after
+# a restart (or one whose claude exited): titled for the project, nothing running.
+IDLE_SHELL_JOBS = {"-zsh", "zsh", "-bash", "bash", "-sh", "sh", "login"}
+
+ITERM_BUNDLE_ID = "com.googlecode.iterm2"
+
+
+def ensure_iterm_running(timeout: float = 45.0) -> None:
+    """Start iTerm2 if needed and wait until its restored windows have settled.
+
+    Must run before sessions are listed: at boot iTerm2 is not running, and the
+    windows it restores on launch have to be seen (and reused) rather than
+    duplicated.
+    """
+    probe = 'if application id "%s" is running then tell application id "%s" to return count of windows' % (
+        ITERM_BUNDLE_ID, ITERM_BUNDLE_ID)
+    def count() -> int | None:
+        r = subprocess.run(["osascript", "-e", probe + "\nreturn -1"], capture_output=True, text=True, timeout=30)
+        out = r.stdout.strip()
+        return int(out) if r.returncode == 0 and out.lstrip("-").isdigit() and int(out) >= 0 else None
+    if count() is not None:
+        return
+    subprocess.run(["open", "-b", ITERM_BUNDLE_ID], check=False)
+    deadline, last, stable = time.time() + timeout, None, 0
+    while time.time() < deadline:
+        time.sleep(1.0)
+        n = count()
+        if n is None:
+            continue
+        stable = stable + 1 if n == last else 0
+        last = n
+        if stable >= 2:   # same window count for ~2 s: restoration is done
+            return
+    if last is None:
+        die("iTerm2 did not start (open -b com.googlecode.iterm2).")
+
+
+def session_job(session_name: str) -> str:
+    """The trailing ' (<job>)' of an iTerm2 session name, or ''."""
+    m = re.search(r" \(([^()]*)\)$", session_name.strip())
+    return m.group(1) if m else ""
+
+
+def session_title_for(directory: str) -> str:
+    """The title the claude.zsh wrapper gives a session started in `directory`."""
+    return f"Claude: {Path(directory.rstrip('/')).name}"
+
+
+def session_matches(session_name: str, directory: str) -> bool:
+    """True iff an iTerm2 session name is the Claude session for `directory`.
+
+    Exact on the basename; tolerant only of iTerm2's single trailing
+    " (<job>)" suffix.
+    """
+    title = session_title_for(directory)
+    base = Path(directory.rstrip('/')).name
+    name = session_name.strip()
+    if name == title:
+        return True
+    if re.fullmatch(re.escape(title) + r" \([^()]*\)", name):
+        return True
+    return name == f"{base} (claude)"
+
+
+def list_claude_cwds(ttys: set[str]) -> list[tuple[str, str]]:
+    """(tty, cwd) for every `claude` process on one of `ttys` (e.g. '/dev/ttys004')."""
+    try:
+        ps = subprocess.run(["ps", "-A", "-o", "pid=,tty=,comm="], capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    pid_tty: dict[str, str] = {}
+    for line in ps.stdout.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) == 3 and Path(parts[2].strip()).name == "claude":
+            tty = "/dev/" + parts[1]
+            if tty in ttys:
+                pid_tty[parts[0]] = tty
+    if not pid_tty:
+        return []
+    try:
+        lo = subprocess.run(["lsof", "-a", "-d", "cwd", "-p", ",".join(pid_tty), "-Fpn"],
+                            capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    out: list[tuple[str, str]] = []
+    pid = None
+    for line in lo.stdout.splitlines():
+        if line.startswith("p"):
+            pid = line[1:]
+        elif line.startswith("n") and pid in pid_tty:
+            out.append((pid_tty[pid], line[1:]))
+    return out
+
+
+def _same_dir(a: str, b: str) -> bool:
+    return os.path.realpath(a) == os.path.realpath(b)
+
+
+def parse_iterm_sessions(raw: str) -> list[tuple[str, str]]:
+    """Parse ITERM_LIST_SCRIPT output into (name, tty) pairs."""
+    out: list[tuple[str, str]] = []
+    for line in raw.splitlines():
+        if not line.strip():
+            continue
+        name, _, tty = line.partition(" ||| ")
+        out.append((name, tty.strip()))
+    return out
+
+
+def list_iterm_sessions() -> list[tuple[str, str]]:
+    """Every open iTerm2 session as (name, tty). [] if iTerm2 isn't running."""
+    try:
+        res = subprocess.run(["osascript", "-e", ITERM_LIST_SCRIPT],
+                             capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        die(f"Could not query iTerm2 sessions: {e}")
+    if res.returncode != 0:
+        die(f"Could not query iTerm2 sessions (osascript exit {res.returncode}): {res.stderr.strip()}")
+    return parse_iterm_sessions(res.stdout)
+
+
+def open_iterm_window(text: str, layout: "Layout | None" = None) -> None:
+    """Open one window running `text`. With a saved layout, open it with that
+    Space's profile (iTerm2 switches to the Space itself) and set its bounds."""
+    if layout is None:
+        argv = [text]
+        script = ITERM_OPEN_SCRIPT
+    else:
+        argv = [text, space_profile_name(layout.space), str(layout.x), str(layout.y),
+                str(layout.x + layout.width), str(layout.y + layout.height)]
+        script = ITERM_OPEN_LAYOUT_SCRIPT
+    res = subprocess.run(["osascript", "-e", script, *argv],
+                         capture_output=True, text=True, timeout=30)
+    if res.returncode != 0:
+        raise RuntimeError(res.stderr.strip() or f"osascript exit {res.returncode}")
+
+
+def reuse_iterm_session(text: str, tty: str) -> None:
+    res = subprocess.run(["osascript", "-e", ITERM_REUSE_SCRIPT, text, tty],
+                         capture_output=True, text=True, timeout=30)
+    if res.returncode != 0:
+        raise RuntimeError(res.stderr.strip() or f"osascript exit {res.returncode}")
+
+
+def plan_focus_launch(launches: list[Launch], waypoints: list[Waypoint], machine: str,
+                      template: str, sessions: list[tuple[str, str]],
+                      cwds: list[tuple[str, str]] | None = None) -> list[dict]:
+    """Decide, per focus launch on this machine, whether it is open, missing, or unusable.
+
+    Pure (no I/O beyond an is_dir check), so the decision can be tested and
+    dry-run before anything opens a window. Each entry carries: launch, dir,
+    command, action ('open' | 'reuse' | 'skip-open' | 'skip-nodir' | 'skip-dup'),
+    `matched` (the matching session names) and, for 'reuse', `tty`: a session
+    titled for this project whose job is a bare shell with no claude on its tty
+    (a window iTerm2 restored after a restart). It gets the command typed into
+    it instead of a duplicate window opening beside it.
+    """
+    wp_paths = {w.name.upper(): w.path for w in resolve_for_machine(waypoints, machine)}
+    chosen = sorted((l for l in resolve_for_machine(launches, machine) if l.focus),
+                    key=lambda l: l.name.upper())
+    plan: list[dict] = []
+    titles_planned: set[str] = set()
+    for l in chosen:
+        directory = resolve_launch_dir(l, wp_paths)
+        entry = {"launch": l, "dir": directory, "command": "", "matched": [], "action": ""}
+        if directory is None or not Path(directory).is_dir():
+            entry["action"] = "skip-nodir"
+            plan.append(entry)
+            continue
+        entry["command"] = render_launch_template(l.command or template, l.name, directory)
+        entry["matched"] = [f"{n} ||| {t}" for n, t in sessions if session_matches(n, directory)]
+        names_by_tty = {t: n for n, t in sessions}
+        entry["matched"] += [f"{names_by_tty.get(t, '?')} ||| {t} (claude cwd)"
+                             for t, c in (cwds or []) if _same_dir(c, directory)
+                             and not any(m.endswith(f"||| {t}") for m in entry["matched"])]
+        title = session_title_for(directory)
+        claude_ttys = {t for t, _ in (cwds or [])}
+        idle = [t for n, t in sessions if session_matches(n, directory)
+                and session_job(n) in IDLE_SHELL_JOBS and t not in claude_ttys]
+        live = [m for m in entry["matched"] if not any(m.endswith(f"||| {t}") for t in idle)]
+        if idle and not live and title not in titles_planned:
+            entry["action"], entry["tty"] = "reuse", idle[0]
+            titles_planned.add(title)
+        elif entry["matched"]:
+            entry["action"] = "skip-open"
+        elif title in titles_planned:
+            entry["action"] = "skip-dup"   # two focus rows share one title; open it once
+        else:
+            entry["action"] = "open"
+            titles_planned.add(title)
+        plan.append(entry)
+    return plan
+
+
+def _focus_rows(launches: list[Launch], name: str, machine_arg: str | None) -> list[Launch]:
+    rows = [l for l in launches if l.name.upper() == name.upper()]
+    if machine_arg is not None:
+        key = machine_arg.strip().lower()
+        rows = [l for l in rows if l.machine.lower() == key]
+    return rows
+
+
+def _set_focus(args, value: bool) -> int:
+    launches = load_launches()
+    rows = _focus_rows(launches, args.name, args.machine)
+    scope = f" (machine: {args.machine.strip().lower() or 'universal'})" if args.machine is not None else ""
+    if not rows:
+        die(f"No launch alias named '{args.name}'{scope}. Create it first with "
+            f"`waypoint launch add {args.name} --waypoint WP`.")
+    for l in rows:
+        l.focus = value
+    save_launches(launches, load_launch_template())
+    labels = ", ".join(l.machine or "universal" for l in rows)
+    ok(f"{'Added' if value else 'Removed'} focus on {rows[0].name} ({labels}).")
+    return 0
+
+
+def cmd_focus_add(args) -> int:
+    return _set_focus(args, True)
+
+
+def cmd_focus_remove(args) -> int:
+    return _set_focus(args, False)
+
+
+def cmd_focus_list(args) -> int:
+    launches = sorted((l for l in load_launches() if l.focus),
+                      key=lambda l: (l.name.upper(), l.machine.lower()))
+    if not launches:
+        info("No focus launches. Add one with:  waypoint focus add NAME")
+        return 0
+    machine = current_machine(args.machine)
+    wp_paths = {w.name.upper(): w.path for w in resolve_for_machine(load_db(), machine)}
+    winners = {(l.name.upper(), l.machine.lower()) for l in resolve_for_machine(load_launches(), machine)}
+    name_w = max(len(l.name) for l in launches)
+    print(f"{C.d}{'NAME'.ljust(name_w)}  MACHINE    DIR{C.x}")
+    for l in launches:
+        here = (l.name.upper(), l.machine.lower()) in winners
+        directory = resolve_launch_dir(l, wp_paths) if here else None
+        mach = (l.machine or "*").ljust(9)
+        if here:
+            print(f"{l.name.ljust(name_w)}  {mach}  {directory or '(not resolvable here)'}")
+        else:
+            print(f"{C.d}{l.name.ljust(name_w)}  {mach}  (other machine){C.x}")
+    return 0
+
+
+def cmd_focus_launch(args) -> int:
+    machine = current_machine(args.machine)
+    if not args.dry_run:
+        ensure_iterm_running()
+    sessions = list_iterm_sessions()
+    cwds = list_claude_cwds({t for _, t in sessions})
+    plan = plan_focus_launch(load_launches(), load_db(), machine, load_launch_template(), sessions, cwds)
+    if args.only:
+        wanted = {n.upper() for n in args.only}
+        unknown = wanted - {e["launch"].name.upper() for e in plan}
+        if unknown:
+            die(f"Not a focus launch on {machine}: {', '.join(sorted(unknown))}")
+        plan = [e for e in plan if e["launch"].name.upper() in wanted]
+    if not plan:
+        info("No focus launches on this machine. Add one with:  waypoint focus add NAME")
+        return 0
+    layouts = {l.name.upper(): l for l in load_layouts() if l.machine == machine}
+    if not args.dry_run and any(e["action"] == "open" and e["launch"].name.upper() in layouts for e in plan):
+        try:
+            provision_space_profiles(max([l.space for l in layouts.values()] + [desktop_count()]))
+        except Exception as ex:
+            warn(f"could not provision {SPACE_PROFILE_PREFIX}N profiles ({ex}); saved layouts may not apply")
+    verb = "would open" if args.dry_run else "opening"
+    failures = 0
+    for e in plan:
+        name = e["launch"].name
+        if e["action"] == "skip-open":
+            print(f"{C.d}open     {name}  <- {'; '.join(e['matched'])}{C.x}")
+        elif e["action"] == "skip-nodir":
+            warn(f"skip     {name}: directory not available on {machine} ({e['dir'] or 'unresolved'})")
+        elif e["action"] == "skip-dup":
+            warn(f"skip     {name}: shares the title '{session_title_for(e['dir'])}' with another focus row")
+        elif e["action"] == "reuse":
+            text = f"cd {sh_squote(e['dir'])} && {e['command']}"
+            print(f"{C.g}{'would reuse' if args.dry_run else 'reusing'}{C.x}  {name}  (idle restored window "
+                  f"{e['tty']})  $ {text}")
+            if not args.dry_run:
+                try:
+                    reuse_iterm_session(text, e["tty"])
+                except Exception as ex:
+                    failures += 1
+                    err(f"failed to reuse {name}: {ex}")
+        else:
+            text = f"cd {sh_squote(e['dir'])} && {e['command']}"
+            lay = layouts.get(name.upper())
+            where = (f"  {C.b}[Space {lay.space} @ {lay.x},{lay.y} {lay.width}x{lay.height}]{C.x}"
+                     if lay else "")
+            print(f"{C.g}{verb}{C.x}  {name}  $ {text}{where}")
+            if not args.dry_run:
+                try:
+                    open_iterm_window(text, lay)
+                except Exception as ex:  # report, keep going with the rest
+                    failures += 1
+                    err(f"failed to open {name}: {ex}")
+    n_open = sum(e["action"] in ("open", "reuse") for e in plan)
+    n_have = sum(e["action"] == "skip-open" for e in plan)
+    if args.dry_run:
+        info(f"{n_have} already open, {n_open} to open (dry run: nothing opened).")
+    else:
+        info(f"{n_have} already open, {n_open - failures} opened"
+             f"{f', {failures} FAILED' if failures else ''}.")
+    if not args.dry_run and args.arrange and failures < n_open:
+        time.sleep(4)   # let each new claude title its session before layout apply matches it
+        if cmd_layout_apply(argparse.Namespace(machine=args.machine, only=args.only, dry_run=False)):
+            failures += 1
+    return 1 if failures else 0
+
+
+# --------------------------------------------------------------------------- #
+# Layouts: which Space + bounds each focus window had, restored on focus launch
+# --------------------------------------------------------------------------- #
+#
+# The Space is restored by iTerm2 itself: a profile's Window > Space setting
+# ("Space N") makes iTerm2 switch to Desktop N and open the new window there.
+# iTerm2 performs that switch by invoking Mission Control's "Switch to Desktop
+# N" keyboard shortcut, so those shortcuts must be ENABLED (System Settings >
+# Keyboard > Keyboard Shortcuts > Mission Control) or the window opens on the
+# current Space. Only Spaces 1-9 exist in iTerm2's setting.
+#
+# The profiles are an iTerm2 Dynamic Profiles file Waypoint owns outright
+# (SPACE_PROFILES_FILE): one "Claude-SpaceN" per desktop, each a copy of the
+# base profile (the iTerm2 default profile, i.e. what focus launch used before)
+# with only "Space" added. Reading Spaces uses Machinist's read-only
+# `windowspaces` tool; nothing here moves a window or switches a Space except
+# iTerm2 honouring the profile when Waypoint creates a NEW window.
+
+LAYOUT_DB_PATH = DATA_DIR / "layouts.md"
+SPACE_PROFILE_PREFIX = "Claude-Space"
+ITERM_PLIST = Path.home() / "Library/Preferences/com.googlecode.iterm2.plist"
+DYNAMIC_PROFILES_DIR = Path.home() / "Library/Application Support/iTerm2/DynamicProfiles"
+SPACE_PROFILES_FILE = DYNAMIC_PROFILES_DIR / "waypoint-spaces.json"
+ITERM_MAX_SPACE = 9
+
+
+def windowspaces_tool() -> Path:
+    return Path(os.environ.get("WAYPOINT_WINDOWSPACES")
+                or Path.home() / "dev/Machinist/tools/bin/windowspaces")
+
+
+class Layout:
+    __slots__ = ("name", "machine", "space", "x", "y", "width", "height", "saved")
+
+    def __init__(self, name: str, machine: str, space: int, x: int, y: int, width: int, height: int,
+                 saved: str = ""):
+        self.name, self.machine = name, machine.lower()
+        self.space, self.x, self.y, self.width, self.height = int(space), int(x), int(y), int(width), int(height)
+        self.saved = saved or _dt.datetime.now().strftime("%Y-%m-%d %H:%M")
+
+
+LAYOUT_DB_HEADER = """\
+# Window layouts database
+
+Where each focus project's iTerm2 window sat, per machine: its macOS Space
+(Mission Control desktop number) and bounds. `waypoint layout save` records the
+currently open focus windows here; `waypoint focus launch` reopens a missing
+one on its saved Space, at its saved bounds, through the matching
+`Claude-SpaceN` iTerm2 profile. A project with no row here opens exactly as
+before (default profile, current Space).
+
+Columns:
+- **Name** — the launch alias (launches.md).
+- **Machine** — machine key (`waypoint machine`). Always set: Spaces and
+  screen coordinates mean nothing on another machine.
+- **Space** — 1-based desktop number on the window's display.
+- **X** / **Y** / **Width** / **Height** — window bounds in points, top-left
+  origin (the coordinates iTerm2's AppleScript `bounds` uses).
+- **Saved** — when this row was captured.
+
+| Name | Machine | Space | X | Y | Width | Height | Saved |
+|------|---------|-------|---|---|-------|--------|-------|
+"""
+
+
+def load_layouts() -> list[Layout]:
+    if not LAYOUT_DB_PATH.exists():
+        return []
+    rows: list[Layout] = []
+    in_table = seen_sep = False
+    for raw in LAYOUT_DB_PATH.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line.startswith("|"):
+            in_table = False
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if [c.lower() for c in cells[:2]] == ["name", "machine"]:
+            in_table, seen_sep = True, False
+            continue
+        if in_table and not seen_sep and set("".join(cells)) <= set("-: "):
+            seen_sep = True
+            continue
+        if in_table and seen_sep and len(cells) >= 7 and cells[0]:
+            try:
+                rows.append(Layout(*cells[:7], saved=cells[7] if len(cells) > 7 else ""))
+            except ValueError:
+                warn(f"layouts.md: skipping unparseable row: {line}")
+    return rows
+
+
+def save_layouts(layouts: list[Layout]) -> None:
+    layouts = sorted(layouts, key=lambda l: (l.name.upper(), l.machine))
+    lines = [LAYOUT_DB_HEADER.rstrip("\n")]
+    for l in layouts:
+        lines.append(f"| {l.name} | {l.machine} | {l.space} | {l.x} | {l.y} | {l.width} | {l.height} | {l.saved} |")
+    lines.append(LAUNCH_DB_FOOTER)
+    LAYOUT_DB_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def probe_windows() -> dict:
+    """Run `windowspaces --json` (read-only). {'displays': [...], 'windows': {wid: row}}."""
+    tool = windowspaces_tool()
+    if not tool.exists():
+        die(f"{tool} not found. Build it:  sh ~/dev/Machinist/tools/build.sh")
+    res = subprocess.run([str(tool), "--json"], capture_output=True, text=True, timeout=30)
+    if res.returncode != 0:
+        die(f"windowspaces failed (exit {res.returncode}): {res.stderr.strip()}")
+    data = json.loads(res.stdout)
+    return {"displays": data.get("displays", []), "windows": {w["wid"]: w for w in data.get("windows", [])}}
+
+
+def desktop_count(probe: dict | None = None) -> int:
+    """Desktops on the display with the most, capped at iTerm2's 9."""
+    try:
+        probe = probe or probe_windows()
+    except SystemExit:
+        return 0
+    n = max((d.get("desktops", 0) for d in probe["displays"]), default=0)
+    return min(n, ITERM_MAX_SPACE)
+
+
+# Window id ||| session name ||| tty, one line per session. iTerm2's window id
+# is the CoreGraphics window number windowspaces reports.
+ITERM_WINDOWS_SCRIPT = """
+if application id "com.googlecode.iterm2" is not running then return ""
+tell application id "com.googlecode.iterm2"
+  set outList to {}
+  repeat with w in windows
+    set wid to (id of w) as text
+    repeat with t in tabs of w
+      repeat with s in sessions of t
+        set end of outList to wid & " ||| " & (name of s) & " ||| " & (tty of s)
+      end repeat
+    end repeat
+  end repeat
+  set AppleScript's text item delimiters to linefeed
+  return outList as text
+end tell
+"""
+
+ITERM_OPEN_LAYOUT_SCRIPT = """
+on run argv
+  tell application id "com.googlecode.iterm2"
+    set newWindow to (create window with profile (item 2 of argv))
+    set bounds of newWindow to {(item 3 of argv) as integer, (item 4 of argv) as integer, (item 5 of argv) as integer, (item 6 of argv) as integer}
+    tell current session of newWindow
+      write text (item 1 of argv)
+    end tell
+  end tell
+end run
+"""
+
+
+def parse_iterm_windows(raw: str) -> list[tuple[int, str, str]]:
+    out: list[tuple[int, str, str]] = []
+    for line in raw.splitlines():
+        parts = line.split(" ||| ")
+        if len(parts) == 3 and parts[0].strip().isdigit():
+            out.append((int(parts[0]), parts[1], parts[2].strip()))
+    return out
+
+
+def list_iterm_windows() -> list[tuple[int, str, str]]:
+    res = subprocess.run(["osascript", "-e", ITERM_WINDOWS_SCRIPT], capture_output=True, text=True, timeout=30)
+    if res.returncode != 0:
+        die(f"Could not query iTerm2 windows (osascript exit {res.returncode}): {res.stderr.strip()}")
+    return parse_iterm_windows(res.stdout)
+
+
+def space_profile_name(space: int) -> str:
+    return f"{SPACE_PROFILE_PREFIX}{space}"
+
+
+def _iterm_default_profile() -> tuple[str, dict | None]:
+    """(name, dynamic-profile dict or None) of iTerm2's default profile."""
+    guid = ""
+    names: dict[str, str] = {}
+    if ITERM_PLIST.exists():
+        with open(ITERM_PLIST, "rb") as f:
+            prefs = plistlib.load(f)
+        guid = prefs.get("Default Bookmark Guid", "")
+        names = {b.get("Guid", ""): b.get("Name", "") for b in prefs.get("New Bookmarks", [])}
+    for p in sorted(DYNAMIC_PROFILES_DIR.glob("*.json")) if DYNAMIC_PROFILES_DIR.is_dir() else []:
+        if p == SPACE_PROFILES_FILE:
+            continue
+        try:
+            for prof in json.loads(p.read_text(encoding="utf-8")).get("Profiles", []):
+                if prof.get("Guid") == guid:
+                    return prof.get("Name", ""), prof
+        except (OSError, ValueError):
+            continue
+    if guid in names:
+        return names[guid], None
+    die("Could not determine iTerm2's default profile (no 'Default Bookmark Guid').")
+
+
+def render_space_profiles(count: int, base_name: str, base: dict | None) -> str:
+    """The Dynamic Profiles JSON for Claude-Space1..count, each = base + Space."""
+    profiles = []
+    for n in range(1, count + 1):
+        prof = {k: v for k, v in (base or {}).items() if k not in ("Name", "Guid", "Rewritable")}
+        if base is None:
+            prof["Dynamic Profile Parent Name"] = base_name
+        prof.update({"Name": space_profile_name(n), "Guid": f"WAYPOINT-SPACE-PROFILE-{n}", "Space": n})
+        profiles.append(prof)
+    return json.dumps({"Profiles": profiles}, indent=2, sort_keys=True) + "\n"
+
+
+def provision_space_profiles(count: int) -> bool:
+    """Write the Claude-SpaceN profiles file if its content would change. True if written."""
+    count = max(1, min(count, ITERM_MAX_SPACE))
+    base_name, base = _iterm_default_profile()
+    text = render_space_profiles(count, base_name, base)
+    if SPACE_PROFILES_FILE.exists() and SPACE_PROFILES_FILE.read_text(encoding="utf-8") == text:
+        return False
+    DYNAMIC_PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = DYNAMIC_PROFILES_DIR.parent / ".waypoint-spaces.json.tmp"   # outside the watched folder
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, SPACE_PROFILES_FILE)
+    time.sleep(1.5)   # iTerm2 reloads the folder on change; give it a moment before use
+    return True
+
+
+def cmd_layout_save(args) -> int:
+    machine = current_machine(args.machine)
+    windows = list_iterm_windows()
+    sessions = [(n, t) for _, n, t in windows]
+    wid_by_tty = {t: w for w, _, t in windows}
+    cwds = list_claude_cwds({t for _, t in sessions})
+    plan = plan_focus_launch(load_launches(), load_db(), machine, load_launch_template(), sessions, cwds)
+    probe = probe_windows()
+    layouts = {(l.name.upper(), l.machine): l for l in load_layouts()}
+    saved = 0
+    for e in plan:
+        name = e["launch"].name
+        if e["action"] != "skip-open":
+            print(f"{C.d}not open {name}{C.x}")
+            continue
+        wids = []
+        for m in e["matched"]:
+            mt = re.search(r"\|\|\| (/dev/\S+)", m)
+            if mt and wid_by_tty.get(mt.group(1)) not in (None, *wids):
+                wids.append(wid_by_tty[mt.group(1)])
+        row = next((probe["windows"][w] for w in wids if w in probe["windows"]), None)
+        if row is None:
+            warn(f"skip     {name}: window {wids or '?'} not found by windowspaces")
+            continue
+        if row["space"] < 1:
+            warn(f"skip     {name}: window is on {'all Spaces' if row['space'] == 0 else 'an unknown Space'}")
+            continue
+        if row["space"] > ITERM_MAX_SPACE:
+            warn(f"skip     {name}: Space {row['space']} is beyond iTerm2's Space 1-{ITERM_MAX_SPACE}")
+            continue
+        if len(wids) > 1:
+            warn(f"{name}: {len(wids)} matching windows; saving window {row['wid']}")
+        lay = Layout(name, machine, row["space"], row["x"], row["y"], row["width"], row["height"])
+        layouts[(name.upper(), machine)] = lay
+        saved += 1
+        ok(f"saved    {name}: Space {lay.space} @ {lay.x},{lay.y} {lay.width}x{lay.height}")
+    save_layouts(list(layouts.values()))
+    n = desktop_count(probe)
+    wrote = provision_space_profiles(max([l.space for l in layouts.values() if l.machine == machine] + [n]))
+    info(f"{saved} layout(s) saved to {LAYOUT_DB_PATH}; {SPACE_PROFILE_PREFIX}1-{min(max(n, 1), ITERM_MAX_SPACE)} "
+         f"profiles {'written' if wrote else 'already current'} ({SPACE_PROFILES_FILE}).")
+    return 0
+
+
+def cmd_layout_show(args) -> int:
+    machine = current_machine(args.machine)
+    rows = [l for l in load_layouts() if l.machine == machine]
+    if not rows:
+        info(f"No saved layouts for {machine}. Capture them with:  waypoint layout save")
+        return 0
+    w = max(len(l.name) for l in rows)
+    print(f"{C.d}{'NAME'.ljust(w)}  SPACE  BOUNDS                 SAVED{C.x}")
+    for l in sorted(rows, key=lambda l: (l.space, l.name.upper())):
+        print(f"{l.name.ljust(w)}  {str(l.space).ljust(5)}  "
+              f"{f'{l.x},{l.y} {l.width}x{l.height}'.ljust(21)}  {l.saved}")
+    return 0
+
+
+def cmd_layout_forget(args) -> int:
+    machine = current_machine(args.machine)
+    rows = load_layouts()
+    keep = [l for l in rows if not (l.name.upper() == args.name.upper() and l.machine == machine)]
+    if len(keep) == len(rows):
+        die(f"No saved layout for {args.name} on {machine}.")
+    save_layouts(keep)
+    ok(f"Forgot the layout for {args.name} on {machine}; it will open on the current Space.")
+    return 0
+
+
+SPACE_KEY_CODES = {1: 18, 2: 19, 3: 20, 4: 21, 5: 23, 6: 22, 7: 26, 8: 28, 9: 25}
+
+
+def uimovespace_tool() -> Path:
+    return Path(os.environ.get("WAYPOINT_UIMOVESPACE")
+                or Path.home() / "dev/Machinist/tools/bin/uimovespace")
+
+
+def plan_layout_apply(plan: list[dict], layouts: dict[str, "Layout"], windows: list[tuple[int, str, str]],
+                      probe: dict, only: set[str] | None = None) -> list[dict]:
+    """Per focus launch: where its open window is vs. where layouts.md wants it.
+
+    Pure. action: 'move' (wrong Space), 'resize' (right Space, wrong bounds),
+    'ok', 'skip-nolayout', 'skip-closed', 'skip-nowin' (no windowspaces row).
+    `plan` is plan_focus_launch's output; `layouts` maps NAME.upper() -> Layout.
+    """
+    wid_by_tty = {t: w for w, _, t in windows}
+    out: list[dict] = []
+    for e in plan:
+        name = e["launch"].name
+        if only and name.upper() not in only:
+            continue
+        ent = {"name": name, "wid": None, "layout": layouts.get(name.upper()), "row": None, "action": ""}
+        if e["action"] != "skip-open":
+            ent["action"] = "skip-closed"
+        elif ent["layout"] is None:
+            ent["action"] = "skip-nolayout"
+        else:
+            wids = []
+            for m in e["matched"]:
+                mt = re.search(r"\|\|\| (/dev/\S+)", m)
+                if mt and wid_by_tty.get(mt.group(1)) not in (None, *wids):
+                    wids.append(wid_by_tty[mt.group(1)])
+            row = next((probe["windows"][w] for w in wids if w in probe["windows"]), None)
+            if row is None:
+                ent["action"] = "skip-nowin"
+            else:
+                lay = ent["layout"]
+                ent["wid"], ent["row"] = row["wid"], row
+                if row["space"] != lay.space:
+                    ent["action"] = "move"
+                elif (row["x"], row["y"], row["width"], row["height"]) != (lay.x, lay.y, lay.width, lay.height):
+                    ent["action"] = "resize"
+                else:
+                    ent["action"] = "ok"
+        out.append(ent)
+    return out
+
+
+def _osa(script: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=30)
+
+
+def _goto_space(n: int) -> None:
+    if n not in SPACE_KEY_CODES:
+        raise RuntimeError(f"no keyboard shortcut for Space {n}")
+    r = _osa(f'tell application "System Events" to key code {SPACE_KEY_CODES[n]} using control down')
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.strip())
+    time.sleep(0.9)
+
+
+def _set_bounds(wid: int, lay: "Layout") -> None:
+    r = _osa('tell application id "com.googlecode.iterm2"\nactivate\nselect (first window whose id is %d)\n'
+             'set bounds of (first window whose id is %d) to {%d, %d, %d, %d}\nend tell'
+             % (wid, wid, lay.x, lay.y, lay.x + lay.width, lay.y + lay.height))
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.strip())
+
+
+def cmd_layout_apply(args) -> int:
+    machine = current_machine(args.machine)
+    windows = list_iterm_windows()
+    sessions = [(n, t) for _, n, t in windows]
+    cwds = list_claude_cwds({t for _, t in sessions})
+    plan = plan_focus_launch(load_launches(), load_db(), machine, load_launch_template(), sessions, cwds)
+    layouts = {l.name.upper(): l for l in load_layouts() if l.machine == machine}
+    only = {n.upper() for n in args.only} if args.only else None
+    if only:
+        unknown = only - {e["launch"].name.upper() for e in plan}
+        if unknown:
+            die(f"Not a focus launch on {machine}: {', '.join(sorted(unknown))}")
+    probe = probe_windows()
+    steps = plan_layout_apply(plan, layouts, windows, probe, only)
+    tool = uimovespace_tool()
+    if not args.dry_run and any(s["action"] == "move" for s in steps) and not tool.exists():
+        die(f"{tool} not found. Build it:  sh ~/dev/Machinist/tools/build.sh")
+    for s in steps:
+        lay, row, a = s["layout"], s["row"], s["action"]
+        if a == "ok":
+            print(f"{C.d}ok       {s['name']}  Space {lay.space} @ {lay.x},{lay.y} {lay.width}x{lay.height}{C.x}")
+        elif a == "move":
+            print(f"{C.g}move     {s['name']}  Space {row['space']} -> {lay.space}, bounds "
+                  f"-> {lay.x},{lay.y} {lay.width}x{lay.height}{C.x}")
+        elif a == "resize":
+            print(f"{C.g}resize   {s['name']}  {row['x']},{row['y']} {row['width']}x{row['height']} -> "
+                  f"{lay.x},{lay.y} {lay.width}x{lay.height}{C.x}")
+        elif a == "skip-nolayout":
+            print(f"{C.d}skip     {s['name']}: no saved layout (waypoint layout save){C.x}")
+        elif a == "skip-closed":
+            print(f"{C.d}skip     {s['name']}: not open{C.x}")
+        else:
+            warn(f"skip     {s['name']}: window not found by windowspaces")
+    todo = [s for s in steps if s["action"] in ("move", "resize")]
+    if args.dry_run or not todo:
+        info(f"{len(todo)} window(s) to fix{' (dry run: nothing touched)' if args.dry_run else ''}.")
+        return 0
+    cur = next((d.get("current") for d in probe["displays"] if d.get("current", -1) > 0), 1)
+    front = _osa('tell application id "com.googlecode.iterm2" to return id of front window')
+    front_wid = int(front.stdout.strip()) if front.returncode == 0 and front.stdout.strip().isdigit() else None
+    failures = 0
+    here = cur
+    for s in [s for s in todo if s["action"] == "move"]:
+        lay, wid = s["layout"], s["wid"]
+        try:
+            now = probe_windows()
+            row = now["windows"].get(wid) or s["row"]
+            if row["space"] < 1:
+                raise RuntimeError("window's Space is unknown (iTerm2 still restoring?); rerun layout apply")
+            if row["space"] != here:
+                _goto_space(row["space"])
+                here = row["space"]
+            _set_bounds(wid, lay)
+            time.sleep(0.6)
+            r = subprocess.run([str(tool), str(lay.x + lay.width // 2), str(lay.y + 13), str(lay.space)],
+                               capture_output=True, text=True, timeout=30)
+            if r.returncode != 0:
+                raise RuntimeError(f"uimovespace: {r.stderr.strip() or r.returncode}")
+            here = lay.space   # uimovespace leaves us on the destination desktop
+            time.sleep(0.5)
+            got = probe_windows()["windows"].get(wid, {}).get("space")
+            if got != lay.space:
+                raise RuntimeError(f"window is on Space {got}, wanted {lay.space}")
+            ok(f"moved    {s['name']} -> Space {lay.space}")
+        except Exception as ex:
+            failures += 1
+            err(f"failed   {s['name']}: {ex}")
+    final = probe_windows()
+    for s in todo:
+        row = final["windows"].get(s["wid"])
+        lay = s["layout"]
+        if row and (row["x"], row["y"], row["width"], row["height"]) != (lay.x, lay.y, lay.width, lay.height):
+            try:
+                _set_bounds(s["wid"], lay)
+            except Exception as ex:
+                failures += 1
+                err(f"failed   {s['name']} bounds: {ex}")
+    try:
+        if here != cur:
+            _goto_space(cur)
+        if front_wid is not None:
+            _osa('tell application id "com.googlecode.iterm2" to select (first window whose id is %d)' % front_wid)
+    except Exception as ex:
+        warn(f"could not restore Space {cur}: {ex}")
+    info(f"{len(todo) - failures} fixed, {failures} failed.")
+    return 1 if failures else 0
+
+
+def cmd_layout_profiles(args) -> int:
+    n = args.count or desktop_count()
+    if n < 1:
+        die("Could not count desktops; pass --count N.")
+    wrote = provision_space_profiles(n)
+    ok(f"{SPACE_PROFILE_PREFIX}1-{min(n, ITERM_MAX_SPACE)} {'written to' if wrote else 'already current in'} "
+       f"{SPACE_PROFILES_FILE}")
+    return 0
+
+
+# --------------------------------------------------------------------------- #
+# Argument parsing
+# --------------------------------------------------------------------------- #
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="waypoint",
+        description="Manage shell navigational shortcuts ($VAR exports + `wp` jump function).",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument(
+        "--shell-file",
+        default=None,
+        help="Override the shell login file to manage (default: auto-detect, honouring $WAYPOINT_SHELL_FILE).",
+    )
+    p.add_argument(
+        "--machine",
+        default=None,
+        help="Override this machine's identity (default: auto-detect, honouring $WAYPOINT_MACHINE, then "
+             "the OS hostname). For `add`/`remove` this instead sets which machine-scoped row to act on "
+             "(default: universal/blank). Must appear before the subcommand, e.g. "
+             "`waypoint --machine work-laptop list`.",
+    )
+    sub = p.add_subparsers(dest="command", required=True)
+
+    sp = sub.add_parser("add", help="Add or update a waypoint, then sync.")
+    sp.add_argument("name", help="Shortcut name (becomes $NAME and `wp name`).")
+    sp.add_argument("path", help="Directory path (~ and $VARS allowed).")
+    sp.add_argument("--note", default=None, help="Optional note stored in the database.")
+    sp.add_argument("--force", action="store_true", help="Override a blocked name.")
+    sp.set_defaults(func=cmd_add)
+
+    sp = sub.add_parser("remove", help="Remove a waypoint, then sync.")
+    sp.add_argument("name", help="Name of the waypoint to remove.")
+    sp.set_defaults(func=cmd_remove)
+
+    sp = sub.add_parser("block", help="Record a name as a deliberate exclusion (never exported).")
+    sp.add_argument("name", help="Name to block.")
+    sp.add_argument("path", nargs="?", default=None, help="Optional path to remember with the block.")
+    sp.add_argument("--note", default=None, help="Optional note.")
+    sp.set_defaults(func=cmd_block)
+
+    sp = sub.add_parser("unblock", help="Lift a block, making the name active again.")
+    sp.add_argument("name", help="Name to unblock.")
+    sp.set_defaults(func=cmd_unblock)
+
+    sp = sub.add_parser("list", help="List tracked waypoints with existence check.")
+    sp.set_defaults(func=cmd_list)
+
+    sp = sub.add_parser("sync", help="Regenerate the managed block from the database.")
+    sp.set_defaults(func=cmd_sync)
+
+    sp = sub.add_parser("doctor", help="Verify the database and every tracked path.")
+    sp.set_defaults(func=cmd_doctor)
+
+    sp = sub.add_parser("import", help="Rebuild the database from the shell file's managed block.")
+    sp.add_argument("--force", action="store_true", help="Overwrite an existing database.")
+    sp.set_defaults(func=cmd_import)
+
+    sp = sub.add_parser("install", help="Ensure the managed block exists (creates empty db if needed).")
+    sp.set_defaults(func=cmd_install)
+
+    sp = sub.add_parser("uninstall", help="Remove the managed block from the shell file (keeps db).")
+    sp.set_defaults(func=cmd_uninstall)
+
+    sp = sub.add_parser("path", help="Print resolved shell-file, database, and backup paths.")
+    sp.set_defaults(func=cmd_path)
+
+    sp = sub.add_parser("machine", help="Print this machine's resolved identity key.")
+    sp.set_defaults(func=cmd_machine)
+
+    # Launch aliases: a parallel managed block + `launch <name>` shell function.
+    lp = sub.add_parser("launch", help="Manage launch aliases (cd into a dir + run a command).")
+    lsub = lp.add_subparsers(dest="launch_command", required=True)
+
+    la = lsub.add_parser("add", help="Add or update a launch alias, then sync.")
+    la.add_argument("name", help="Alias name (becomes `launch name`; substituted for {NAME}).")
+    la.add_argument("--waypoint", default=None, help="Waypoint to cd into (preferred; follows its per-machine path).")
+    la.add_argument("--path", default=None, help="Explicit directory (used only if --waypoint is omitted).")
+    la.add_argument("--cmd", default=None, help="Command to run; omit to use the default template.")
+    la.add_argument("--note", default=None, help="Optional note stored in the database.")
+    la.set_defaults(func=cmd_launch_add)
+
+    lr = lsub.add_parser("remove", help="Remove a launch alias, then sync.")
+    lr.add_argument("name", help="Alias to remove.")
+    lr.set_defaults(func=cmd_launch_remove)
+
+    ll = lsub.add_parser("list", help="List launch aliases with resolved dir and command.")
+    ll.set_defaults(func=cmd_launch_list)
+
+    lt = lsub.add_parser("template", help="Show or set the default command template.")
+    lt.add_argument("template", nargs="?", default=None,
+                    help="New template (with {NAME}/{DIR}); omit to print the current one.")
+    lt.set_defaults(func=cmd_launch_template)
+
+    # Focus: a marker on launch rows + a bulk "open what's missing" in iTerm2.
+    fp = sub.add_parser("focus", help="Manage current-focus launches and open the missing ones in iTerm2.")
+    fsub = fp.add_subparsers(dest="focus_command", required=True)
+
+    fa = fsub.add_parser("add", help="Mark a launch alias as current focus (all its machine rows, "
+                                     "or only the global --machine row).")
+    fa.add_argument("name", help="Launch alias name.")
+    fa.set_defaults(func=cmd_focus_add)
+
+    fr = fsub.add_parser("remove", help="Clear the focus marker (does not remove the launch alias).")
+    fr.add_argument("name", help="Launch alias name.")
+    fr.set_defaults(func=cmd_focus_remove)
+
+    fl = fsub.add_parser("list", help="List focus launches and where they resolve on this machine.")
+    fl.set_defaults(func=cmd_focus_list)
+
+    fo = fsub.add_parser("launch", help="Open an iTerm2 window for every focus launch not already open.")
+    fo.add_argument("--dry-run", action="store_true", help="Report what would open; open nothing.")
+    fo.add_argument("--only", action="append", metavar="NAME",
+                    help="Consider only this focus launch (repeatable).")
+    fo.add_argument("--arrange", action="store_true",
+                    help="Afterwards run `layout apply`, moving reused/restored windows to their saved "
+                    "Space and bounds (drives the mouse for a few seconds per misplaced window).")
+    fo.set_defaults(func=cmd_focus_launch)
+
+    # Layouts: per-machine Space + bounds of each focus window (layouts.md).
+    yp = sub.add_parser("layout", help="Save/show each focus window's Space and bounds (restored by focus launch).")
+    ysub = yp.add_subparsers(dest="layout_command")
+    yp.set_defaults(func=cmd_layout_show)
+
+    ys = ysub.add_parser("save", help="Record the Space + bounds of every open focus window on this machine.")
+    ys.set_defaults(func=cmd_layout_save)
+
+    ysh = ysub.add_parser("show", help="Print this machine's saved layouts (the default).")
+    ysh.set_defaults(func=cmd_layout_show)
+
+    yf = ysub.add_parser("forget", help="Drop one project's saved layout on this machine.")
+    yf.add_argument("name", help="Launch alias name.")
+    yf.set_defaults(func=cmd_layout_forget)
+
+    ya = ysub.add_parser("apply", help="Put every open focus window back on its saved Space and bounds "
+                         "(after iTerm2 restarts). Moves the mouse and takes over the machine for a few "
+                         "seconds per window.",
+                         description="Moves each already-open focus window to its saved Space and bounds. "
+                         "It switches Spaces, drives the mouse (uimovespace) and takes over the machine for "
+                         "a few seconds per misplaced window. Windows already correct are untouched.")
+    ya.add_argument("--dry-run", action="store_true", help="Print the plan; touch nothing.")
+    ya.add_argument("--only", action="append", metavar="NAME", help="Consider only this focus launch (repeatable).")
+    ya.set_defaults(func=cmd_layout_apply)
+
+    ypr = ysub.add_parser("profiles", help=f"(Re)write the {SPACE_PROFILE_PREFIX}N iTerm2 dynamic profiles.")
+    ypr.add_argument("--count", type=int, default=None, help="How many (default: this machine's desktop count).")
+    ypr.set_defaults(func=cmd_layout_profiles)
+
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

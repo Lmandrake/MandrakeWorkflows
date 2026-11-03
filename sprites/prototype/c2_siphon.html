@@ -1,0 +1,691 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>C2 Siphonophores: hovering light-craft</title></head><body>
+<script id="COLOPHON" type="application/json">[
+"One hovering light-craft per session, colour = session. Bell size (area) = memory; CPU = tempo of the running lights chasing round the rim (and the bell's breathing); bright = working, dim = idle",
+"Beam-tentacles = background tasks (one each, a blinking beacon at every tip, count them)",
+"Download = cool white-blue pulses climbing the tentacles INTO the core; upload = gold pulses running OUT from the core to the tips; more and brighter = more Mbit/s. Link too slow: pulses stall, stutter and pile into a bright clog at the bell's throat",
+"Swims to the window's edge, taps and sends slow dotted rings = needs you",
+"Machine strain (level, heat, memory pressure): a red ember glow behind and inside the craft, and its lattice slips out of alignment as if noise were added; tentacles writhe; memory pressure shortens them",
+"VPN down: cold grey, lights stop, tentacles hang limp, huddle, a small red beacon blinks, no traffic, a slow searching beam; one bloom = back. Two idle craft drifting together for one twirl, then parting = play (means nothing). Halo, beam cone and tint ripple are decoration",
+"Form (bell silhouette, dot pattern, tentacle arrangement, oral arms) = which variant, never data"
+]</script>
+<script src="timelines.js"></script>
+<script src="scenarios.js"></script>
+<script src="visitors_runtime.js"></script>
+<script>
+V.piece((function () {
+  "use strict";
+  const TAU = Math.PI * 2, W = V.W, H = V.H, P = V.P, TOP = V.TOP, BOT = V.BOT;
+  const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+  const ease = (dt, tau) => 1 - Math.exp(-dt / tau);
+  const sm = x => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+  const hash1 = n => { let h = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+  // LEGACY = the blind-trial stage (1280x800 with menu bar and dock): layout exactly as trialled.
+  const LEGACY = TOP > 0 && W === 1280 && H === 800;
+  // Live mode: V.sessions and P.size change at runtime, so these are recomputed in init (and TLEN in resize).
+  // For a fixed session count and size 1 the numbers are exactly the load-time ones they used to be.
+  let NS, SC, KMEM, TLEN, NB;
+  const NTMAX = 12;                                  // max tentacles (procs 1..12)
+  function scales() {
+    NS = V.sessions.length;
+    // creature scale: 1 on the trial stage; in gallery cells it follows stage height and session count
+    SC = LEGACY ? 1 : (H - TOP - BOT) / 400 * (NS <= 1 ? 0.95 : NS <= 3 ? 0.9 : NS <= 6 ? 0.85 : 0.8);
+    // LIVE ONLY: the screen is a full desktop (e.g. 1728x1117), where (H-TOP-BOT)/400 gives giant craft (SC ~2.1).
+    // Cap SC at the blind-trial scale, min(W/1280, H/800): the trial look (1280x800) scaled to this screen.
+    // (Non-LEGACY at SC=1 has bell 1.45x and tentacles 0.78x the trial's; whole-craft height is about the same.)
+    if (V.LIVE) SC = Math.min(SC, Math.min(W / 1280, H / 800));
+    KMEM = 26 * SC * (LEGACY ? 1 : 1.45);                               // bell radius px = KMEM*sqrt(GB): area true to memory
+    NB = Math.max(6, Math.round(16 * P.density)); // beads per tentacle
+    TLEN = 118 * P.size * SC * (LEGACY ? 1 : 0.78);                     // tentacle length (fixed: memory reads on the bell only)
+  }
+  scales();
+  const rad = m => KMEM * Math.sqrt(clamp(m, 0.15, 3)) * P.size;
+
+  // ---------- individualizer: 8 forms (silhouette, dot pattern, tentacle arrangement, oral arms) ----------
+  // None touches a data channel: bell AREA stays memory, pulse RATE stays CPU, tentacle COUNT stays procs.
+  const VARS = [
+    { name: "Moon",    prof: "dome",    R: 7,  pat: "rings",     arr: "curtain", oral: "manubrium" },
+    { name: "Lantern", prof: "lantern", R: 10, pat: "meridians", arr: "bundle",  oral: "wick" },
+    { name: "Saucer",  prof: "saucer",  R: 6,  pat: "spiral",    arr: "ring",    oral: "tuft" },
+    { name: "Box",     prof: "box",     R: 8,  pat: "wire",      arr: "corners", oral: "none" },
+    { name: "Lyre",    prof: "bell",    R: 8,  pat: "bands",     arr: "sides",   oral: "curls" },
+    { name: "Spire",   prof: "spire",   R: 9,  pat: "stars",     arr: "coil",    oral: "none" },
+    { name: "Pagoda",  prof: "pagoda",  R: 10, pat: "tiers",     arr: "frill",   oral: "frills" },
+    { name: "Corolla", prof: "flower",  R: 7,  pat: "spokes",    arr: "lobes",   oral: "cauli" },
+  ];
+  const VARIANT_NAMES = VARS.map(v => v.name); window.VARIANT_NAMES = VARIANT_NAMES;
+  // profile(t, az): t 0 apex .. 1 rim -> [rho, y] in bell radii (y down, before perspective)
+  function profile(kind, t, az) {
+    switch (kind) {
+      case "lantern": return [0.6 * Math.pow(Math.sin(Math.PI * (0.06 + 0.88 * t)), 0.8) + 0.12 * t ** 6, -0.98 + 1.48 * t];
+      case "saucer": { const th = 0.15 + 1.45 * t; return [1.32 * Math.sin(th), -Math.cos(th) * 0.34 + 0.24]; }
+      case "box": return t < 0.3 ? [0.92 * t / 0.3, -0.62 + 0.05 * t / 0.3] : [0.92 + 0.04 * (t - 0.3) / 0.7, -0.57 + 1.0 * (t - 0.3) / 0.7];
+      case "bell": { if (t < 0.25) { const f = t / 0.25 * Math.PI / 2; return [0.5 * Math.sin(f), -0.8 + 0.26 * (1 - Math.cos(f))]; }
+        const s = (t - 0.25) / 0.75; return [0.5 + 0.06 * s + 0.66 * s ** 3.2, -0.54 + 0.98 * s]; }
+      case "spire": return [0.95 * Math.pow(Math.sin(t * Math.PI / 2), 1.5), -1.2 + 1.6 * t];
+      case "pagoda": { if (t < 0.4) { const th = 0.15 + 1.35 * t / 0.4; return [0.52 * Math.sin(th), -1.0 + 0.4 * (1 - Math.cos(th))]; }
+        const s = (t - 0.4) / 0.6; return [0.28 + 0.74 * Math.pow(Math.sin(s * Math.PI / 2), 0.8), -0.52 + 0.94 * s]; }
+      case "flower": { const th = 0.12 + 1.6 * t, l = Math.cos(5 * az);
+        return [Math.sin(th) * (1 + 0.3 * t ** 2.5 * l), -Math.cos(th) * 0.82 + 0.28 + 0.16 * t ** 3 * l]; }
+      default: { const th = 0.12 + 1.6 * t; return [Math.sin(th), -Math.cos(th) * 0.82 + 0.28 + (t >= 1 ? 0.06 * Math.sin(az * 8) * 0.82 : 0)]; }
+    }
+  }
+  // dot-pattern weight on the bell (0 = dot absent, >1 = brighter, larger)
+  function pattern(v, k, l, az, t, X, Z) {
+    const R = v.R, rim = k === R - 1;
+    switch (v.pat) {
+      case "meridians": return Math.cos(6 * az) > 0.8 ? 1.25 : (rim || k === 5) ? 1 : 0.1;
+      case "spiral": return rim ? 1.1 : (((az / TAU * 3 - t * 1.5) % 1 + 1) % 1 < 0.34 ? 1.25 : 0.1);
+      case "wire": return (rim || k === 2 || Math.abs(Math.sin(2 * az)) > 0.93) ? 1.3 : 0;
+      case "bands": return rim || k === R - 2 ? 1.3 : (k % 2 === 0 ? 1 : 0);
+      case "stars": return Math.sin(az) > 0.985 ? 1.2 : rim ? 0.9 : (hash1(k * 97 + l * 13 + 5) < 0.22 ? 1.7 : 0);
+      case "tiers": return (k === 3 || rim) ? 1.45 : 0.75;
+      case "spokes": return rim ? 1 : (Math.cos(5 * az) > 0.72 ? 1.3 : (k === 0 ? 0.6 : 0));
+      default: return 1;
+    }
+  }
+  // precomputed geometry per variant: bell dots, apex, rim, extents
+  const GEO = VARS.map(v => {
+    const dots = [];
+    for (let k = 0; k < v.R; k++) {
+      const t = v.R === 1 ? 1 : k / (v.R - 1);
+      const r0 = profile(v.prof, t, 0)[0], m = Math.max(3, Math.round((v.prof === "dome" ? 4 + k * 5 : 4 + 30 * r0) * P.density));
+      for (let l = 0; l < m; l++) {
+        const az = l / m * TAU + (v.pat === "spokes" || v.pat === "wire" || v.pat === "meridians" ? 0 : k * 0.35);
+        let [rho, y] = profile(v.prof, t, az), X = rho * Math.cos(az), Z = rho * Math.sin(az);
+        if (v.prof === "box") { const c = Math.cos(az), s = Math.sin(az), e = 0.25;   // square cross-section
+          X = rho * Math.sign(c) * Math.abs(c) ** e; Z = rho * Math.sign(s) * Math.abs(s) ** e * 0.9; }
+        const w = pattern(v, k, l, az, t, X, Z); if (w <= 0) continue;
+        dots.push({ k, az, X, Y: y, Z, f: Math.sin(az), w, rim: k === v.R - 1 });
+      }
+    }
+    const top = profile(v.prof, 0, 0)[1], rimP = profile(v.prof, 1, 0);
+    let half = 0; for (const d of dots) half = Math.max(half, Math.abs(d.X));
+    return { dots, top, rimR: rimP[0], rimY: rimP[1], half, up: -top + 0.1 };
+  });
+  const gm0 = j => Math.max(0.45, Math.min(1.3, j.g.rimR));
+  const ivOf = s => ((Math.round(s.iv) % 8) + 8) % 8;
+
+  let J = [], A = 0, heat = 0, mp = 0, vpn = 0, prevVpn = "up", bloomT = -99, focusKey = "", homesFor = null;
+  let playAmt = 0, playAng = 0, playC = null, playKey = "", playP = 0, beamA = 0, WX = 80, WY = 50, bwS = 0;
+  const RX_COL = [200, 100, 68], TX_COL = [40, 100, 58];   // download cool white-blue, upload warm gold
+  const flowLvl = mb => clamp(Math.log10(1 + Math.max(0, mb) / 0.3) / 1.95, 0, 1);   // log scale, 0.02..25 Mbit/s
+
+  // ---------- bounds a jelly's centre must keep so the whole creature stays on stage ----------
+  const yLo = j => LEGACY ? 40 : TOP + j.g.up * j.r + 4;
+  const yHi = j => LEGACY ? H - 120 : H - BOT - (j.g.rimY + 0.1) * j.r - TLEN * (1 - 0.2 * mp) * 0.92 - 4;
+  const xLo = j => LEGACY ? 30 : Math.max(j.g.half, 0.6) * j.r * 1.15 + 4;
+
+  // ---------- layout ----------
+  function freeRegion(f) {
+    const g = LEGACY ? 1 : Math.min(1, W / 1280), m1 = 50 * g, m0 = 60 * g;
+    const [fx, fy, fw, fh] = f || [W, 0, 0, 0];
+    const left = fx - m1 - m0, right = (W - m0) - (fx + fw + m1);
+    if (left >= right) return [m0, Math.max(m0, fx - m1)];
+    return [fx + fw + m1, W - m0];
+  }
+  function planHomes(S) {
+    const JL = J.filter(j => !j.ghost), n = JL.length, slots = [];
+    if (LEGACY) {   // the trial layout, unchanged
+      const [x0, x1] = freeRegion(S.focus), w = x1 - x0;
+      const cols = w > 320 ? 2 : 1, rows = Math.ceil(n / cols);
+      for (let i = 0; i < n; i++) {
+        const c = i % cols, r = Math.floor(i / cols);
+        const x = x0 + (c + 0.5) / cols * w + (r % 2 ? 26 : -26) * (cols > 1 ? 1 : 0);
+        const y = 120 + (r + 0.5) / rows * 420 + (c ? 34 : 0);
+        slots.push([x, y]);
+      }
+      WX = 80; WY = 50;
+    } else {        // gallery: a grid whose cells suit a tall creature, incomplete row centred
+      const [x0, x1] = S.focus ? freeRegion(S.focus) : [8, W - 8], w = x1 - x0, y0 = TOP + 4, hh = H - BOT - 4 - y0;
+      let cols = 1, best = 1e9;
+      for (let c = 1; c <= n; c++) { const rows = Math.ceil(n / c), asp = (w / c) / (hh / rows), e = Math.abs(Math.log(asp / 0.6));
+        if (e < best - 1e-9) { best = e; cols = c; } }
+      const rows = Math.ceil(n / cols), cw = w / cols, ch = hh / rows;
+      for (let i = 0; i < n; i++) {
+        const r = Math.floor(i / cols), c = i % cols, inRow = Math.min(cols, n - r * cols);
+        const x = x0 + (w - inRow * cw) / 2 + (c + 0.5) * cw + (rows > 1 ? (r % 2 ? 0.08 : -0.08) * cw : 0);
+        slots.push([x, y0 + (r + 0.5) * ch, ch]);
+      }
+      WX = Math.min(80 * SC, cw * 0.14); WY = Math.min(50 * SC, ch * 0.08);
+    }
+    const free = JL.slice();
+    for (const s of slots) {
+      let bi = 0, bd = 1e9;
+      free.forEach((j, k) => { const d = Math.hypot(j.x - s[0], j.y - s[1]); if (d < bd) { bd = d; bi = k; } });
+      const j = free.splice(bi, 1)[0]; j.hx = s[0]; j.hy = s[1];
+      if (!LEGACY) {   // centre the creature's whole extent (bell top .. tentacle tips) in its cell
+        const up = j.g.up * j.r, down = (j.g.rimY + 0.1) * j.r + TLEN * 0.92;
+        j.hy = s[1] - (down - up) / 2;
+        j.hx = clamp(j.hx, xLo(j), W - xLo(j)); j.hy = clamp(j.hy, yLo(j), Math.max(yLo(j), yHi(j)));
+      }
+    }
+    // live ghosts: no layout slot; a resting home on the right edge (V.steer supplies the real target)
+    const gh = J.filter(j => j.ghost);
+    gh.forEach((j, k) => { j.hx = W - xLo(j) - 18; j.hy = clamp(TOP + (H - TOP - BOT) * (k + 1) / (gh.length + 1), yLo(j), Math.max(yLo(j), yHi(j))); });
+    homesFor = S.focus;
+  }
+
+  // ---------- route around the focused window (corner waypoint if the straight path crosses it) ----------
+  function segHitsRect(ax, ay, bx, by, r) {
+    let t0 = 0, t1 = 1; const dx = bx - ax, dy = by - ay;
+    const p = [-dx, dx, -dy, dy], q = [ax - r[0], r[0] + r[2] - ax, ay - r[1], r[1] + r[3] - ay];
+    for (let i = 0; i < 4; i++) {
+      if (p[i] === 0) { if (q[i] < 0) return false; continue; }
+      const t = q[i] / p[i];
+      if (p[i] < 0) { if (t > t1) return false; if (t > t0) t0 = t; } else { if (t < t0) return false; if (t < t1) t1 = t; }
+    }
+    return true;
+  }
+  function route(j, tx, ty, f) {   // shortest path over the window's 4 padded corners (visibility graph)
+    if (!f) return [tx, ty];
+    const m = j.r + 46 * (LEGACY ? 1 : SC), mt = 6, T = [f[0] - mt, f[1] - mt, f[2] + 2 * mt, f[3] + 2 * mt];
+    if (j.x > T[0] && j.x < T[0] + T[2] && j.y > T[1] && j.y < T[1] + T[3]) {   // inside: leave by the nearest edge
+      const dl = j.x - f[0], dr = f[0] + f[2] - j.x, du = j.y - f[1], dd = f[1] + f[3] - j.y, mn = Math.min(dl, dr, du, dd);
+      const ex = mn === dl ? [f[0] - m, j.y] : mn === dr ? [f[0] + f[2] + m, j.y] : mn === du ? [j.x, f[1] - m] : [j.x, f[1] + f[3] + m];
+      return [clamp(ex[0], xLo(j) + 4, W - xLo(j) - 4), clamp(ex[1], yLo(j) + 6, Math.max(yLo(j) + 6, yHi(j) - 4))];
+    }
+    const vis = (ax, ay, bx, by) => !segHitsRect(ax, ay, bx, by, T);
+    if (vis(j.x, j.y, tx, ty)) return [tx, ty];
+    const N = [[j.x, j.y], [f[0] - m, f[1] - m], [f[0] + f[2] + m, f[1] - m], [f[0] - m, f[1] + f[3] + m],
+      [f[0] + f[2] + m, f[1] + f[3] + m], [tx, ty]].map((c, i) => i === 0 || i === 5 ? c : [clamp(c[0], xLo(j) + 4, W - xLo(j) - 4), clamp(c[1], yLo(j) + 6, Math.max(yLo(j) + 6, yHi(j) - 4))]);
+    const dist = N.map(() => 1e9), prev = N.map(() => -1), done = N.map(() => false); dist[0] = 0;
+    for (let it = 0; it < 6; it++) {
+      let u = -1; for (let i = 0; i < 6; i++) if (!done[i] && (u < 0 || dist[i] < dist[u])) u = i;
+      if (u < 0 || dist[u] >= 1e9) break; done[u] = true;
+      for (let v = 0; v < 6; v++) if (!done[v] && vis(N[u][0], N[u][1], N[v][0], N[v][1])) {
+        const d = dist[u] + Math.hypot(N[u][0] - N[v][0], N[u][1] - N[v][1]); if (d < dist[v]) { dist[v] = d; prev[v] = u; } }
+    }
+    if (prev[5] < 0) return [tx, ty];
+    let v = 5; while (prev[v] !== 0) v = prev[v];
+    const w = N[v], dx = w[0] - j.x, dy = w[1] - j.y, d = Math.hypot(dx, dy) || 1;
+    return d < 140 ? [w[0] + dx / d * 30, w[1] + dy / d * 30] : w;   // overshoot a little so corners are rounded
+  }
+
+  // live: state of each creature at the start of init, restored by id in carry
+  let snap = new Map();
+  function init(V, S) {
+    snap = new Map(); if (V.LIVE) for (const j of J) snap.set(j.id, j);
+    scales();
+    J = V.sessions.map((s, i) => ({
+      ghost: !!(V.LIVE && s.ghost),
+      id: s.id, hue: s.hue, i, x: 0, y: 0, vx: 0, vy: 0, hx: 0, hy: 0,
+      cpu: S.s[s.id].cpu, r: rad(S.s[s.id].mem), bright: S.s[s.id].state === "idle" ? 0 : 1, needs: 0,
+      nT: clamp(S.s[s.id].procs, 1, NTMAX), phase: (i * 0.37) % 1, c: 0, wt: i * 3.1, wx: 0, wy: 0, tw: i * 2,
+      jx: 0, jy: 0, tilt: 0, tent: [], rxP: [], txP: [], rxAcc: 0, txAcc: 0, rxTok: 0, txN: 0, rxN: 0, rxC: 0, txC: 0, jam: 0, ch: i * 1.7,
+      embers: [], eAcc: 0, ripples: [], ripAcc: 1.2,
+      knock: 0, v: VARS[ivOf(s)], g: GEO[ivOf(s)], iv: ivOf(s),
+    }));
+    J.forEach(j => { j.tent = []; for (let k = 0; k < NTMAX; k++) j.tent.push(new Float32Array(NB * 2)); });
+    A = clamp(S.m.level / 3, 0, 1); heat = S.m.thermal / 2; mp = S.m.mempress / 2;
+    vpn = S.net.vpn === "down" ? 1 : 0; prevVpn = S.net.vpn; bloomT = -99; playAmt = 0; playAng = 0; playC = null;
+    playKey = ""; playP = 0; beamA = 0; bwS = 0;
+    focusKey = (S.focus || []).join(); planHomes(S);
+    J.forEach(j => { j.x = j.hx; j.y = j.hy; });
+    J.forEach(j => buildTentacles(j, 0));
+  }
+  // live: surviving creatures keep position, velocity and rhythm; newcomers start at their home
+  const KEEP = ["x", "y", "vx", "vy", "cpu", "r", "bright", "needs", "nT", "phase", "c", "wt", "tw", "ch", "tilt",
+    "rxP", "txP", "rxAcc", "txAcc", "rxTok", "txTok", "rxC", "txC", "jam", "embers", "eAcc", "ripples", "ripAcc", "knock"];
+  function carry(V, S, prev) {
+    const keep = new Set();
+    for (const j of J) {
+      const o = snap.get(j.id);
+      if (o) { for (const k of KEEP) if (k in o) j[k] = o[k]; keep.add(j.id); }
+      else if (prev[j.id]) { j.x = prev[j.id].x; j.y = prev[j.id].y; keep.add(j.id); }
+    }
+    planHomes(S);   // slots re-matched to where the survivors are now
+    for (const j of J) { if (!keep.has(j.id)) { j.x = j.hx; j.y = j.hy; j.vx = 0; j.vy = 0; } buildTentacles(j, V.t); }
+    snap = new Map();
+  }
+  // live: P.size eased by the Size slider; tentacle length follows, homes re-planned (bell radius reads P.size per frame)
+  function resize(V, S) {
+    TLEN = 118 * P.size * SC * (LEGACY ? 1 : 0.78);
+    if (J.length && S) planHomes(S);
+  }
+  // live: burning-item running lights along the front of the bell skirt, just under the rim
+  function lightSpots(V, id, n) {
+    const j = J.find(o => o.id === id); if (!j) return null;
+    const ds = Math.sqrt(P.size) * (LEGACY ? 1 : Math.max(0.62, Math.sqrt(SC)));
+    const cx = j.x + j.jx, cy = j.y + j.jy, rr = j.g.rimR * j.r * (1 - 0.15 * j.c) * 0.92, ry = cy + j.g.rimY * j.r * (1 + 0.08 * j.c) + 5 * ds;
+    const out = [];
+    for (let i = 0; i < n; i++) { const az = Math.PI * (0.12 + 0.76 * (n === 1 ? 0.5 : i / (n - 1)));
+      out.push([cx - Math.cos(az) * rr, ry + Math.sin(az) * j.r * 0.26]); }
+    return out;
+  }
+
+  function partnerOf(j, S) {
+    const pr = S.play && S.play.pair; if (!pr || S.play.amt <= 0 || !V.on("play") || j.ghost) return null;
+    if (pr[0] === j.id) return J.find(o => o.id === pr[1]) || null;
+    if (pr[1] === j.id) return J.find(o => o.id === pr[0]) || null;
+    return null;
+  }
+
+  // tentacle root + rest direction per arrangement (u in -1..1 across the tentacle set)
+  function rootOf(j, k, nT) {
+    const v = j.v, g = j.g, r = j.r, u = ((k + 0.5) / nT) * 2 - 1, rimY = g.rimY * r, rr = g.rimR * r;
+    switch (v.arr) {
+      case "bundle": return [u * r * 0.14, rimY - r * 0.02, u * 0.07, 1.08, 0];
+      case "ring": { const az = (k + 0.5) / nT * TAU + 0.3, c = Math.cos(az);
+        return [c * rr * 0.95, rimY + Math.sin(az) * r * 0.26 * 0.9, c * 0.55, 0.9, 0]; }
+      case "corners": { const q = k % 4, c = [-1, 1, -0.45, 0.45][q], w = Math.floor(k / 4);
+        return [c * rr * 0.92 + (w - 1) * 2.2 * SC, rimY + (q > 1 ? -0.05 : 0.04) * r, c * 0.06, 1.0, 0]; }
+      case "sides": { const sd = k % 2 ? 1 : -1, w = Math.floor(k / 2);
+        return [sd * (rr * 0.9 - w * 2.6 * SC), rimY, sd * 0.7, 0.96, sd]; }
+      case "coil": return [u * r * 0.2, rimY - r * 0.05, u * 0.1, 1.05, 2];
+      case "frill": return [u * rr * 0.92, rimY + (k % 2) * r * 0.05, u * 0.38, k % 2 ? 0.55 : 1.02, 3];
+      case "lobes": { const lb = k % 5, az = lb / 5 * TAU, c = Math.cos(az), w = Math.floor(k / 5);
+        return [c * rr * 1.2 + (w - 0.5) * 3 * SC, rimY + Math.sin(az) * r * 0.26 + 0.12 * r, c * 0.42, 0.95, 0]; }
+      default: return [u * r * 0.78, r * 0.42 - Math.abs(u) * r * 0.12, u * 0.28, 0.82 + 0.3 * ((k * 0.618) % 1), 0];
+    }
+  }
+  function buildTentacles(j, t, partner) {
+    const segBase = TLEN / NB * (1 - 0.2 * mp) * (1 - 0.07 * j.c) * (1 + 0.06 * vpn);
+    const AG = V.on("strainAgitation") ? A : 0;   // live switch: writhing and bead slip (gallery: always A)
+    const nT = Math.max(1, j.nT), ampBase = (0.018 * P.drift ** 0.5 + 0.46 * AG) * (1 - 0.93 * vpn);
+    const trail = clamp(-j.vx * 0.004 / (LEGACY ? 1 : SC), -0.6, 0.6) * (1 - vpn);
+    const cmp = 1 - 0.15 * j.c;   // contraction pulls roots in with the bell
+    for (let k = 0; k < NTMAX; k++) {
+      const arr = j.tent[k], [rx, ry, spread, lenK, mode] = rootOf(j, k, nT);
+      let x = j.x + j.jx + rx * cmp, y = j.y + j.jy + ry;
+      let ang = Math.PI / 2 + spread * (1 - 0.7 * vpn) + j.tilt;
+      const lim = 1 - 0.85 * vpn;   // VPN: shape relaxes toward a limp hang too
+      for (let b = 0; b < NB; b++) {
+        const fb = b / (NB - 1);
+        let shape = 0;   // static form (not time-varying): lyre arms curl back in, frills zig-zag, coils kink
+        if (mode === 1 || mode === -1) shape = -mode * 0.11 * (fb > 0.15 ? 1 : 0);
+        else if (mode === 3) shape = (b % 2 ? 0.55 : -0.55) * (b > 0 ? 1 : 0.5);
+        ang += (trail * 0.18) + ampBase * Math.sin(j.tw * (1 + 0.6 * ((k * 0.37) % 1)) + b * 0.62 + k * 1.31 + j.i)
+          + shape * lim;
+        let px = Math.cos(ang) * segBase * lenK, py = Math.sin(ang) * segBase * lenK;
+        if (mode === 2) {   // corkscrew: a helix around the hanging line, phase fixed per tentacle
+          const hp = b * 1.15 + k * TAU / nT, hr = 5.5 * SC * P.size * lim * (0.4 + fb);
+          px += (Math.cos(hp + 1.15) - Math.cos(hp)) * hr;
+        }
+        x += px; y += py;
+        const gq = AG > 0.04 ? (V.vnoise(Math.floor(t * 9) * 0.37 + b * 0.31, k * 3.7 + j.i * 11) - 0.5) * 2 * 7 * SC * AG * AG * (1 - vpn) * fb : 0;   // strain: beads slip sideways
+        arr[b * 2] = x + gq; arr[b * 2 + 1] = y;
+        if (mode === 3) ang -= shape * lim;   // frill zig-zag does not accumulate
+      }
+    }
+  }
+
+  function step(V, S, dt) {
+    const t = V.t;
+    A += (clamp(S.m.level / 3, 0, 1) - A) * ease(dt, 0.5);
+    heat += (clamp(S.m.thermal / 2, 0, 1) - heat) * ease(dt, 1.0);
+    mp += (clamp(S.m.mempress / 2, 0, 1) - mp) * ease(dt, 0.8);
+    const down = S.net.vpn === "down";
+    if (prevVpn === "down" && !down && V.reconnected(S.net)) bloomT = t;
+    prevVpn = S.net.vpn;
+    vpn += ((down ? 1 : 0) - vpn) * ease(dt, down ? 0.45 : 0.3);
+    beamA += dt * 0.55 * vpn;
+    bwS += (clamp(S.net.strain || 0, 0, 1) - bwS) * ease(dt, 0.6);
+    const fk = (S.focus || []).join(); if (fk !== focusKey) { focusKey = fk; planHomes(S); }
+
+    // play bookkeeping
+    const pr = S.play && S.play.pair, pk = pr ? pr.join() : "";
+    playAmt += (clamp(S.play ? S.play.amt : 0, 0, 1) - playAmt) * ease(dt, 0.8);
+    const pon = pr && V.on("play"), pa = pon ? J.find(j => j.id === pr[0] && !j.ghost) || null : null, pb = pon ? J.find(j => j.id === pr[1] && !j.ghost) || null : null;
+    if (pa && pb && S.play.amt > 0.01) {
+      if (!playC || pk !== playKey) {
+        playKey = pk;
+        let cx = (pa.hx + pb.hx) / 2, cy = (pa.hy + pb.hy) / 2;
+        playC = [cx, cy];
+        playAng = Math.atan2(pa.y - pb.y, pa.x - pb.x);
+      }
+      const turn = Math.min(TAU - playP, dt * 2.0 * sm((playAmt - 0.55) / 0.35));   // ONE twirl once they are close
+      playP += turn; playAng += turn;
+    } else if (playAmt < 0.02) { playC = null; playP = 0; }
+
+    const huddleOn = V.on("vpnHuddle"), HP = V.LIVE && huddleOn && V.huddlePt ? V.huddlePt : null;   // live: one shared huddle point
+    // separation between jellies
+    for (const a of J) for (const b of J) if (a !== b && !a.ghost && !b.ghost) {
+      const dx = a.x - b.x, dy = (a.y - b.y) * (LEGACY ? 1 : 0.6), d = Math.hypot(dx, dy) || 1, min = (a.r + b.r + 34 * (LEGACY ? 1 : SC)) * (V.LIVE && huddleOn ? 1 - 0.6 * vpn : 1);
+      const pairPlay = playAmt > 0.2 && ((a === pa && b === pb) || (a === pb && b === pa));
+      if (d < min && !pairPlay) { const k = (1 - d / min) * 120; a.vx += dx / d * k * dt; a.vy += dy / d * k * dt; }
+    }
+
+    const nNeeds = []; J.forEach(j => { if (S.s[j.id].state === "needs") nNeeds.push(j); });
+    const JH = J.filter(j => !j.ghost), nH = Math.max(1, JH.length);   // huddle centre: ghosts excluded
+    const hcx = HP ? HP[0] : JH.reduce((s, j) => s + j.hx, 0) / nH, hcy = HP ? HP[1] - 20 : JH.reduce((s, j) => s + j.hy, 0) / nH;   // (HP: the +20 below is cancelled)
+    const huddle = V.on("vpnHuddle"), AG = V.on("strainAgitation") ? A : 0;   // live switches (gallery: both on)
+
+    for (const j of J) {
+      const s = S.s[j.id];
+      j.cpu += (s.cpu - j.cpu) * ease(dt, 0.35);
+      j.r += (rad(s.mem) - j.r) * ease(dt, 0.7);
+      j.bright += ((s.state === "idle" ? 0 : 1) - j.bright) * ease(dt, 0.5);
+      j.needs += ((s.state === "needs" ? 1 : 0) - j.needs) * ease(dt, 0.45);
+      j.nT += (clamp(s.procs, 1, NTMAX) - j.nT) * ease(dt, 0.45);
+
+      // bell pulse: rate = CPU; strain makes it uneven; VPN loss stops it
+      let f = (0.14 + 0.52 * j.cpu) * (1 - 0.94 * vpn);
+      f *= 1 + A * 0.9 * (V.vnoise(t * 1.7, j.i * 9.3) - 0.5) * 2;
+      j.phase += Math.max(0, f) * dt;
+      if (j.phase >= 1) { j.phase -= 1; j.vy -= (3 + 2.5 * Math.min(j.cpu, 3.5)) * (1 - vpn) * Math.sqrt(P.size) * (LEGACY ? 1 : SC); }
+      j.ch += dt * (0.5 + 1.1 * j.cpu) * (1 - 0.95 * vpn) * (1 + A * 0.8 * (V.vnoise(t * 2.3, j.i * 4.1) - 0.5) * 2);   // rim chase lights: tempo = CPU
+      const ph = j.phase;
+      const cTarget = vpn > 0.5 ? 0.35 : (ph < 0.28 ? Math.sin(ph / 0.28 * Math.PI / 2) : 0.5 + 0.5 * Math.cos((ph - 0.28) / 0.72 * Math.PI));
+      j.c += (cTarget - j.c) * ease(dt, 0.05);
+
+      // idle drift: slow wander of the home (the only data-free motion), speed = P.drift
+      j.wt += dt * 0.07 * P.drift;
+      const wAmt = (1 - j.needs) * (1 - 0.85 * vpn) * (1 - 0.8 * (partnerOf(j, S) ? playAmt : 0));
+      j.wx = (V.vnoise(j.wt, j.i * 13.7) - 0.5) * 2 * WX * wAmt;
+      j.wy = (V.vnoise(j.i * 5.1 + 40, j.wt + 3) - 0.5) * 2 * WY * wAmt;
+
+      let tx = j.hx + j.wx, ty = j.hy + j.wy + Math.sin(t * 0.9 + j.i * 1.7) * 3 * (LEGACY ? 1 : SC) * (1 - vpn);   // hover bob (data-free)
+      if (vpn > 0.01 && huddle && !j.ghost) { // huddle into a tight cluster
+        const ang = j.i / J.length * TAU, hr = (30 + 11 * J.length) * (LEGACY ? 1 : SC * 1.3) * (HP ? 0.7 : 1);
+        tx += (hcx + Math.cos(ang) * hr - tx) * vpn; ty += (hcy + 20 + Math.sin(ang) * hr * 0.6 - ty) * vpn;
+      }
+      const partner = partnerOf(j, S);
+      if (partner && playC && playAmt > 0.01) {
+        const R = LEGACY ? (j.r + partner.r) / 2 + 30 : (j.r + partner.r) / 2 * 2.2 + 30 * SC, sgn = j.id === pr[0] ? 0 : Math.PI;
+        const ox = playC[0] + Math.cos(playAng + sgn) * R, oy = playC[1] + Math.sin(playAng + sgn) * R * (LEGACY ? 0.55 : 0.22);
+        tx += (ox - tx) * playAmt; ty += (oy - ty) * playAmt;
+      }
+      if (j.needs > 0.01 && S.focus && V.on("needsApproach")) { // knock beside the focused window's upper edge
+        const [fx, fy, fw] = S.focus, k = nNeeds.indexOf(j), left = fx + fw / 2 > W / 2;
+        const g = LEGACY ? 1 : SC, kx = left ? fx - j.r - 58 * g : fx + fw + j.r * 1.15 + 14 * g, ky = Math.max(LEGACY ? 70 : yLo(j), fy + 40 * g) + Math.max(0, k) * 95 * g;
+        j.knock = Math.max(0, Math.sin(t * TAU / 1.8)) ** 6;
+        tx += (kx + (left ? 1 : -1) * 14 * g * j.knock - tx) * j.needs; ty += (ky - ty) * j.needs;
+      }
+      if (V.LIVE && (j.ghost || !((vpn > 0.01 && huddle) || (partner && playC && playAmt > 0.01)))) [tx, ty] = V.steer(j.id, tx, ty, j.r * 1.2);
+      const huddling = HP && vpn > 0.3 && !j.ghost;
+      if (!huddling && !V.LIVE) [tx, ty] = route(j, tx, ty, S.focus);   // live: V.nav routes round the focus
+      if (V.LIVE) [tx, ty] = (j.needs < 0.5 ? V.nav : V.navNeed)(j.id, j.x, j.y, tx, ty, j.needs < 0.5 ? Math.max(j.r * 1.3, TLEN * 0.55) : j.r * 1.15);   // fit + reachable + around the focus (needs-you: round it to the knock spot)
+
+      const inside = V.insideFocus(j.x, j.y, 0);
+      const [ax, ay] = V.avoid(j.x, j.y, j.r + 40);
+      const KS = HP && !j.ghost ? 1.3 + 1.1 * vpn : 1.3;
+      j.vx += ((tx - j.x) * KS - j.vx * 2.1 + ax * (inside ? 900 : 260)) * dt;
+      j.vy += ((ty - j.y) * KS - j.vy * 2.1 + ay * (inside ? 900 : 260)) * dt;
+      const vmax = (inside ? 420 : HP && vpn > 0.3 ? 260 : 170) * (LEGACY ? 1 : Math.max(0.6, SC)), sp = Math.hypot(j.vx, j.vy);
+      if (sp > vmax) { j.vx *= vmax / sp; j.vy *= vmax / sp; }
+      j.x += j.vx * dt; j.y += j.vy * dt;
+      j.x = clamp(j.x, xLo(j), W - xLo(j)); j.y = clamp(j.y, yLo(j), Math.max(yLo(j), yHi(j)));
+
+      // strain jitter + tilt
+      const A2 = AG * AG * (1 - vpn);
+      j.jx = (V.vnoise(t * 7, j.i * 3 + 1) - 0.5) * 2 * 5 * A2;
+      j.jy = (V.vnoise(j.i * 3 + 2, t * 7) - 0.5) * 2 * 4 * A2;
+      j.tilt += (clamp(j.vx * 0.0025, -0.35, 0.35) - j.tilt) * ease(dt, 0.4);
+      j.tw += dt * (0.4 * P.drift * (1 - AG) + 5.5 * AG) * (1 - 0.92 * vpn);
+      buildTentacles(j, t, partner && playAmt > 0.01 ? partner : null);
+
+      // network: rx pulses climb tip -> core, tx pulses run core -> tip (per-session Mbit/s, log scale).
+      // Link strained (bwS): pulses slow, stutter, and pass the throat only at a throttled rate -> bright clog.
+      const nTi = Math.max(1, Math.round(j.nT)), live = down ? 0 : 1;
+      const lr = flowLvl(s.rx) * live, lt = flowLvl(s.tx) * live;
+      const rateR = lr < 0.04 ? lr * 4 : 0.6 + 10 * lr * lr, rateT = lt < 0.04 ? lt * 4 : 0.6 + 10 * lt * lt;
+      const hiS = clamp((bwS - 0.45) / 0.4, 0, 1), stut = hiS > 0 ? 1 - hiS * 0.85 * (V.vnoise(t * 6 + j.i, 3.3) > 0.45 ? 1 : 0.35) : 1;   // stutter only when the link is badly strained
+      const spd = 0.95 * (1 - 0.6 * bwS) * stut, gate = 1 - 0.82 * bwS, free = bwS < 0.35;   // unstrained: no throat gating, pulses flow straight through
+      j.rxAcc += dt * rateR * P.density; j.txAcc += dt * rateT * P.density;
+      while (j.rxAcc >= 1) { j.rxAcc -= 1; j.rxP.push({ k: Math.floor(V.rand() * nTi), s: 1, b: 0.75 + 0.25 * lr }); }
+      while (j.txAcc >= 1) { j.txAcc -= 1; j.txP.push({ k: Math.floor(V.rand() * nTi), s: 0, q: 0, b: 0.75 + 0.25 * lt }); }
+      j.rxTok = Math.min(2, j.rxTok + dt * Math.max(rateR, 0.5) * gate * 1.05);
+      let qR = 0;
+      j.rxP.sort((a2, b2) => a2.s - b2.s);
+      j.rxP = j.rxP.filter(pk => {
+        const stop = 0.04 + qR * 0.055;
+        pk.s -= dt * spd;
+        if (pk.s <= stop) {
+          if (free || (qR === 0 && j.rxTok >= 1)) { if (!free) j.rxTok -= 1; j.rxC = Math.min(1.6, j.rxC + 0.35 * pk.b); return false; }
+          pk.s = stop; qR++;
+        }
+        return true;
+      });
+      j.txTok = Math.min(2, (j.txTok || 0) + dt * Math.max(rateT, 0.5) * gate * 1.05);
+      let rank = 0;
+      for (const pk of j.txP) if (!pk.q) { if (free || (rank === 0 && j.txTok >= 1)) { if (!free) j.txTok -= 1; pk.q = 1; j.txC = Math.min(1.6, j.txC + 0.3 * pk.b); } else pk.w = rank++; }
+      j.txP = j.txP.filter(pk => { if (!pk.q) return true; pk.s += dt * spd; return pk.s < 1.05; });
+      if (j.rxP.length > 60) j.rxP.splice(0, j.rxP.length - 60);
+      if (j.txP.length > 60) j.txP.splice(0, j.txP.length - 60);
+      j.rxN = qR; j.txN = rank;
+      j.jam += (clamp((qR + rank) / 8, 0, 1) * bwS - j.jam) * ease(dt, 0.4);
+      j.rxC *= Math.exp(-dt / 0.45); j.txC *= Math.exp(-dt / 0.45);
+
+      // thermal / strain embers
+      j.eAcc += dt * (heat * 2.5 + A * A * 2) * P.density * (1 - vpn);
+      while (j.eAcc >= 1) {
+        j.eAcc -= 1;
+        const a = (V.rand() - 0.5) * 2.4;
+        j.embers.push({ x: j.x + Math.sin(a) * j.r * Math.min(1, j.g.half), y: j.y + j.g.top * j.r * (0.6 + 0.4 * Math.abs(Math.cos(a))), vx: (V.rand() - 0.5) * 14, vy: -18 - 22 * V.rand(), age: 0 });
+      }
+      j.embers = j.embers.filter(e => { e.age += dt; e.x += e.vx * dt; e.y += e.vy * dt; return e.age < 1.6; });
+
+      // needs-you ripples every 1.8 s
+      if (j.needs > 0.5) { j.ripAcc += dt; if (j.ripAcc >= 1.8) { j.ripAcc -= 1.8; j.ripples.push(0); } } else j.ripAcc = 1.2;
+      j.ripples = j.ripples.map(r => r + dt / 2.2).filter(r => r < 1);
+    }
+  }
+
+  // ---------- drawing ----------
+  function sq(ctx, x, y, s) { ctx.fillRect(x - s / 2, y - s / 2, s, s); }
+  // soft round glow: radial gradient that reaches exactly 0 alpha at its rim, filled as a disc (no square edge)
+  const hsla = (h, s, l, a) => `hsla(${h},${Math.max(0, Math.min(100, V.cur && V.cur.white ? s * 0.06 : s))}%,${l}%,${Math.max(0, Math.min(1, a))})`;
+  // Pre-rendered glow sprites (CPU, 2026-11-01: 126 gradients per frame were the GPU process's main draw cost). The
+  // gradient's alpha is linear in a, so sprite(a = 1) drawn at globalAlpha x a is the same disc; colour quantised to 1/4 unit.
+  const GSPR = new Map(), GS = 96;
+  function glowSprite(h, s, l) { const k = hsla(h, s, l, 1); let c = GSPR.get(k); if (c) return c;
+    if (GSPR.size > 600) GSPR.delete(GSPR.keys().next().value);
+    c = document.createElement("canvas"); c.width = c.height = 2 * GS; const x = c.getContext("2d"), g = x.createRadialGradient(GS, GS, 0, GS, GS, GS);
+    g.addColorStop(0, hsla(h, s, l, 1)); g.addColorStop(0.35, hsla(h, s, l, 0.45)); g.addColorStop(1, hsla(h, s, l, 0));
+    x.fillStyle = g; x.beginPath(); x.arc(GS, GS, GS, 0, TAU); x.fill(); GSPR.set(k, c); return c; }
+  const q4 = v => Math.round(v * 4) / 4;
+  function glow(ctx, x, y, rad, h, s, l, a) {
+    if (a <= 0.002 || rad <= 0) return;
+    const ga = ctx.globalAlpha; ctx.globalAlpha = ga * Math.min(1, a);
+    ctx.drawImage(glowSprite(q4(h), q4(s), q4(l)), x - rad, y - rad, 2 * rad, 2 * rad); ctx.globalAlpha = ga;
+  }
+  function disc(ctx, x, y, rad, g) { ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, rad, 0, TAU); ctx.fill(); }
+
+  function draw(V, S, ctx) {
+    const t = V.t;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const bt = (t - bloomT) / 1.4, bloom = bt >= 0 && bt < 1 ? 1 - bt : 0;
+    const satK = 1 - 0.68 * vpn;                        // VPN: drain colour but keep the hue
+    const ds = Math.sqrt(P.size) * (LEGACY ? 1 : Math.max(0.62, Math.sqrt(SC))), G = P.glow;
+    const huddle = V.on("vpnHuddle"), AG = V.on("strainAgitation") ? A : 0;
+
+    // searching beam (VPN loss)
+    const JB = J.filter(j => !j.ghost);
+    if (vpn > 0.05 && huddle && JB.length && !V.LIVE) {
+      const cx = JB.reduce((s, j) => s + j.x, 0) / JB.length, cy = JB.reduce((s, j) => s + j.y, 0) / JB.length;
+      const a = -Math.PI / 2 + 0.85 * Math.sin(beamA), L = 420 * (LEGACY ? 1 : H / 800), wa = 0.12;
+      const g = ctx.createLinearGradient(cx, cy, cx + Math.cos(a) * L, cy + Math.sin(a) * L);
+      g.addColorStop(0, `rgba(150,175,205,${0.10 * vpn})`); g.addColorStop(1, "rgba(150,175,205,0)");
+      ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + Math.cos(a - wa) * L, cy + Math.sin(a - wa) * L);
+      ctx.lineTo(cx + Math.cos(a + wa) * L, cy + Math.sin(a + wa) * L); ctx.closePath(); ctx.fill();
+    }
+
+    for (const j of J) {
+      V.creature(j.id, () => {   // live: arrival/departure/ghost alpha multiplies everything drawn for this craft
+      const h = j.hue, B = (0.5 + 0.5 * j.bright) * (1 - 0.3 * vpn) * (1 + 0.5 * bloom);
+      const sat = 88 * satK, warm = 0.25 * A + 0.25 * heat;
+      const cx = j.x + j.jx, cy = j.y + j.jy, r = j.r, c = j.c;
+
+      // halo (decoration, follows brightness)
+      const hr = r * 1.9 * (LEGACY ? 1 : 1.15);
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, hr);
+      g.addColorStop(0, V.hsl(h, sat, 55, 0.13 * B * G)); g.addColorStop(1, V.hsl(h, sat, 40, 0));
+      disc(ctx, cx, cy, hr, g);
+      // machine strain: a red ember glow behind and inside the craft, rising with level (and heat)
+      const emb = clamp(0.85 * A + 0.35 * heat, 0, 1.1) * (1 - 0.7 * vpn);
+      if (emb > 0.02) {
+        const er = r * (1.6 + 0.9 * emb) * (LEGACY ? 1 : 1.1), fl = 0.85 + 0.15 * V.vnoise(t * 3.1, j.i * 7.7);
+        const eg = ctx.createRadialGradient(cx, cy + r * 0.1, 0, cx, cy + r * 0.1, er);
+        eg.addColorStop(0, `rgba(255,60,30,${0.58 * emb * fl})`); eg.addColorStop(0.45, `rgba(210,25,15,${0.3 * emb * fl})`);
+        eg.addColorStop(1, "rgba(120,10,10,0)");
+        disc(ctx, cx, cy + r * 0.1, er, eg);
+      }
+      // tentacles: faint string + crisp beads; tip bead marks each tentacle (countable)
+      const nT = j.nT;
+      for (let k = 0; k < NTMAX; k++) {
+        const vis = clamp(nT - k, 0, 1); if (vis <= 0) continue;
+        const arr = j.tent[k];
+        ctx.strokeStyle = V.hsl(h, sat, 55, 0.13 * B * vis); ctx.lineWidth = 1;
+        const rt = rootOf(j, k, Math.max(1, nT));
+        ctx.beginPath(); ctx.moveTo(cx + rt[0] * (1 - 0.15 * c), cy + rt[1] - 2 * ds);
+        for (let b = 0; b < NB; b++) ctx.lineTo(arr[b * 2], arr[b * 2 + 1]);
+        ctx.stroke();
+        for (let b = 0; b < NB; b++) {
+          const x = arr[b * 2], y = arr[b * 2 + 1], tip = b === NB - 1;
+          const tw = A > 0.05 ? 1 - A * 0.7 * V.vnoise(t * 5 + b * 1.3 + k * 7, j.i * 11) : 1;
+          const a = (0.38 + 0.4 * (1 - b / NB)) * B * vis * tw;
+          const hh = h + 12 * Math.sin(b * 0.7 + k * 1.9);
+          if (tip) {   // beacon tip: always lit (countable), blinks in turn
+            const bl = Math.max(0, Math.sin(t * 2.2 - k * 0.9 + j.i)) ** 8 * (1 - vpn) * (0.25 + 0.75 * j.bright);
+            ctx.fillStyle = V.hsl(hh, sat * (1 - 0.5 * bl), 74 + 16 * bl, Math.min(1, a * 1.9 + 0.35 * bl));
+            sq(ctx, x, y, (3.6 + 1.2 * bl) * ds);
+            glow(ctx, x, y, 7.5 * ds, hh, sat * P.sat, 65, 2 * (0.12 + 0.25 * bl) * G * vis * B);
+          } else { ctx.fillStyle = V.hsl(hh, sat, 60, a * 0.8); sq(ctx, x, y, 2.1 * ds); }
+        }
+      }
+      // network pulses along the tentacles: rx cool white-blue inward, tx gold outward; clog at the throat
+      const nTd = Math.max(1, Math.ceil(nT));
+      const atS = (k, f) => { const arr = j.tent[Math.min(k, nTd - 1)], fp = clamp(f, 0, 1) * (NB - 1), b0 = Math.floor(fp), b1 = Math.min(NB - 1, b0 + 1), fr = fp - b0;
+        return [arr[b0 * 2] + (arr[b1 * 2] - arr[b0 * 2]) * fr, arr[b0 * 2 + 1] + (arr[b1 * 2 + 1] - arr[b0 * 2 + 1]) * fr]; };
+      const pulse = (x, y, col, al, sz) => {
+        glow(ctx, x, y, sz * 2.4 * ds, col[0], col[1], col[2], 0.44 * al * G);
+        ctx.fillStyle = `hsla(${col[0]},${col[1] * 0.6}%,${Math.min(90, col[2] + 14)}%,${al})`; sq(ctx, x, y, sz * ds); };
+      for (const pk of j.rxP) { const [x, y] = atS(pk.k, pk.s), al = pk.b * sm(Math.min(1, (1 - pk.s) * 8 + 0.2));
+        pulse(x, y, RX_COL, al, 3.4); const [x2, y2] = atS(pk.k, pk.s + 0.05); pulse(x2, y2, RX_COL, al * 0.35, 2.2); }
+      const rootXY = (k) => { const rt = rootOf(j, k, Math.max(1, nT)); return [cx + rt[0] * (1 - 0.15 * c), cy + rt[1]]; };
+      for (const pk of j.txP) {
+        if (!pk.q) { const k = pk.k, [x, y] = rootXY(k); const w = pk.w || 0;   // queued at the throat, piled up
+          if (w > 6) continue; pulse(x + (w % 2 ? 1 : -1) * (1 + w) * 1.6 * ds, y + 2 * ds, TX_COL, 0.9, 3.2); continue; }
+        const al = pk.b * (1 - sm((pk.s - 0.85) / 0.2)); const [x, y] = atS(pk.k, pk.s);
+        pulse(x, y, TX_COL, al, 3.4); const [x2, y2] = atS(pk.k, pk.s - 0.05); pulse(x2, y2, TX_COL, al * 0.35, 2.2); }
+      // core intake/outflow flashes (where pulses enter/leave the core)
+      if (j.rxC + j.txC > 0.02) {
+        const cyc = cy + j.g.rimY * r * 0.35;
+        const kg = ctx.createRadialGradient(cx, cyc, 0, cx, cyc, r * 0.7);
+        const mix = j.rxC / (j.rxC + j.txC + 1e-6), col = mix > 0.5 ? RX_COL : TX_COL;
+        kg.addColorStop(0, `hsla(${col[0]},${col[1]}%,${col[2]}%,${0.28 * Math.min(1, j.rxC + j.txC) * G})`); kg.addColorStop(1, `hsla(${col[0]},${col[1]}%,${col[2]}%,0)`);
+        disc(ctx, cx, cyc, r * 0.7, kg);
+      }
+      // jam: a bright stuttering clog band across the throat
+      if (j.jam > 0.03) {
+        const yb = cy + j.g.rimY * r + 3 * ds, wb = gm0(j) * r * 0.95, n = 13, fl = V.vnoise(t * 9, j.i * 2.3) > 0.4 ? 1 : 0.55;
+        for (let q = 0; q < n; q++) { const u = q / (n - 1) * 2 - 1, col = q % 2 ? RX_COL : TX_COL;
+          pulse(cx + u * wb, yb + Math.sin(q * 1.7 + Math.floor(t * 6)) * 1.5 * ds, col, 0.85 * j.jam * fl, 2.6); }
+      }
+
+      // bell: dot-matrix shell in the variant's silhouette and dot pattern; back dots dimmer; contraction squeezes it
+      const gm = j.g, v = j.v, Rn = v.R;
+      let di = 0;
+      for (const d of gm.dots) {
+        di++;
+        const X = d.X * (1 - 0.15 * c), Z = d.Z * (1 - 0.15 * c), Y = d.Y * (1 + 0.08 * c);
+        let x = cx + X * r, y = cy + Y * r + Z * r * 0.26;
+        if (AG > 0.04) {   // strain: each ring of the lattice slips out of register, as if noise were added
+          const A3 = AG * AG * (1 - vpn), tq = Math.floor(t * 7) * 0.61;
+          x += ((V.vnoise(tq + d.k * 2.3, j.i * 5.7) - 0.5) * 2 * 9 + (V.vnoise(tq * 1.3 + di * 0.71, j.i) - 0.5) * 3) * SC * A3 * ds;
+          y += (V.vnoise(d.k * 1.9, tq + j.i * 2.1) - 0.5) * 2 * 4 * SC * A3 * ds;
+        }
+        const zf = clamp(d.Z, -1, 1), front = 0.45 + 0.55 * (zf + 1) / 2;
+        const tw = A > 0.05 ? 1 - A * 0.75 * V.vnoise(t * 5.5 + di * 1.7, j.i * 5 + 3) : 1;
+        // pattern shimmer: a slow travelling glint along the variant's own structure (decoration)
+        const gl = 1 + 0.18 * Math.sin(t * 1.3 - d.k * 0.9 + d.az * 2);
+        const a = Math.min(1, (0.32 + 0.5 * front) * B * tw * (0.85 + 0.3 * c) * Math.min(1.25, d.w) * gl);
+        const hh = h + 14 * Math.sin(d.az * 3 + d.k * 1.1);
+        const rim = d.rim ? warm : warm * 0.4;
+        const L = 58 + 8 * front + (d.w > 1.2 ? 8 : 0);
+        ctx.fillStyle = V.hsl(hh, sat * (1 - 0.3 * rim), L, a);
+        sq(ctx, x, y, (1.8 + 1.3 * front) * ds * (d.w > 1.2 ? 1.2 : d.w < 0.5 ? 0.8 : 1));
+        if (front > 0.8 && d.w >= 1) glow(ctx, x, y, 4.5 * ds, hh, sat * P.sat, 55, 0.18 * a * G);
+      }
+      // running lights chasing round the rim (CPU = tempo), like a hovering craft's hull lights
+      { const nL = 3, rr = gm.rimR * r * (1 - 0.15 * c), ry = cy + gm.rimY * r * (1 + 0.08 * c);
+        for (let q = 0; q < nL; q++) for (let tr = 0; tr < 4; tr++) {
+          const az = (j.ch + q / nL) * TAU - tr * 0.17, zf = Math.sin(az), fr = 0.4 + 0.6 * (zf + 1) / 2;
+          const al = (1 - tr * 0.27) * fr * (0.55 + 0.45 * B) * (1 - 0.8 * vpn);
+          const lx = cx + Math.cos(az) * rr * (v.prof === "box" ? 0.95 : 1), ly = ry + zf * r * 0.26;
+          ctx.fillStyle = V.hsl(h, sat * 0.3, 92, Math.min(1, al * 1.2)); sq(ctx, lx, ly, (tr ? 2.6 : 4.2) * ds);
+          if (!tr) glow(ctx, lx, ly, 10.5 * ds, h, sat * P.sat, 72, 0.6 * al * G);
+        } }
+      // oral arms (variant form; sway with the bell, decoration)
+      const oy0 = cy + gm.rimY * r * 0.55, ol = r * 0.9;
+      const ob = (x, y, sz, al, dh = 40) => { ctx.fillStyle = V.hsl(h + dh, sat, 66, al * B); sq(ctx, x, y, sz * ds); };
+      switch (v.oral) {
+        case "manubrium":
+          for (let q = 0; q < 5; q++) ob(cx + Math.sin(j.tw * 0.7 + q * 0.5) * 2.5 * (q / 4), cy - r * 0.25 + q * r * 0.17 * (1 + 0.15 * c), 2.6 - q * 0.25, 0.55 - q * 0.07);
+          break;
+        case "wick": {   // a glowing filament with a bright drop hanging inside the lantern
+          for (let q = 0; q < 7; q++) ob(cx, cy - r * 0.7 + q * r * 0.17, 1.8, 0.4);
+          ob(cx, cy + r * 0.45, 4.2, 0.95, 20); glow(ctx, cx, cy + r * 0.45, 10 * ds, h + 20, sat * P.sat, 62, 0.32 * G * B);
+          break; }
+        case "tuft":     // a short central brush under the disc
+          for (let q = 0; q < 5; q++) for (let p2 = 0; p2 < 3; p2++) ob(cx + (q - 2) * r * 0.09 + Math.sin(j.tw + q) * 1.5, oy0 + r * 0.12 + p2 * r * 0.12, 2 - p2 * 0.4, 0.5 - p2 * 0.12);
+          break;
+        case "curls":    // two oral arms curling outward like a lyre's scroll
+          for (const sd of [-1, 1]) for (let q = 0; q < 9; q++) { const a2 = q * 0.55, rr2 = r * (0.05 + 0.045 * q);
+            ob(cx + sd * (Math.sin(a2) * rr2 + q * r * 0.02), oy0 + r * 0.05 + q * r * 0.1 - Math.cos(a2) * rr2 * 0.4, 2.2, 0.55 - q * 0.03); }
+          break;
+        case "frills": { // four ruffled oral arms, long, dense, beaded
+          for (let q4 = 0; q4 < 4; q4++) { const ox = (q4 - 1.5) * r * 0.16;
+            for (let q = 0; q < 10; q++) { const wv = Math.sin(q * 1.6 + q4 + j.tw * 0.8) * r * 0.07;
+              ob(cx + ox * (1 + q * 0.06) + wv, oy0 + q * ol * 0.12, 2.3 - q * 0.1, 0.6 - q * 0.035, 30); ob(cx + ox * (1 + q * 0.06) - wv, oy0 + q * ol * 0.12 + 2 * ds, 1.4, 0.35, 30); } }
+          break; }
+        case "cauli":    // a cauliflower cluster of beads under the corolla
+          for (let q = 0; q < 14; q++) { const a2 = q * 2.39996, rr2 = Math.sqrt(q / 14) * r * 0.34;
+            ob(cx + Math.cos(a2) * rr2, oy0 + r * 0.18 + Math.sin(a2) * rr2 * 0.7 + Math.sin(j.tw + q) * 1.2, 2.8, 0.6, 50); }
+          break;
+      }
+      // apex mark (8-bit plus): pulses with the bell; always lit so an idle jelly stays visible
+      const ax = cx, ay = cy + gm.top * r * (1 + 0.08 * c);
+      const lanA = clamp((0.75 + 0.25 * c) * (0.6 + 0.4 * B), 0, 1);
+      ctx.fillStyle = V.hsl(h, sat * 0.6, 80, lanA);
+      if (v.prof === "spire") { sq(ctx, ax, ay - 4 * ds, 2 * ds); sq(ctx, ax, ay - 7 * ds, 1.6 * ds); sq(ctx, ax, ay, 3 * ds); }
+      else if (v.prof === "box") { sq(ctx, ax - 3 * ds, ay, 2.2 * ds); sq(ctx, ax + 3 * ds, ay, 2.2 * ds); sq(ctx, ax, ay - 3 * ds, 2.2 * ds); sq(ctx, ax, ay + 3 * ds, 2.2 * ds); }
+      else { sq(ctx, ax, ay, 3 * ds); sq(ctx, ax - 3 * ds, ay, 2 * ds); sq(ctx, ax + 3 * ds, ay, 2 * ds); sq(ctx, ax, ay - 3 * ds, 2 * ds); }
+      glow(ctx, ax, ay, 7.5 * ds, h, sat * P.sat, 60, 0.36 * G * lanA);
+
+      // VPN lost: a small red beacon blinks inside the bell (one short blink every 1.6 s)
+      if (vpn > 0.3 && huddle && !V.LIVE) {
+        const tm = (t + j.i * 0.07) % 1.6;
+        const hb = (tm < 0.22 ? 1 : 0.08) * vpn;
+        ctx.fillStyle = `rgba(255,40,40,${0.9 * hb})`; sq(ctx, cx, cy + r * 0.1, 4 * ds);
+        glow(ctx, cx, cy + r * 0.1, 9 * ds, 0, 100, 58, 0.36 * hb * G);
+      }
+      // needs-you: dotted rings + breathing lantern halo
+      for (const rp of j.ripples) {
+        const rr = r * 1.15 + rp * 70 * ds * (LEGACY ? 1 : SC), a = (1 - rp) * 0.75 * j.needs, n = 28;
+        ctx.fillStyle = V.hsl(h, sat * 0.7, 75, a);
+        for (let q = 0; q < n; q++) { const aa = q / n * TAU; sq(ctx, cx + Math.cos(aa) * rr, cy + Math.sin(aa) * rr * 0.85, 2.4 * ds); }
+      }
+      if (j.needs > 0.05) {
+        const br = 0.5 + 0.5 * Math.sin(t * TAU / 1.8);
+        const gg = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 2.3);
+        gg.addColorStop(0, V.hsl(h, sat * 0.7, 70, 0.16 * j.needs * (0.5 + 0.5 * br) * G)); gg.addColorStop(1, V.hsl(h, sat, 50, 0));
+        disc(ctx, cx, cy, r * 2.3, gg);
+      }
+      // embers
+      for (const e of j.embers) {
+        const a = (1 - e.age / 1.6) * 0.85;
+        ctx.fillStyle = V.hsl(32, 95, 72, a); sq(ctx, e.x, e.y, 2 * ds);
+      }
+      // reconnect bloom: one ring of beads flung outward
+      if (bloom > 0) {
+        const rr = r + (1 - bloom) * 110 * ds * (LEGACY ? 1 : SC), n = 30;
+        for (let q = 0; q < n; q++) {
+          const aa = q / n * TAU + j.i;
+          ctx.fillStyle = V.hsl(h + 18 * Math.sin(q), 95, 70, bloom * 0.9);
+          sq(ctx, cx + Math.cos(aa) * rr, cy + Math.sin(aa) * rr, 3 * ds);
+        }
+      }
+      });
+      V.report(j.id, j.x, j.y, j.r * 1.2);
+    }
+    ctx.restore();
+  }
+  function place(V, id, x, y) { const j = J.find(o => o.id === id); if (j) { j.x = x; j.y = y; j.vx = j.vy = 0; buildTentacles(j, 0); } }
+  return { init, step, draw, carry, resize, lightSpots, place };
+})());
+</script>
+</body></html>
