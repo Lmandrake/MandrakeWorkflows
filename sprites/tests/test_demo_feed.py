@@ -21,13 +21,13 @@ def feed(*a):
 def link(snap):
     M = snap["machine"]; vpn, api = M.get("vpn"), M.get("api")
     if api and api.get("state") == "failing" and api.get("error_kind") == "network": return "lost"
-    if vpn and vpn.get("state") == "down" and vpn.get("on_site") is not True: return "risk"
+    if vpn and vpn.get("state") == "down" and vpn.get("on_site") is not True: return "lost"
     if (vpn and vpn.get("state")) or (api and api.get("state")): return "ok"
     return "none"
 
 # 1. named scenarios: each pins one link state, with the signals that make it so
 WANT = {  # scenario -> (link, vpn state or None, on_site, api (state, error_kind) or None)
-    "vpn_down": ("risk", "down", False, ("ok", None)),
+    "vpn_down": ("lost", "down", False, ("ok", None)),
     "lost": ("lost", "down", False, ("failing", "network")),
     "api_network": ("lost", "up", True, ("failing", "network")),
     "api_ratelimit": ("ok", "up", False, ("failing", "rate_limit")),
@@ -53,7 +53,7 @@ for t in range(0, 7200, 5):
     d = DF.snapshot(args, t, DF.EPOCH0); seen.add(link(d)); M = d["machine"]
     if "api" in M: reasons.add((M["api"]["state"], M["api"].get("error_kind")))
     onsite |= M["vpn"].get("on_site") is True
-for lk in ("ok", "risk", "lost"):
+for lk in ("ok", "lost"):   # "risk" is no longer produced: VPN down off site is LOST (owner, 2026-11-03)
     check(lk in seen, f"cycling demo reaches {lk} (seen {sorted(seen)})")
 check(onsite, "cycling demo is on site (on-site network) some of the time")
 for r in [("ok", None), ("failing", "network"), ("failing", "rate_limit")]:

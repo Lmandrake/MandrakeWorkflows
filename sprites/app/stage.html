@@ -91,15 +91,17 @@
     if (mn && fin(mn.rx_mbps) && fin(mn.tx_mbps)) net.mbps = mn.rx_mbps + mn.tx_mbps;
     // Link (owner, 2026-11-01 ~08:15: "we need to check VPN, on-site network, AND we need to monitor for API cannot be reached...
     // they are interrelated and each informative"). Truth table (SHIP_PLAN "VPN, on-site network and API"):
-    //   lost = api failing with error_kind network (agents cannot reach the API), whatever the VPN says
-    //   risk = VPN down and not on the on-site network (on_site false or unknown), API ok or absent
+    //   lost = api failing with error_kind network (agents cannot reach the API), whatever the VPN says;
+    //          ALSO VPN down and not on the on-site network (on_site false or unknown), whatever the API says: owner ruling
+    //          2026-11-03 ("panic on VPN down"; no agent was busy at a hibernation wake, so there was no API evidence)
+    //   risk = no longer produced here (the debounce, runtime and layers still carry it)
     //   ok   = on the on-site network or VPN up, API not failing on the network; also: api failing for another reason (rate limit,
     //          server) is not a link problem
     //   none = vpn and api both unknown: show nothing
-    // Debounced in push() (entering lost/risk holds 20 s; recovery immediate).
+    // Debounced in push() (entering lost holds 20 s; recovery immediate).
     const api = blk(M.api), vDown = !!(vpn && vpn.state === "down"), offSite = !(vpn && vpn.on_site === true);
     const apiNet = !!(api && api.state === "failing" && api.error_kind === "network");
-    if (apiNet) net.linkRaw = "lost"; else if (vDown && offSite) net.linkRaw = "risk"; else if ((vpn && vpn.state) || (api && api.state)) net.linkRaw = "ok";
+    if (apiNet || (vDown && offSite)) net.linkRaw = "lost"; else if ((vpn && vpn.state) || (api && api.state)) net.linkRaw = "ok";
     net.why = [apiNet && "API unreachable", vDown && "VPN down", vDown && vpn.on_site === false && "not on the on-site network"].filter(Boolean);
     if (path && fin(path.loss_pct)) net.loss = path.loss_pct;
     if (bw && fin(bw.strain)) net.strain = clamp(bw.strain, 0, 1);                          // absent -> no jam

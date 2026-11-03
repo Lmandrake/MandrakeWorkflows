@@ -53,22 +53,24 @@ if (!only || only === "6") for (const sp of SPECIES) {
   check(over <= 0, `#6 ${sp}: hover at the focus edge, hit disc stays outside the focus (max overlap ${over} px)`);
 }
 
-// ---- 7: the reconnect bloom fires on LOST -> OK only, not on LOST -> AT RISK or LOST -> none ----
+// ---- 7: the reconnect bloom fires on LOST -> OK only, not on LOST -> still-LOST (VPN down off site) or LOST -> none ----
+// 2026-11-03 (owner, "panic on VPN down"): VPN down off site is LOST, so "AT RISK" is no longer reachable; the bloom-free
+// control is OK -> OK and the must-not-bloom case is the API recovering while the VPN is still down.
 // Truth: the bloom is extra drawing (rings, sparks, confetti) right after the transition. Measured as recorded instances
 // in the 4 frames after it, relative to the frame before; LOST -> OK is the positive control.
 const NET = { lost: { vpn: { state: "up", on_site: true }, api: { state: "failing", error_kind: "network" } },
-  risk: { vpn: { state: "down", on_site: false }, api: { state: "ok" } }, ok: { vpn: { state: "up", on_site: true }, api: { state: "ok" } }, none: {} };
+  vpnDown: { vpn: { state: "down", on_site: false }, api: { state: "ok" } }, ok: { vpn: { state: "up", on_site: true }, api: { state: "ok" } }, none: {} };
 function bloomExtra(sp, a, b) { const st = scene(sp), two = [{ project: "Alpha" }, { project: "Beta" }];
   upd(st, snapshot(two, { machine: NET[a] })); st.fire(); st.step(24 * 4);
   const n = () => +st.ev("__nativeFrame().n"), pre = n(); upd(st, snapshot(two, { machine: NET[b] })); let mx = -1e9;
   for (let i = 0; i < 4; i++) { st.step(2); mx = Math.max(mx, n() - pre); } return mx; }
 if (!only || only === "7") for (const sp of SPECIES) {
-  const ok = bloomExtra(sp, "lost", "ok"), risk = bloomExtra(sp, "lost", "risk"), none = bloomExtra(sp, "lost", "none"), base = bloomExtra(sp, "ok", "risk");
-  check(ok >= base + 25, `#7 ${sp}: LOST -> OK blooms (control: +${ok} instances vs OK -> AT RISK +${base})`);
+  const ok = bloomExtra(sp, "lost", "ok"), risk = bloomExtra(sp, "lost", "vpnDown"), none = bloomExtra(sp, "lost", "none"), base = bloomExtra(sp, "ok", "ok");
+  check(ok >= base + 25, `#7 ${sp}: LOST -> OK blooms (control: +${ok} instances vs OK -> OK +${base})`);
   // leaving LOST also un-drains the flock (lights and traffic resume), which adds some drawing without a bloom, so the
   // bar is the midpoint between the bloom-free edge and the bloom control (before the fix both equal the control)
   const bar = (ok + base) / 2;
-  check(risk < bar && none < bar, `#7 ${sp}: LOST -> AT RISK (+${risk}) and LOST -> none (+${none}) do not bloom (bar < ${bar})`);
+  check(risk < bar && none < bar, `#7 ${sp}: LOST -> still-LOST, VPN down (+${risk}) and LOST -> none (+${none}) do not bloom (bar < ${bar})`);
 }
 
 // ---- 14: pip core >= 1.8 px across at the 50 % size slider ----

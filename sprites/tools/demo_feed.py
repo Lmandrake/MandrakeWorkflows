@@ -233,7 +233,7 @@ SCENARIOS = {
             m=(1, 0, 0), net=dict(strain=.35), projects=P(("Lodestar", 5), ("SidePulse", 3)))),
     "needs": ("one session needs you, others work/idle", scen(base([S("Lodestar", 90015, "needs")]), projects=P(("Lodestar", 4)))),
     "strain": ("machine strain: level 3, thermal 1, memory pressure 1", scen(base(), m=(3, 1, 1))),
-    "vpn_down": ("VPN down, off site, API ok: AT RISK (beacon, no huddle)", scen(base(), net=dict(vpn="down", loss=1))),
+    "vpn_down": ("VPN down, off site, API ok: LOST (huddle and searchlight)", scen(base(), net=dict(vpn="down", loss=1))),
     "lost": ("VPN down, off site, API unreachable: LOST (huddle and searchlight)",
              scen(base(), net=dict(vpn="down", loss=1, api=("failing", "network")))),
     "api_network": ("VPN up, on site, API unreachable: LOST", scen(base(), net=dict(on_site=True, api=("failing", "network")))),

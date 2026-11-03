@@ -165,10 +165,10 @@ cannot be reached... they are interrelated and each informative." All three are 
 | machine.api | machine.vpn | on the on-site network (vpn.on_site) | shown |
 |---|---|---|---|
 | failing, error_kind network | any (or absent) | any | **LOST**: huddle + searchlight + red beacon |
-| ok, absent, or failing for another reason (rate limit, server) | down | false or absent | **AT RISK**: faint slow red beacon, no searchlight, flock drawn in slightly (22 %) |
+| any (ok, absent, or failing for another reason) | down | false or absent | **LOST**: huddle + searchlight + red beacon (owner ruling 2026-11-03, "panic on VPN down"; was AT RISK, a faint beacon, until a hibernation wake with no busy agent showed it had no API evidence to escalate on) |
 | ok, absent, or failing for another reason | up, or down with on_site true | any | **OK** |
 | absent | absent | - | nothing (all unknown is never assumed ok or lost) |
-Entering LOST or AT RISK holds 20 s first (each level its own clock); recovery is immediate; LOST -> OK fires the reconnect
+Entering LOST holds 20 s first (AT RISK is no longer produced by the adapter; the debounce and layers still carry it); recovery is immediate; LOST -> OK fires the reconnect
 bloom. Hovering the beacon names the signal(s) down in the chosen label style ("API unreachable", "VPN down", "not on Lab
 WiFi"). Test: ~/ClaudeWork/sprites/live/verify/vpn_truth.py (all 42 combinations, flap, both debounces, live risk/lost
 beacon + hover text). Built against the Augur schema as it stands (machine.api latency fix in progress there).
@@ -215,3 +215,6 @@ Any adverse time counts toward the 20 s hold: after LOST, if the API recovers wh
 - Uncast projects take their random form seeded by `project_key`, so a project keeps the same form across sessions and reboots, matching the owner's "like any new project not yet selected" ruling. (R1-SPEC S9)
 - The `~/dev/MandrakeWorkflows/visualize` folder maps to `mandrakeworkflows`: MandrakeVisualize was folded in on 2026-10-28 and its registry row is retired. (R2-SPEC #3)
 - The particle half of quietUnderStrain, and the dims of edgeWhileTyping and sleepWhenAway, are deferred. The Settings text describes what is built.
+
+## VPN down off site is LOST (owner, 2026-11-03)
+After a hibernation wake at home with the VPN off, Augur correctly reported `vpn.state: down, on_site: false`, but no agent was busy so `machine.api` was absent and the table gave only AT RISK. Owner chose "panic on VPN down": `down` and not on site is LOST whatever the API says. Confirmed by a real outage the same morning: no huddle while the session sat at a question card (no API evidence under the old rule), huddle once an agent made a failing call, recovery correct. Test: `tests/stage/test_link.py`.

@@ -24,7 +24,7 @@ def snap(vpn, site, api):
     return d
 def want(vpn, site, api):
     if api and api[0] == "failing" and api[1] == "network": return "lost"
-    if vpn == "down" and site is not True: return "risk"
+    if vpn == "down" and site is not True: return "lost"
     if vpn is None and api is None: return "none"
     return "ok"
 with sync_playwright() as pw:
@@ -62,13 +62,15 @@ with sync_playwright() as pw:
         p = b.new_page(viewport={"width": 1440, "height": 900}); p.goto(url("stale=0&dpr=1&vpndebounce=0")); p.wait_for_timeout(300)
         p.evaluate("SpritesStage.setSize(1440,900)"); return p
     b = pw.chromium.launch()
-    for case, s, huddle in [("risk", snap("down", False, ("ok", None)), False), ("lost", snap("up", True, ("failing", "network")), True)]:
+    for case, s, huddle in [("vpn down off site", snap("down", False, ("ok", None)), True), ("api lost", snap("up", True, ("failing", "network")), True)]:
         p = live_page(); p.evaluate(f"SpritesStage.update({json.dumps(s)})"); p.wait_for_timeout(3500)
         r = p.evaluate("(() => { const out = {}; for (const c of Object.keys(__stage.layers)) { const V = __stage.V(c); out[c] = [!!V._beacon(), V.huddlePt ? 1 : 0]; } return [__stage.model.S.net.linkRaw, out]; })()")
         beacons = sum(v[0] for v in r[1].values())
         check(beacons == 1, f"live {case}: exactly one beacon across {len(r[1])} layers ({beacons})")
         p.close()
-    # LOST -> AT RISK must not tell the pieces the link came back. R1 #7 was fixed by exposing S.net.link: the pieces
+    # Owner ruling 2026-11-03 ("panic on VPN down"): VPN down off site is LOST whatever the API says, so API recovery
+    # while the VPN is still down must keep LOST on screen. The pieces must never see link "ok" here (no false bloom).
+    # (Old rule: LOST -> AT RISK must not tell the pieces the link came back.) R1 #7 was fixed by exposing S.net.link: the pieces
     # bloom only when vpn goes down -> up AND link is "ok" (V.reconnected), so the layers must never see link "ok" here.
     p = live_page()
     p.evaluate("""(() => { window.__seen = []; const c0 = Object.keys(__stage.layers); })()""")
@@ -77,6 +79,6 @@ with sync_playwright() as pw:
         V._onLive = m => { if (m.S && m.S.net) window.__seen.push(m.S.net.link); return f(m); }; } })()""")
     p.evaluate(f"SpritesStage.update({json.dumps(snap('down', False, ('ok', None)))})"); p.wait_for_timeout(1500)
     seen = p.evaluate("[__stage.model.S.net.link, window.__seen]")
-    check(seen[0] == "risk" and "ok" not in seen[1], f"LOST -> AT RISK: the layers never see the link come back {seen}")
+    check(seen[0] == "lost" and "ok" not in seen[1], f"API recovers, VPN still down off site: stays LOST, the layers never see the link come back {seen}")
     p.close(); b.close()
 done()
