@@ -348,5 +348,26 @@ do {
     check(!ghostDebounced(last: t0, now: t0.addingTimeInterval(3.1)), "#17 after 3 s it goes through")
 }
 
+// Space switch for a deliberate click (2026-11-04): swoosh is off, so Sprites posts "Switch to Desktop N" itself.
+do {
+    let disp: [[String: Any]] = [["Display Identifier": "Main", "Current Space": ["ManagedSpaceID": 5],
+        "Spaces": [["ManagedSpaceID": 1, "type": 0], ["ManagedSpaceID": 3, "type": 0], ["ManagedSpaceID": 9, "type": 4],
+                   ["ManagedSpaceID": 4, "type": 0], ["ManagedSpaceID": 5, "type": 0]]]]
+    func hk(_ on: Bool, _ key: Int = 20) -> [String: Any] { ["enabled": on, "value": ["parameters": [65535, key, 262144], "type": "standard"]] }
+    let keys: [String: Any] = ["118": hk(true, 18), "119": hk(true, 19), "120": hk(true, 20), "121": hk(false, 21)]
+    check(spaceSwitchPlan(displays: disp, windowSpaces: [3], hotkeys: keys) == .desktop(2, keyCode: 19, flags: 262144), "space: 2nd user desktop -> Ctrl-2")
+    check(spaceSwitchPlan(displays: disp, windowSpaces: [4], hotkeys: keys) == .desktop(3, keyCode: 20, flags: 262144), "space: fullscreen space is not numbered")
+    if case .stay = spaceSwitchPlan(displays: disp, windowSpaces: [5], hotkeys: keys) { check(true, "") } else { check(false, "space: current space stays") }
+    if case .stay = spaceSwitchPlan(displays: disp, windowSpaces: [1, 3], hotkeys: keys) { check(true, "") } else { check(false, "space: sticky window stays") }
+    if case .stay = spaceSwitchPlan(displays: disp, windowSpaces: [], hotkeys: keys) { check(true, "") } else { check(false, "space: no space stays") }
+    if case .unreachable = spaceSwitchPlan(displays: disp, windowSpaces: [9], hotkeys: keys) { check(true, "") } else { check(false, "space: fullscreen unreachable") }
+    let d4: [[String: Any]] = [["Current Space": ["ManagedSpaceID": 1], "Spaces": [["ManagedSpaceID": 1, "type": 0], ["ManagedSpaceID": 3, "type": 0],
+                                ["ManagedSpaceID": 4, "type": 0], ["ManagedSpaceID": 5, "type": 0]]]]
+    if case .unreachable = spaceSwitchPlan(displays: d4, windowSpaces: [5], hotkeys: keys) { check(true, "") } else { check(false, "space: disabled shortcut unreachable") }
+    if case .unreachable = spaceSwitchPlan(displays: disp, windowSpaces: [77], hotkeys: keys) { check(true, "") } else { check(false, "space: unknown space unreachable") }
+    check(spaceSwitchPlan(displays: d4, windowSpaces: [3], hotkeys: ["119": ["enabled": 1, "value": ["parameters": [65535, 19, 262144]]]]) == .desktop(2, keyCode: 19, flags: 262144), "space: enabled as 1")
+    check(focusedWindow("ok 26848") == 26848 && focusedWindow("ok") == 0 && focusedWindow("none") == nil && focusedWindow(nil) == nil, "focusedWindow parses the script reply")
+}
+
 print("\(passed) passed, \(failed) failed")
 exit(failed == 0 ? 0 : 1)

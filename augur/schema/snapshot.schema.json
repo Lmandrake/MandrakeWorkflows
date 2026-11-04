@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/Lmandrake/MandrakeWorkflows/augur/schema/snapshot.schema.json",
-  "title": "Augur snapshot, version 1.1",
-  "description": "One measurement of this Mac, written atomically by Augur (augur/DESIGN.md). Levels and counts only: no titles, senders, subjects, session names, command lines or remote addresses. RULES: (1) a field with no source is ABSENT, never zero; (2) every Signal carries observed_at and valid_until (epoch seconds, wall clock); a reader that finds now > valid_until treats every value in that Signal as unknown, never as its last value; (3) a Signal whose source exists but failed carries `unknown` (a reason) and NO value keys; (4) readers ignore keys they do not know (minor versions only add optional keys); a reader refuses a major version it does not know; a key whose MEANING changes is a new key (or a new major), never the old key re-defined. (5) `off: true` wins over every clock: an off file is not stale, it is off. 1.1 added sessions_at, sessions[].tasks.background, projects[].counts.as_of, and named the keys 1.0 builds had already added (machine.api, tasks.bg_shells, tasks.other, load.method).",
+  "title": "Augur snapshot, version 1.2",
+  "description": "One measurement of this Mac, written atomically by Augur (augur/DESIGN.md). Levels and counts only: no titles, senders, subjects, session names, command lines or remote addresses. RULES: (1) a field with no source is ABSENT, never zero; (2) every Signal carries observed_at and valid_until (epoch seconds, wall clock); a reader that finds now > valid_until treats every value in that Signal as unknown, never as its last value; (3) a Signal whose source exists but failed carries `unknown` (a reason) and NO value keys; (4) readers ignore keys they do not know (minor versions only add optional keys); a reader refuses a major version it does not know; a key whose MEANING changes is a new key (or a new major), never the old key re-defined. (5) `off: true` wins over every clock: an off file is not stale, it is off. 1.1 added sessions_at, sessions[].tasks.background, projects[].counts.as_of, and named the keys 1.0 builds had already added (machine.api, tasks.bg_shells, tasks.other, load.method). 1.2 added sessions[].headless and sessions[].parent (a headless claude -p run attributed to its ancestor session).",
   "type": "object",
   "required": [
     "schema",
@@ -24,7 +24,7 @@
     "version": {
       "type": "string",
       "pattern": "^1\\.[0-9]+$",
-      "description": "major.minor. Major 1 is this file; minor bumps only add optional keys (1.1: sessions_at, tasks.background, counts.as_of)."
+      "description": "major.minor. Major 1 is this file; minor bumps only add optional keys (1.1: sessions_at, tasks.background, counts.as_of; 1.2: sessions[].headless, sessions[].parent)."
     },
     "producer": {
       "type": "object",
@@ -352,7 +352,7 @@
         },
         "on_site": {
           "type": "boolean",
-          "description": "the Wi-Fi network is the on-site one, where no VPN is expected (from LodestarSSID's ssid.json; absent when unreadable). A creature's lost-VPN behaviour should fire on down AND NOT on_site."
+          "description": "this Mac is on the work network, where no VPN is expected: true when the Wi-Fi SSID matches the on-site one (LodestarSSID's ssid.json) OR a network service's DHCP domain matches a suffix listed in $AUGUR_HOME/config/work.json (written by augur/bin/work_here.py); false when one of those was read and neither matched; absent when neither was readable. A creature's lost-VPN behaviour should fire on down AND NOT on_site."
         },
         "changed_at": {
           "type": "number",
@@ -460,7 +460,16 @@
         },
         "managed": {
           "type": "boolean",
-          "description": "true = the session's git toplevel is an active row of Lodestar's sync/registry.md for this machine. false = not in the registry, or Lodestar is not installed here (then nothing is managed). ABSENT when the registry exists but cannot be read or parsed. Consumers draw managed:false sessions white, a different shape, no action data."
+          "description": "true = the session's git toplevel is an active row of Lodestar's sync/registry.md for this machine. false = not in the registry, or Lodestar is not installed here (then nothing is managed). ABSENT when the registry exists but cannot be read or parsed. Consumers draw managed:false sessions white, a different shape, no action data. A session with `parent` carries its parent's value."
+        },
+        "headless": {
+          "type": "boolean",
+          "description": "(1.2) present and true when this is a headless run (session file entrypoint sdk-cli, or argv -p/--print). Absent on interactive sessions."
+        },
+        "parent": {
+          "type": "string",
+          "pattern": "^[0-9]+@[0-9]+$",
+          "description": "(1.2) on a headless run only: the id of the nearest non-headless session up its ppid chain (a -p under a -p names the top interactive session). project, project_key and managed are then the PARENT's. Its load is its own tree only: the parent's load excludes it, so a family's CPU is the sum (never double-counted). Absent when no session ancestor exists (cron, launchd): the run is identified from its own cwd. A reader that cannot find the parent id in sessions[] draws it as a standalone session."
         },
         "attention": {
           "allOf": [
@@ -628,7 +637,8 @@
         },
         "sessions": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "sessions[] entries with this project_key, not counting headless children (entries with `parent`, 1.2)"
         },
         "counts": {
           "allOf": [

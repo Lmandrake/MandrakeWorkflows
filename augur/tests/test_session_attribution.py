@@ -105,6 +105,10 @@ class Sim(object):
             def cmdline(self, pid):
                 return ""
 
+            def environ_value(self, pid, name):
+                q = sim.p.get(pid)
+                return (q or {}).get("env", {}).get(name, "")
+
             def cwd(self, pid):
                 return sim.repo
 
@@ -717,3 +721,89 @@ def test_rb_m8_unmatched_credit_is_retired_and_no_longer_erases_a_later_child(tm
     assert truth[101] == pytest.approx(120.0)
     assert loads[101]["cpu_cores"] == pytest.approx(cores(truth, 101), rel=0.01)
     assert loads[101]["pending_reconciliation_cpu_s"] == 0.0
+
+
+# --------------------------------------------------------------------------- headless runs (1.2)
+
+def _headless_file(sim, pid, entrypoint="sdk-cli"):
+    with open(os.path.join(sim.home, ".claude", "sessions", "%d.json" % pid), "w") as fh:
+        json.dump({"procStart": None, "kind": "interactive", "entrypoint": entrypoint}, fh)
+
+
+def _rows(run):
+    return {s["pid"]: s for s in run.coll.collect(run.sim.ctx(run.st))["sessions"]}
+
+
+def test_headless_child_is_attributed_to_its_session_and_not_double_counted(tmp_path):
+    sim = two_sessions(tmp_path)
+    sim.p[101]["rate"] = 0.1
+    sim.spawn(103, 102, rate=0.0, path="/usr/bin/python3", comm="python3")   # zsh -> python
+    sim.spawn(501, 103, rate=0.5, path=CLAUDE, comm="2.1.292", session=True)  # -> claude -p
+    _headless_file(sim, 501)
+    run = Run(sim)
+    run.tick()
+    sim.advance(5)
+    loads, truth = run.tick()
+    rows = _rows(run)
+    a, c = rows[101], rows[501]
+    assert c["headless"] is True and c["parent"] == a["id"]
+    assert (c["project"], c["project_key"]) == (a["project"], a["project_key"])
+    assert "parent" not in a and "headless" not in a
+    # each carries its own load; the parent's excludes the child
+    assert loads[501]["cpu_cores"] == pytest.approx(cores(truth, 501), abs=0.02)
+    assert loads[101]["cpu_cores"] == pytest.approx(cores(truth, 101), abs=0.02)
+
+
+def test_headless_with_no_session_ancestor_stays_standalone(tmp_path):
+    sim = Sim(tmp_path)
+    sim.p[1] = {"ppid": 0, "start": int(sim.t), "rate": 0.0, "own": 0.0, "child": 0.0,
+                "path": "/sbin/launchd", "comm": "launchd", "owner": 1}
+    sim.spawn(601, 1, rate=0.0, path="/bin/sh", comm="sh")                    # cron shell
+    sim.spawn(602, 601, rate=0.0, path=CLAUDE, comm="2.1.292", session=True)
+    _headless_file(sim, 602)
+    run = Run(sim)
+    rows = _rows(run)
+    assert rows[602]["headless"] is True
+    assert "parent" not in rows[602]
+
+
+def test_nested_headless_resolves_to_the_top_interactive_session(tmp_path):
+    sim = two_sessions(tmp_path)
+    sim.spawn(701, 102, path=CLAUDE, comm="2.1.292", session=True)            # -p under A
+    _headless_file(sim, 701)
+    sim.spawn(702, 701, path="/bin/zsh", comm="zsh")
+    sim.spawn(703, 702, path=CLAUDE, comm="2.1.292", session=True)            # -p under that -p
+    _headless_file(sim, 703)
+    rows = _rows(Run(sim))
+    assert rows[701]["parent"] == rows[101]["id"]
+    assert rows[703]["parent"] == rows[101]["id"]
+
+
+def test_headless_by_argv_when_the_file_names_no_entrypoint(tmp_path):
+    sim = two_sessions(tmp_path)
+    sim.spawn(801, 102, path=CLAUDE, comm="2.1.292", session=True)            # file: procStart only
+    run = Run(sim)
+    run.coll.r.cmdline = lambda pid: "claude -p say ok" if pid == 801 else ""
+    rows = _rows(run)
+    assert rows[801]["parent"] == rows[101]["id"]
+    # an interactive nested session (entrypoint cli) is NOT a child, even with " -p " in its prompt
+    sim.spawn(802, 102, path=CLAUDE, comm="2.1.292", session=True)
+    _headless_file(sim, 802, entrypoint="cli")
+    run.coll.r.cmdline = lambda pid: "claude fix the -p flag"
+    rows = _rows(run)
+    assert "parent" not in rows[802] and "headless" not in rows[802]
+
+
+def test_reparented_headless_falls_back_to_the_inherited_socket(tmp_path):
+    sim = two_sessions(tmp_path)
+    sim.p[1] = {"ppid": 0, "start": int(sim.t), "rate": 0.0, "own": 0.0, "child": 0.0,
+                "path": "/sbin/launchd", "comm": "launchd", "owner": 1}
+    sim.spawn(901, 1, path=CLAUDE, comm="2.1.292", session=True)     # `( claude -p ... & )`
+    sim.p[901]["env"] = {"CLAUDE_CODE_MESSAGING_SOCKET": "/tmp/cc-socks/101.sock"}
+    _headless_file(sim, 901)
+    sim.spawn(902, 1, path=CLAUDE, comm="2.1.292", session=True)     # socket names no live root
+    sim.p[902]["env"] = {"CLAUDE_CODE_MESSAGING_SOCKET": "/tmp/cc-socks/4242.sock"}
+    _headless_file(sim, 902)
+    rows = _rows(Run(sim))
+    assert rows[901]["parent"] == rows[101]["id"]
+    assert "parent" not in rows[902] and rows[902]["headless"] is True

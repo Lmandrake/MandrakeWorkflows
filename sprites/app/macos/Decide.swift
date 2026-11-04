@@ -369,3 +369,41 @@ func ghostPlan(key: String, table: [[String: Any]]) -> GhostPlan {
 /// One window per project per 3 s (double-click debounce). Stamped only after a launch was sent, so a refused or
 /// failed click does not suppress the next one.
 func ghostDebounced(last: Date?, now: Date) -> Bool { last.map { now.timeIntervalSince($0) < 3 } ?? false }
+
+// MARK: Space switch for a deliberate click (owner, 2026-11-04)
+/// With `com.apple.dock workspaces-auto-swoosh` 0 (Machinist, 2026-10-21, kept on purpose), activating iTerm2 makes it
+/// frontmost but never flies to the clicked window's Space; the Dock's Dock-icon path goes to the app's LAST Space,
+/// not the window's. Sprites therefore posts Mission Control's own "Switch to Desktop N" shortcut for that one click.
+enum SpaceSwitch: Equatable { case stay(String), desktop(Int, keyCode: Int, flags: UInt64), unreachable(String) }
+/// `displays` is SLSCopyManagedDisplaySpaces' answer, `windowSpaces` the window's space ids (SLSCopySpacesForWindows),
+/// `hotkeys` com.apple.symbolichotkeys' AppleSymbolicHotKeys (ids 118... = Desktop 1...). Desktop N is the window's
+/// 1-based position among its display's user desktops (type 0; fullscreen spaces are not numbered).
+func spaceSwitchPlan(displays: [[String: Any]], windowSpaces: [Int], hotkeys: [String: Any]) -> SpaceSwitch {
+    guard windowSpaces.count == 1, let sid = windowSpaces.first else {
+        return .stay(windowSpaces.isEmpty ? "window has no space (minimised or gone)" : "window is on every space")
+    }
+    func id(_ s: [String: Any]) -> Int { (s["ManagedSpaceID"] as? Int) ?? (s["id64"] as? Int) ?? -1 }
+    for d in displays {
+        let cur = (d["Current Space"] as? [String: Any]).map(id) ?? -1
+        if cur == sid { return .stay("already on the window's space") }
+        var n = 0
+        for s in (d["Spaces"] as? [[String: Any]]) ?? [] {
+            let user = (s["type"] as? Int ?? 0) == 0
+            if user { n += 1 }
+            guard id(s) == sid else { continue }
+            if !user { return .unreachable("window is on a fullscreen space") }
+            guard (1...16).contains(n), let hk = hotkeys[String(117 + n)] as? [String: Any], (hk["enabled"] as? Bool ?? false)
+                    || (hk["enabled"] as? Int ?? 0) == 1,
+                  let p = (hk["value"] as? [String: Any])?["parameters"] as? [Int], p.count == 3, p[1] != 65535 else {
+                return .unreachable("\"Switch to Desktop \(n)\" shortcut is off (System Settings > Keyboard > Shortcuts > Mission Control)")
+            }
+            return .desktop(n, keyCode: p[1], flags: UInt64(p[2]))
+        }
+    }
+    return .unreachable("space \(sid) is on no display")
+}
+/// iTerm2/Terminal focus scripts answer "ok <window id>"; the id is the window's CGWindowNumber. nil when not "ok".
+func focusedWindow(_ reply: String?) -> Int? {
+    guard let r = reply, r == "ok" || r.hasPrefix("ok ") else { return nil }
+    return Int(r.dropFirst(2).trimmingCharacters(in: .whitespaces)) ?? 0
+}

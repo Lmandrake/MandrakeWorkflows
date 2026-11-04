@@ -221,6 +221,24 @@ def cmdline(pid: int) -> str:
     parts = [p for p in raw[4:].split(b"\0") if p][1:1 + argc]
     return " ".join(p.decode("utf-8", "replace") for p in parts)
 
+def environ_value(pid: int, name: str) -> str:
+    """One variable from the process's initial environment (the KERN_PROCARGS2 block after argv;
+    own uid only); '' when unreadable or unset."""
+    mib = (ctypes.c_int * 3)(1, 49, int(pid))
+    size = ctypes.c_size_t(65536)
+    b = ctypes.create_string_buffer(size.value)
+    if _sys().sysctl(mib, 3, b, ctypes.byref(size), None, 0) != 0:
+        return ""
+    raw = b.raw[:size.value]
+    if len(raw) < 4:
+        return ""
+    argc = struct.unpack_from("<i", raw, 0)[0]
+    want = name.encode() + b"="
+    for p in [p for p in raw[4:].split(b"\0") if p][1 + argc:]:
+        if p.startswith(want):
+            return p[len(want):].decode("utf-8", "replace")
+    return ""
+
 # from Lodestar bin/lib/hostnative.py@098ae26c cwd
 def cwd(pid: int) -> str:
     """The process's current directory (PROC_PIDVNODEPATHINFO: vnode_info 152 bytes, then the

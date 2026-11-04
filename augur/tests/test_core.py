@@ -334,7 +334,8 @@ import hashlib
 
 # C1: the schema's hash is pinned to the version it carries. Changing the schema without
 # changing VERSION fails here; whoever bumps the version updates the pin in the same commit.
-SCHEMA_PIN = {"1.1": "5991430fe012a715e5ce3c89f26428d6bd40804ed3c520174f21965d6f25847e"}
+SCHEMA_PIN = {"1.1": "5991430fe012a715e5ce3c89f26428d6bd40804ed3c520174f21965d6f25847e",
+              "1.2": "0ea4025478b61298eea567bf3d235fd7a679d431a3c7385a643f81a894b79d28"}
 
 
 def _schema_hash():
@@ -373,7 +374,7 @@ def test_c1_total_keeps_its_1_0_meaning_and_background_is_new(tmp_path):
     # hand count: 3 shells (foreground and background) + 2 subagents = 5 (DESIGN s11, 1.0);
     # background = 1 bg shell + 2 subagents + 1 other = 4
     assert t["total"] == 5 and t["background"] == 4
-    assert s["version"] == "1.1"
+    assert s["version"] == core.VERSION
     assert not list(validator().iter_errors(s))
 
 

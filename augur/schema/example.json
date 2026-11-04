@@ -1,6 +1,6 @@
 {
  "schema": "augur.snapshot",
- "version": "1.1",
+ "version": "1.2",
  "producer": {
   "name": "augur",
   "rev": "0000000",
@@ -128,6 +128,36 @@
     "tx_mbps": 0.31,
     "flows": 2,
     "retx_pct": 0.0
+   }
+  },
+  {
+   "id": "88720@1793508900",
+   "pid": 88720,
+   "started_at": 1793508900.0,
+   "project": "Lodestar",
+   "project_key": "lodestar",
+   "managed": true,
+   "headless": true,
+   "parent": "88586@1793461778",
+   "load": {
+    "observed_at": 1793508997.5,
+    "valid_until": 1793509010.0,
+    "cpu_cores": 0.22,
+    "mem_gb": 0.21,
+    "procs": 1,
+    "wait_s_per_s": 0.0,
+    "starved": false
+   },
+   "tasks": {
+    "observed_at": 1793508997.5,
+    "valid_until": 1793509010.0,
+    "shells": 0,
+    "subagents": 0,
+    "total": 0,
+    "method": "tree+transcripts",
+    "bg_shells": 0,
+    "other": 0,
+    "background": 0
    }
   },
   {

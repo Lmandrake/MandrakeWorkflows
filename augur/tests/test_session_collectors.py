@@ -50,6 +50,9 @@ class FakeReaders(S.Readers):
     def cwd(self, pid):
         return self.procs[pid][6]
 
+    def environ_value(self, pid, name):
+        return ""
+
     def tree(self, pid, limit=None):
         out, todo = [], [pid]
         while todo:
@@ -209,7 +212,7 @@ def test_two_sessions_and_load(tmp_path):
     # pidpath read once per pid@start, cmdline only for zsh/bash/sh
     assert r.calls["pidpath"] == 2          # only the two candidate roots named by session files
     assert 301 not in r.seen and 900 not in r.seen   # pids outside the trees are never read
-    assert r.calls["cmdline"] == 2
+    assert r.calls["cmdline"] == 4          # + once per root with no entrypoint in its file (1.2 headless)
 
 
 def test_reaped_children_cpu_counted_once(tmp_path):

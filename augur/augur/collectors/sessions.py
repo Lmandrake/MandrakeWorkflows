@@ -9,9 +9,25 @@ session_net  (agents, 5 s)  one nettop exec over every session-tree pid -> path 
 Decisions (the ticket left these open):
 - A root (pidpath contains /claude/versions/) is a session only when ~/.claude/sessions/<pid>.json
   exists and its procStart is within +-2 s of the process start (hostrec.read_sessions semantics:
-  a file with no parseable procStart is accepted). A root with no file (`claude -p`, a nested
-  helper) is not a session; its processes fold into the enclosing session's tree. If the sessions
-  directory itself cannot be listed, every root counts (an empty list would be a false zero).
+  a file with no parseable procStart is accepted). A root with no file (a nested helper) is not a
+  session; its processes fold into the enclosing session's tree. If the sessions directory itself
+  cannot be listed, every root counts (an empty list would be a false zero).
+- Headless runs (1.2). `claude -p` DOES write a session file (2.1.292: kind interactive,
+  entrypoint sdk-cli), so it is a root like any other. A root is headless when its file says
+  entrypoint "sdk-cli" (a file naming another entrypoint is believed) or, with no entrypoint in
+  the file, its argv carries -p / --print. A headless root is ATTRIBUTED to the
+  nearest non-headless session root up its ppid chain (a -p under a -p resolves to the top
+  interactive session): it is published with "headless": true, "parent": <that sid>, and the
+  parent's project / project_key / managed. A headless root with no session ancestor (cron,
+  launchd) carries "headless": true and no parent, identified from its own cwd as before. The
+  ppid chain is primary. A run reparented off it (double fork, nohup) falls back to the inherited
+  CLAUDE_CODE_MESSAGING_SOCKET=/tmp/cc-socks/<pid>.sock (the KERN_PROCARGS2 env block, read once
+  per pid@start) when that pid is a live non-headless root. Only the pid is kept, never the value.
+- CPU is never double-counted: walk() stops at every root, headless ones included, so a parent's
+  load covers its own tree WITHOUT its headless children, and each child carries its own load.
+  A consumer that wants the family's weight sums the parent's and its children's cpu_cores. When
+  a child exits, the reap lands on the parent's tree and is cancelled by the gone-credit like any
+  nested session's.
 - No cwd readable, or no git toplevel and no registry row -> project "unknown" (S4: a bare folder
   name is never published).
 - load: the session's first tick is {"unknown": "warming_up"}; later ticks carry all keys, with
@@ -67,6 +83,7 @@ SUBAGENT_TAIL = 8192
 SUBAGENT_TAIL_MAX = 1 << 20   # R5-6: a resume line longer than the tail is looked for up to this
 BG_YOUNG_S = 60.0         # a tool shell whose stdout cannot be read counts as background past this
 FG_MAX_S = 660.0          # a foreground Bash call is moved to the background at 600 s
+SOCK_RE = re.compile(r"/cc-socks/([0-9]+)\.sock$")
 TASK_OUT_RE = re.compile(r"/tasks/([A-Za-z0-9]+)\.output$")
 NOTICE_TEXT_RE = re.compile(r"^\s*<task-notification>\s*<task-id>(a[0-9a-f]+)</task-id>")
 NOTICE_HINT = b"task-notification"
@@ -199,6 +216,9 @@ class Readers(object):
 
     def cwd(self, pid):
         return self._n().cwd(pid)
+
+    def environ_value(self, pid, name):
+        return self._n().environ_value(pid, name)
 
     def stdout_path(self, pid):
         return self._n().stdout_path(pid)
@@ -679,6 +699,63 @@ class SessionsCollector(Collector):
             cache[key] = True
         return ok
 
+    def _headless(self, ctx, st, pid, start):
+        """True when this root is a headless run: its session file's entrypoint is sdk-cli, or its
+        argv carries -p / --print. Cached per pid@start once an answer was read."""
+        key = (pid, start)
+        cache = st.setdefault("headless", {})
+        if key in cache:
+            return cache[key]
+        d = read_session_file(ctx.home, pid)
+        if d is not None and isinstance(d.get("entrypoint"), str):
+            cache[key] = d["entrypoint"] == "sdk-cli"    # the file is the better witness: argv is
+            return cache[key]                             # space-joined, so a prompt can hold " -p "
+        try:
+            argv = (self.r.cmdline(pid) or "").split()
+        except Exception:  # noqa: BLE001 - unreadable argv is no evidence
+            argv = []
+        if not argv:
+            return False                 # nothing read: not cached, retried next sweep
+        cache[key] = any(a in ("-p", "--print") or a.startswith("--print=") for a in argv[1:])
+        return cache[key]
+
+    def _ancestors(self, st, procs, roots, heads):
+        """{headless sid: (parent sid, parent pid)}: the nearest non-headless root up each headless
+        root's ppid chain. Pids outside the scanned trees are looked up by bsdinfo."""
+        out = {}
+        for pid in heads:
+            q, seen = procs[pid]["ppid"], set()
+            while q and q > 1 and q not in seen and len(seen) < 256:
+                seen.add(q)
+                if q in roots and q not in heads:
+                    out[roots[pid]] = (roots[q], q)
+                    break
+                p = procs.get(q)
+                if p is not None:
+                    q = p["ppid"]
+                else:
+                    bi = self.r.bsdinfo(q)
+                    q = bi[0] if bi else None
+            if roots[pid] not in out:    # reparented (double fork, nohup): the inherited socket
+                sp = self._socket_pid(st, pid, procs[pid]["start"])
+                if sp in roots and sp not in heads:
+                    out[roots[pid]] = (roots[sp], sp)
+        return out
+
+    def _socket_pid(self, st, pid, start):
+        """The session pid named by the run's inherited CLAUDE_CODE_MESSAGING_SOCKET
+        (/tmp/cc-socks/<pid>.sock), or None. Read once per pid@start."""
+        cache = st.setdefault("sock", {})
+        key = (pid, start)
+        if key not in cache:
+            try:
+                v = self.r.environ_value(pid, "CLAUDE_CODE_MESSAGING_SOCKET") or ""
+            except Exception:  # noqa: BLE001 - no evidence, never a crash
+                v = ""
+            m = SOCK_RE.search(v)
+            cache[key] = int(m.group(1)) if m else None
+        return cache[key]
+
     def _project(self, ctx, st, sid, pid, reg):
         cache = st.setdefault("proj", {})
         if sid not in cache:
@@ -731,6 +808,12 @@ class SessionsCollector(Collector):
         m = st.get("matched", {})
         for k in [k for k in m if k not in live]:
             del m[k]
+        for name in ("headless", "sock"):
+            hl = st.setdefault(name, {})
+            for k in [k for k in hl if k not in live]:
+                del hl[k]
+        heads = {pid for pid in roots if self._headless(ctx, st, pid, procs[pid]["start"])}
+        parent_of = self._ancestors(st, procs, roots, heads)
         children = {}
         for pid, p in procs.items():
             children.setdefault(p["ppid"], []).append(pid)
@@ -859,6 +942,12 @@ class SessionsCollector(Collector):
                 rp = int(sid.split("@")[0])
                 start = procs[rp]["start"]
                 ident, cwd = self._project(ctx, st, sid, rp, reg)
+                if sid in parent_of:     # a headless child wears its parent's identity (1.2)
+                    psid, ppid_ = parent_of[sid]
+                    ident = dict(self._project(ctx, st, psid, ppid_, reg)[0])
+                    ident["parent"] = psid
+                if rp in heads:
+                    ident = dict(ident, headless=True)
                 tx["proj_out"] = ident
                 s = {"id": sid, "pid": rp, "started_at": float(start)}
                 s.update(ident)

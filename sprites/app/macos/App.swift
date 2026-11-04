@@ -73,6 +73,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let a = Optional(CommandLine.arguments), let i = a.firstIndex(of: "--backdrop-export"), a.count > i + 5 {   // QA: one offscreen frame, then exit
             exit(backdrop.exportPNG(a[i + 1], w: Int(a[i + 2]) ?? 1728, h: Int(a[i + 3]) ?? 1117, t: Double(a[i + 4]) ?? 0, to: a[i + 5]) ? 0 : 1)
         }
+        if let i = args.firstIndex(of: "--focus-pid"), args.count > i + 1, let fp = pid_t(args[i + 1]), let st = processStart(fp) {   // QA: a click's focus path, then exit
+            activateSession(pid: fp, startedAt: st)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6) { exit(0) }
+            return
+        }
         // Review R1_MACOS #3: one Sprites per login. Another pid with our bundle id (any build tree) or the lock held = exit.
         qaSecond = args.contains("--qa-second-instance")
         let me = getpid()

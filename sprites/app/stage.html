@@ -119,8 +119,19 @@
     const hiddenKey = key => { const e = pindex.get(key), c = SP && SP.castEntry(cast, key, e || { name: key }), v = c && c.visibility;
       return v === "hide" || (v === "hide_at_work" && atWork); };
     const sessions = [], s = Object.create(null), oldest = Object.create(null);
+    // Headless children (Augur 1.2: a `claude -p` run with `parent`) are satellites of the parent creature, never creatures
+    // of their own (owner, 2026-11-04). Each satellite carries its cpu_cores (`cpu`, unset when unmeasured) so the runtime
+    // can draw weight as brightness (owner, 2026-11-04). A hidden parent hides its children
+    // (they are skipped with it below); a child whose parent is not in the snapshot falls back to a white sprite.
+    const ids = new Set(), heads = Object.create(null);
+    for (const x of snap.sessions) if (x && x.id != null) ids.add(String(x.id));
+    for (const x of snap.sessions) { if (!x || x.id == null || x.parent == null || !ids.has(String(x.parent))) continue;
+      const ld = blk(x.load), h = { id: String(x.id) }; if (ld && fin(ld.cpu_cores)) h.cpu = ld.cpu_cores;
+      (heads[String(x.parent)] = heads[String(x.parent)] || []).push(h); }
     for (const x of snap.sessions) { if (!x || x.id == null) continue;
-      const id = String(x.id), white = x.managed === false, key = x.project_key ? String(x.project_key) : keyOf(x.project);
+      if (x.parent != null && ids.has(String(x.parent))) continue;          // drawn as its parent's satellite
+      const orphan = x.parent != null;                                       // parent not in the snapshot: white, as before 1.2
+      const id = String(x.id), white = x.managed === false || orphan, key = x.project_key ? String(x.project_key) : keyOf(x.project);
       if (!white && hiddenKey(key)) continue;
       const name = white ? String(x.project || key) : nameOf(key, x.project ? String(x.project) : key);
       const k = castFor(key, white ? id : key, white, name);   // a project's sprites keep the project's cast: same form for each session
@@ -134,6 +145,7 @@
       // satellites = background tasks (BURNING_CONCEPTS; augur DESIGN s11): tasks.background (1.1), never tasks.total
       // (shells + subagents, foreground included) nor load.procs (every OS process). Absent = unset, drawn calm (C5).
       if (tk && fin(tk.background)) d.procs = tk.background;
+      if (heads[id]) d.heads = heads[id];                                    // headless satellites (drawn by the runtime)
       if (nt && fin(nt.rx_mbps)) d.rx = nt.rx_mbps;
       if (nt && fin(nt.tx_mbps)) d.tx = nt.tx_mbps;
       s[id] = d;
@@ -168,6 +180,7 @@
       s[id] = { state, cpu: state === "working" ? 0.3 + 3 * wave(i, 23 + i) : 0.03, mem: 0.4 + 1.6 * wave(i * 2, 97),
         procs: Math.round(1 + 6 * wave(i * 3, 51)), rx: state === "working" ? 0.05 + 18 * Math.pow(wave(i, 17), 3) : 0.03,
         tx: state === "working" ? 0.05 + 8 * Math.pow(wave(i + 1, 29), 3) : 0.02, burning: i === 0 ? 3 : i === 3 ? 1 : undefined, burning_red: i === 0 ? 1 : 0 };
+      if (i === 1 || (i === 4 && u > 40 && u < 200)) s[id].heads = Array.from({ length: i === 1 ? 2 : 1 }, (_, j) => ({ id: id + "h" + j, cpu: 1.1 * wave(j + i, 31) * (j ? 0.15 : 1) }));
       if (state === "needs") s[id].needSec = u - 20; });
     { const id = "demoW"; sessions.push({ id, pid: 0, project: "scratch", key: "scratch", name: "scratch", label: "scratch (unmanaged)", white: true, ghost: false,
         concept: castFor("scratch", id, true).concept, iv: castFor("scratch", id, true).iv, hue: 0, started: 9 });

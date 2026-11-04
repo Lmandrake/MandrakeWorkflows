@@ -73,7 +73,8 @@ private let clickQueue = DispatchQueue(label: "sprites.click", qos: .userInitiat
 /// no tty match does nothing but log (review R1 #8a: never raise every window). Any other owner app is activated.
 /// `startedAt` is the session id's start time: re-checked just before acting, so a reused pid is never focused.
 /// The AppleScript that brings the iTerm2 session on this tty forward. A minimised window is un-minimised first
-/// (`select w` alone leaves it in the Dock; review R1_MACOS #17).
+/// (`select w` alone leaves it in the Dock; review R1_MACOS #17). The window id is read BEFORE `select`: `w` is an index
+/// reference, and selecting reorders the windows, so `id of w` afterwards names another window (measured 2026-11-04).
 func itermFocusScript(tty: String) -> String {
     """
     tell application id "com.googlecode.iterm2"
@@ -81,12 +82,13 @@ func itermFocusScript(tty: String) -> String {
         repeat with t in tabs of w
           repeat with s in sessions of t
             if tty of s is \(appleQuoted(tty)) then
+              set wid to id of w
               if miniaturized of w then set miniaturized of w to false
               select w
               tell t to select
               tell s to select
               activate
-              return "ok"
+              return "ok " & wid
             end if
           end repeat
         end repeat
@@ -128,10 +130,11 @@ func activateSession(pid: pid_t, startedAt: Int) {
           repeat with w in windows
             repeat with t in tabs of w
               if tty of t is \(appleQuoted(t)) then
+                set wid to id of w
                 set selected of t to true
                 set index of w to 1
                 activate
-                return "ok"
+                return "ok " & wid
               end if
             end repeat
           end repeat
@@ -143,11 +146,56 @@ func activateSession(pid: pid_t, startedAt: Int) {
         default:
             DispatchQueue.main.async { activateApp(app) }; return
         }
-        if r != "ok" {
+        if let wid = focusedWindow(r) {
+            let how = switchToWindowSpace(wid)
+            if how.hasPrefix("switched") { usleep(450_000); DispatchQueue.main.async { activateApp(app) } }
+            log("click: focused pid \(pid) on tty \(tty ?? "?") (window \(wid); \(how))")
+            return
+        }
+        do {
             if underTmux(ancestry(pid).map(procName)) { log("click: pid \(pid) is a tmux session: not focusable (its tty \(tty ?? "?") is a tmux pane)"); return }
             if activateAllAfterScript(r) { DispatchQueue.main.async { app.activate(options: [.activateAllWindows]) } }
             log("click: no \(bundle) tab on \(tty ?? "?") for pid \(pid) (\(r ?? "error")); not focusing anything")
         }
+    }
+}
+
+// MARK: Space switch (owner, 2026-11-04; Decide.swift spaceSwitchPlan)
+// Measured 2026-11-04, macOS 26.7.1, swoosh 0: `activate`, `open -b`, AXMain+AXRaise and a Dock-icon AXPress all leave
+// the Space alone or go to the app's last Space. Posting Mission Control's "Switch to Desktop N" key goes to the window.
+// The space lookup is the READ-ONLY SkyLight pair Machinist's tools/windowspaces.swift uses; nothing is written to it.
+private typealias SLSMainConn = @convention(c) () -> Int32
+private typealias SLSSpacesForWindows = @convention(c) (Int32, Int32, CFArray) -> Unmanaged<CFArray>?
+private typealias SLSManagedSpaces = @convention(c) (Int32) -> Unmanaged<CFArray>?
+private let skyLight = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY)
+private func skySym<T>(_ n: String, _ t: T.Type) -> T? { dlsym(skyLight, n).map { unsafeBitCast($0, to: t) } }
+
+/// Move to window `wid`'s Space if it is not the current one. Returns what it did, for the click log line.
+func switchToWindowSpace(_ wid: Int) -> String {
+    guard wid > 0 else { return "no window id" }
+    guard let conn = skySym("SLSMainConnectionID", SLSMainConn.self),
+          let forWin = skySym("SLSCopySpacesForWindows", SLSSpacesForWindows.self),
+          let managed = skySym("SLSCopyManagedDisplaySpaces", SLSManagedSpaces.self) else { return "no SkyLight space symbols" }
+    let cid = conn()
+    let displays = (managed(cid)?.takeRetainedValue() as? [[String: Any]]) ?? []
+    let spaces = (forWin(cid, 7, [wid] as CFArray)?.takeRetainedValue() as? [Int]) ?? []
+    let hk = (UserDefaults(suiteName: "com.apple.symbolichotkeys")?.dictionary(forKey: "AppleSymbolicHotKeys")) ?? [:]
+    switch spaceSwitchPlan(displays: displays, windowSpaces: spaces, hotkeys: hk) {
+    case .stay(let why): return why
+    case .unreachable(let why): log("click: cannot switch to window \(wid)'s space: \(why)"); return why
+    case .desktop(let n, let key, let flags):
+        guard CGPreflightPostEventAccess() else {
+            _ = CGRequestPostEventAccess()
+            log("click: Sprites needs Accessibility to switch to Desktop \(n) (System Settings > Privacy & Security > Accessibility)")
+            return "no Accessibility: stayed"
+        }
+        let src = CGEventSource(stateID: .hidSystemState)
+        for down in [true, false] {
+            guard let e = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(key), keyDown: down) else { continue }
+            e.flags = CGEventFlags(rawValue: flags & 0xFFFF_0000)
+            e.post(tap: .cghidEventTap)
+        }
+        return "switched to Desktop \(n)"
     }
 }
 

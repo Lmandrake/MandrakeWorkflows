@@ -526,6 +526,23 @@ function createRuntime(q, env) {
     c.save(); c.globalCompositeOperation = "lighter"; c.globalAlpha = Math.min(1, a * 0.35 * f);
     c.fillStyle = "rgba(255,214,150,1)"; c.beginPath(); c.arc(x, y, sz * 2.4, 0, 7); c.fill();
     c.globalAlpha = Math.min(1, a * (0.6 + 0.4 * f)); c.fillStyle = "rgba(255,244,220,1)"; c.beginPath(); c.arc(x, y, sz * 0.9, 0, 7); c.fill(); c.restore(); }
+  // Headless satellites (Augur 1.2 sessions[].parent; stage adaptState puts them in S.s[id].heads): a `claude -p` run
+  // started from this session. Same orbit idiom as the background-task satellites but told apart by shape and tint: a
+  // small hollow diamond in the creature's own hue, on a slightly wider, slower, counter-rotating orbit. Weight (cpu) is
+  // drawn as brightness only (owner, 2026-11-04): headBright, eased per satellite in headA.
+  const headA = {};   // satellite id -> eased brightness
+  // cpu_cores -> brightness, fixed absolute scale: 0 cores = 0.35 floor, >= 1 core = 1, sqrt between; missing = floor.
+  function headBright(cpu) { const c = typeof cpu === "number" && isFinite(cpu) ? Math.max(0, Math.min(1, cpu)) : 0; return 0.35 + 0.65 * Math.sqrt(c); }
+  V.headBright = headBright;
+  function drawHeads() { for (const s of V.sessions) { const d = S.s[s.id], hs = d && Array.isArray(d.heads) ? d.heads : null, r = reports[s.id];
+      if (!hs || !hs.length || !r || s.ghost) continue;
+      const a0 = alphaOf(s.id), R = r.r * 1.35 + 8 * Math.sqrt(P.size), sz = Math.max(2.2, 2.8 * Math.sqrt(P.size)), n = hs.length;
+      ctx.save(); ctx.lineWidth = Math.max(1, 0.9 * Math.sqrt(P.size)); ctx.strokeStyle = hsl(s.hue, s.white ? 0 : 70, 78, 1);
+      for (let k = 0; k < n; k++) { const a = -V.t * 0.35 + k / n * Math.PI * 2 + (s.iv || 0), x = r.x + Math.cos(a) * R, y = r.y + Math.sin(a) * R * 0.85;
+        const hd = hs[k], tg = headBright(hd && hd.cpu), key = hd && hd.id != null ? hd.id : s.id + "#" + k, cur = headA[key] == null ? tg : headA[key];
+        headA[key] = cur + (tg - cur) * Math.min(1, (lastDt || 0.016) / 0.8);   // ease so a satellite does not flicker tick to tick
+        ctx.globalAlpha = headA[key] * a0; ctx.beginPath(); ctx.moveTo(x, y - sz); ctx.lineTo(x + sz, y); ctx.lineTo(x, y + sz); ctx.lineTo(x - sz, y); ctx.closePath(); ctx.stroke(); }
+      ctx.restore(); } }
   function drawAllLights() { for (const s of V.sessions) { const d = S.s[s.id], n = lightCount(d), r = reports[s.id]; if (!n || !r || s.white) continue;
       const a = alphaOf(s.id) * (s.ghost ? 2.6 : 1);   // a ghost is faint but its lights are lit
       const spots = V._def.lightSpots ? V._def.lightSpots(V, s.id, n) : null, sz = Math.max(1.0, 1.3 * Math.sqrt(P.size));   // pip core (r = 0.9 sz) >= 1.8 px across
@@ -574,7 +591,7 @@ function createRuntime(q, env) {
     const nf = S.focus ? S.focus.map(Math.round).join() : ""; if (nf !== (lastFocus ? lastFocus.map(Math.round).join() : "")) { lastFocus = S.focus; drawBg(lastFocus); }
     V.t = simT; if (!LIVE || V.sessions.length) V._def.step && V._def.step(V, S, dt); simT += dt; V.frame++; }
   function render() { if (skipDraw) return; if (SHARED) ctx.__aS = AS; else ctx.clearRect(0, 0, W, H); if (LIVE && !V.sessions.length) return; V._def.draw(V, S, ctx);
-    if (LIVE) drawAllLights();
+    if (LIVE) { drawAllLights(); drawHeads(); }
     if (q.get("legend") === "1") drawLegend();
     if (q.get("hud") === "1") { drawHud(); drawLabels(); }
     if (LIVE) { drawFlares(); drawBeacon(); }

@@ -27,7 +27,7 @@ import sys
 import time
 
 SCHEMA = "augur.snapshot"
-VERSION = "1.1"   # 1.1 (C1): tasks.background, sessions_at, counts.as_of, and the
+VERSION = "1.2"   # 1.2: sessions[].headless/parent, on_site description. 1.1 (C1): tasks.background, sessions_at, counts.as_of, and the
                   # keys 1.0 builds added unannounced (machine.api, bg_shells, other, load.method)
 TIER_ORDER = ("agents", "fast", "probes", "counts")
 CADENCE_AC = {"fast": 2.0, "agents": 5.0, "probes": 15.0, "counts": 60.0}
@@ -678,7 +678,7 @@ class Core(object):
         by["lodestar"] = {"key": "lodestar", "name": "Lodestar", "kind": "lodestar", "sessions": 0}
         for s in sessions:
             k = s.get("project_key")
-            if not k:
+            if not k or s.get("parent"):    # 1.2: a headless child is its parent's, not a session
                 continue
             if k not in by:
                 kind = "managed" if s.get("managed") is True else "unmanaged"
