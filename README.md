@@ -1,9 +1,10 @@
 # MandrakeWorkflows
 
 Methods for working with AI agents, written as [Claude Code skills](https://docs.claude.com/en/docs/claude-code/skills),
-plus two tools those methods lean on: **Placard**, sidecar digests that make a folder of decks,
-PDFs and spreadsheets cheap for a model to read, and a **visualization stack** of eight skills
-grounded in the published literature.
+plus the tools those methods lean on: **Placard**, sidecar digests that make a folder of decks,
+PDFs and spreadsheets cheap for a model to read; **Waypoint**, project shortcuts for the shell;
+**Modality**, a multimodality estimator; and a **visualization stack** of eight skills grounded
+in the published literature.
 Each one is a practice that was used on real work, failed somewhere first, and was rewritten until
 the failure could not recur. The collection is evidence-first: a skill says what it rests on, what
 was measured and on how many cases, and where it has not been tested. Where a rule came from a
@@ -36,6 +37,8 @@ where it has them, references, scripts, evals and tests.
 | [`option-portfolio`](skills/option-portfolio/SKILL.md) | Answer "give me a few options" with a set that covers genuinely different questions, not three near-duplicates. |
 | [`knowledge-registry`](skills/knowledge-registry/SKILL.md) | Structure admitted knowledge: stable ids, a fixed force vocabulary, testable checks, versions, a decision log. |
 | [`search-when-words-differ`](skills/search-when-words-differ/SKILL.md) | Find relevant passages when the question and the sources use different words, before reporting "nothing found". |
+| [`confident-wrong-numbers`](skills/confident-wrong-numbers/SKILL.md) | Catch a query whose shape returns a plausible wrong number (a count, a zero, an empty list, an all-None field) before it leaves your hands. |
+| [`measuring-large-artifacts`](skills/measuring-large-artifacts/SKILL.md) | Take a number from a file too large to read whole (dumps, logs, exports) with a parser, not grep and wc. |
 
 ### Agent coordination and long-running work
 
@@ -110,6 +113,16 @@ tables are in `tools/waypoint/examples/`. Details in
 [`tools/waypoint/README.md`](tools/waypoint/README.md); its skill is
 `tools/waypoint/.claude/skills/waypoint/`.
 
+## Modality
+
+`tools/modality/` estimates how multimodal a distribution is, from an analytic description or
+from samples, and reports **visible modes** (local density maxima) separately from **mixture
+components** (a BIC-selected Gaussian count), because the two answer different questions and
+diverge on 15 of its 44 ground-truth cases. Ground truth is computed from exact analytic
+derivatives. It is a Python package (`pip install -e tools/modality`); details, validation
+numbers and failure modes in [`tools/modality/README.md`](tools/modality/README.md). It was a
+standalone repository until 2026-11-04.
+
 ## Install
 
 Claude Code loads any skill directory found under `~/.claude/skills/`. Clone the repository and
@@ -135,14 +148,15 @@ python3 tests/test_skills.py        # every SKILL.md has a name and description,
 python3 -m pytest -q tests skills   # the same, plus each skill's own tests (needs pytest and git)
 (cd tools/placard && python3 -m pytest -q)               # Placard
 (cd tools/waypoint && python3 -m pytest -q tests)        # Waypoint
+(cd tools/modality && pip install -e . pytest && OMP_NUM_THREADS=1 python3 -m pytest -q)   # Modality (numpy, scipy, scikit-learn)
 (cd visualize && python3 -m pytest -q tests && python3 tools/check_skills.py)   # visualization stack
 ```
 
 ## Related repositories
 
 - **[EvidenceBoundPapers](https://github.com/Lmandrake/EvidenceBoundPapers)** holds the
-  verification suite these skills point to: `claim-provenance`, `grader-validation`,
-  `confident-wrong-numbers`, `verify-model-quotes` and `measuring-large-artifacts`.
+  verification suite these skills point to: `claim-provenance`, `grader-validation` and
+  `verify-model-quotes`.
 - **[Dispatch](https://github.com/Lmandrake/Dispatch)** routes work across models and harnesses from
   measured evidence, and carries the `chatgpt-consult` second-opinion provider that
   `deep-design-3x2` uses for its blind pass.
