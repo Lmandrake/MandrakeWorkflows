@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# rc — the owner's phone-side recovery commands. Typed into Termius after a Tailscale SSH
+# login; every verb is one short word and prints what to do next in plain language.
+#
+#   rc              status + this menu
+#   rc rescue       a Claude with Remote Control ON, inside tmux, in the Rimworld repo —
+#                   then open the Claude app and look for "RESCUE"      (alias: `rescue`)
+#   rc server       (re)start the Remote Control server in tmux if it is not running
+#   rc fleet        relaunch the whole Windows Terminal fleet (needs Windows interop)
+#   rc bench | foundry | hestia | emergency | artist
+#                   relaunch that one Windows Terminal tile
+#   rc kill rescue  stop the rescue session when the real windows are back
+#   rc account [...] list / save / add / switch Claude accounts (see rc_account.py)
+#
+# Installed by the claude-remote-control skill: symlinked as ~/.local/bin/rc and
+# ~/.local/bin/rescue. Everything it launches is bounded through claude_bounded.sh.
+set -uo pipefail
+
+# BENCH's ext4 seat clone since 2026-10-02 (RimMandrake GIT_WORKFLOW_MIGRATION_1); the D:\\ tree
+# is a writer-less mirror, so rescue/server sessions never open there.
+REPO=/home/owner/rm/bench
+BOUNDED=$REPO/src/RimMandrake/Utils/claude_bounded.sh
+WT=/mnt/c/Users/${WIN_USER:?set WIN_USER to your Windows user name}/AppData/Local/Microsoft/WindowsApps/wt.exe
+PS=/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe
+FLEET='D:\owner\dev\RimMandrake\src\RimMandrake\Utils\launch_fleet.ps1'
+
+bold() { printf '\033[1m%s\033[0m\n' "$*"; }
+say()  { printf '%s\n' "$*"; }
+
+interop_ok() { "$PS" -NoProfile -Command 'exit 0' >/dev/null 2>&1; }
+
+status() {
+  bold "== tailscale"
+  tailscale status 2>/dev/null | head -4 || say "tailscale: not running"
+  bold "== claude sessions alive on this machine"
+  local any=0
+  for f in ~/.claude/sessions/*.json; do
+    [ -e "$f" ] || continue
+    local pid; pid=$(basename "$f" .json); pid=${pid%%.*}
+    [ -d "/proc/$pid" ] || continue
+    any=1
+    python3 - "$f" <<'EOF'
+import json,sys; d=json.load(open(sys.argv[1]))
+print(f"  {d.get('name','?'):<22} {d.get('kind','?'):<12} {d.get('status','?'):<6} {d.get('cwd','')}")
+EOF
+  done
+  [ $any = 1 ] || say "  none"
+  bold "== remote control server"
+  if pgrep -f "claude remote-control" >/dev/null; then say "  running"; else say "  NOT running  -> rc server"; fi
+  bold "== tmux"
+  tmux ls 2>/dev/null || say "  no tmux sessions"
+  bold "== windows interop (can this shell open desktop windows?)"
+  if interop_ok; then say "  yes -> rc fleet / rc bench work"; else say "  NO -> only rc rescue / rc server work from here"; fi
+}
+
+menu() {
+  cat <<'EOF'
+
+  rc rescue     Claude with Remote Control, in tmux  -> then open the Claude app, find RESCUE
+  rc server     start the Remote Control server if it is down
+  rc fleet      relaunch every Windows Terminal window (desktop only)
+  rc bench      relaunch one tile: bench | foundry | hestia | emergency | artist | server
+  rc kill rescue   stop the rescue session
+  rc account       which Claude account is live; `rc account <name>` switches (then rc fleet)
+EOF
+}
+
+rescue() {
+  if tmux has-session -t rescue 2>/dev/null; then
+    say "rescue session already running — attaching (Ctrl-b d detaches; it keeps running)."
+    sleep 1; exec tmux attach -t rescue
+  fi
+  say "starting a Claude with Remote Control ON in tmux session 'rescue' …"
+  tmux new-session -d -s rescue -c "$REPO" \
+    "$BOUNDED --dangerously-skip-permissions --name RESCUE --remote-control RESCUE ${1:-}; exec \$SHELL -l"
+  sleep 4
+  bold "Now open the Claude app on the phone and look for a session named RESCUE."
+  say  "It is inside tmux, so closing Termius does not kill it. 'rc kill rescue' removes it later."
+  say  "To watch it here instead:  tmux attach -t rescue   (Ctrl-b then d to leave it running)"
+}
+
+server() {
+  if pgrep -f "claude remote-control" >/dev/null; then say "server already running"; return; fi
+  tmux new-session -d -s server -c "$REPO" \
+    "MEM_MAX=16G $BOUNDED remote-control --name Server --permission-mode bypassPermissions; exec \$SHELL -l"
+  sleep 4
+  if pgrep -f "claude remote-control" >/dev/null; then bold "server started (tmux session 'server')"; else say "server did not start — try: tmux attach -t server"; fi
+}
+
+tile() {
+  local name
+  case "$1" in
+    bench) name='AGENT BENCH';; foundry) name='AGENT FOUNDRY';; hestia) name='HESTIA';;
+    emergency) name='EMERGENCY';; artist) name='Artist';; server) name='Server';;
+    *) say "unknown tile: $1"; menu; return 1;;
+  esac
+  if ! interop_ok; then say "this shell cannot open Windows windows (no interop) — use: rc rescue"; return 1; fi
+  "$WT" -w new -p "$name" && bold "opened '$name' on the desktop; its profile carries --remote-control, so it should appear on the phone within ~30 s."
+}
+
+fleet() {
+  if ! interop_ok; then say "this shell cannot open Windows windows (no interop) — use: rc rescue"; return 1; fi
+  "$PS" -NoProfile -ExecutionPolicy Bypass -File "$FLEET" >/dev/null 2>&1 &
+  bold "fleet launch started on the desktop (Server, HESTIA, Artist, EMERGENCY, FOUNDRY, BENCH). Give it a minute, then check the phone."
+}
+
+welcome() {
+  # Printed by ~/.zshrc on SSH logins only (Termius over Tailscale). Short: he is on a phone.
+  local srv="down"; pgrep -f "claude remote-control" >/dev/null && srv="up"
+  local alive=""; local f pid
+  for f in ~/.claude/sessions/*.json; do [ -e "$f" ] || continue; pid=$(basename "$f" .json); pid=${pid%%.*}
+    [ -d "/proc/$pid" ] && alive+="$(python3 -c "import json;print(json.load(open('$f')).get('name','?'))" 2>/dev/null), "; done
+  local acct; acct=$(python3 -c "import json;print(json.load(open('$HOME/.claude.json')).get('oauthAccount',{}).get('emailAddress','?'))" 2>/dev/null)
+  printf '\n\033[1m  You are in the Rimworld machine over Tailscale (break-glass).\033[0m\n'
+  printf '  Claude windows alive: %s\n' "${alive%, }"
+  printf '  Remote Control server: %s\n' "$srv"
+  printf '  Claude account live:   %s\n\n' "${acct:-unknown}"
+  printf '  \033[1mrc rescue\033[0m   -> a Claude appears in the phone app as RESCUE (start here)\n'
+  printf '  \033[1mrc server\033[0m   -> restart the Remote Control server if it is down\n'
+  printf '  \033[1mrc fleet\033[0m    -> relaunch all desktop windows      \033[1mrc\033[0m -> full status + menu\n\n'
+  printf '  \033[1mrc account\033[0m         -> list the saved Claude accounts, marking the live one\n'
+  printf '  \033[1mrc account <name>\033[0m  -> switch to it, then \033[1mrc fleet\033[0m (phone app must switch too)\n'
+  printf '  \033[1mrc account save|add <name>\033[0m -> save the live login into a slot / add a new account\n\n'
+}
+
+case "${1:-}" in
+  ""|status|st)   status; menu;;
+  welcome)        welcome;;
+  account)        shift; exec python3 "$(dirname "$(readlink -f "$0")")/rc_account.py" "$@";;
+  rescue)         shift; rescue "$@";;
+  server)         server;;
+  fleet)          fleet;;
+  bench|foundry|hestia|emergency|artist) tile "$1";;
+  kill)           tmux kill-session -t "${2:-rescue}" 2>/dev/null && say "killed tmux session ${2:-rescue}" || say "no such session";;
+  help|-h|--help) menu;;
+  *)              say "unknown: $1"; menu; exit 1;;
+esac

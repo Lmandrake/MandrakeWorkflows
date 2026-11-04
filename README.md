@@ -48,6 +48,7 @@ where it has them, references, scripts, evals and tests.
 | [`parallel-agent-worktrees`](skills/parallel-agent-worktrees/SKILL.md) | Run several coding agents against one repository without cross-contamination. |
 | [`git-efficiency`](skills/git-efficiency/SKILL.md) | Use git from scripts and agents cheaply and safely: batched calls, no whole-index sweeps, lock-aware. |
 | [`resumable-batch-jobs`](skills/resumable-batch-jobs/SKILL.md) | Make long batch jobs safe to resume, so a retry never silently skips failed items or duplicates done ones. |
+| [`claude-remote-control`](skills/claude-remote-control/SKILL.md) | Keep a multi-window Claude Code fleet reachable from the phone (Remote Control): why windows drop off, why a peer relay cannot fix it, and recovery without losing work. |
 
 ### Human decision interfaces
 
