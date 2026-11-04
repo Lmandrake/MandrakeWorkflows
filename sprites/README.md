@@ -21,3 +21,23 @@ Large artifacts (videos, screenshots) live in agent storage, `~/ClaudeWork/sprit
 The product will be a native macOS overlay (SpriteKit or Metal), reading Lodestar's collector files.
 
 Gallery: `python3 tools/build_gallery.py && tools/serve_gallery.sh` (videos: `nice -n 10 python3 tools/render_gallery.py`).
+
+## Hiding a project at work
+
+Settings gives each project an **On screen** choice: **Show**, **Hide**, or **Hide @ Work** (for an outside
+project you would rather not have floating on your screen at the office). Hide @ Work hides the project's sprites
+whenever Augur reports `machine.vpn.on_site: true`. If that reading goes missing for a while, the last known value
+is kept.
+
+Augur needs to be told once which network counts as work. On the work network, run:
+
+    python3 augur/bin/work_here.py            # saves this network's DHCP domain, e.g. wifi.example.com
+    python3 augur/bin/work_here.py --list     # what is saved, and what the current network reports
+
+It writes `$AUGUR_HOME/config/work.json` (`{"dhcp_domains": [...]}`). Augur picks the file up within seconds.
+A suffix matches its sub-domains too, so editing the entry to `example.com` covers every building. Wired and
+Wi-Fi networks both count, and no Location Services grant is needed.
+
+With Claude Code, open a session in this repo while connected at work and say: *"Mark this network as work for
+Augur, then check that Augur reports on_site true."* Claude runs `work_here.py` and reads
+`$AUGUR_HOME/live/snapshot.json` back. In Settings, set the project to Hide @ Work.

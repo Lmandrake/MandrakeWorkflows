@@ -45,7 +45,7 @@ print(f"INFO registry rows {total}, Augur keeps {len(want)} on {lkey} (role {rol
 
 # (b) the hand-derived joins (Fixer response): alias -> key
 by = {e["key"]: e for e in keyed}
-hand = {"Orchard": "orchard-mandrake", "ProjectCert": "certanum", "KesMine": "kestrel", "KestrelWorks": "kestrel-team",
+hand = {"Orchard": "orchard-mandrake", "ProjectCert": "projectcert", "KesMine": "kestrel", "KestrelWorks": "kestrel-team",
         "MSGRAPH": "microsoftgraphaccess", "Lodestar": "lodestar", "ProjectDial": "dialexis", "Granite": "granite", "Ember28": "ember28",
         "Atlas": "atlas", "StayCurrent": "staycurrent", "Hestia": "hestia", "Fetcher": "fetcher"}
 for alias, key in hand.items():

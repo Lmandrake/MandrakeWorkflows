@@ -106,7 +106,7 @@ def test_vpn_flap_moves_changed_at():
 
 
 def test_on_site_boolean_only():
-    for ssid, want in (("OnSiteWifi", True), ("Home", False)):
+    for ssid, want in (("OnSiteWifi", True), ("LabWiFi", True), ("Home", False)):   # the real network reads "LabWiFi"
         c = netc([{"en0": iface(0, 0)}], [[("en0", "g", 3)]], ssid=ssid)
         v = c.collect(ctx())["machine.vpn"]
         assert v["on_site"] is want and ssid not in repr(v)
@@ -283,3 +283,26 @@ def test_r5_m5_strain_climbs_after_a_backwards_wall_step():
         levels.append(c.collect(x)["machine.strain"]["level"])
     # step after i=2 (t=30); overload by mono 1030 + 15 + 60 + 15 (one tick of grid) = i == 8
     assert levels[8:] == ["overload"] * 8, levels
+
+
+def test_on_site_from_dhcp_domain(tmp_path):
+    """work.json suffixes vs the DHCP domains: either vote True wins; one read and no match is False;
+    nothing readable leaves the key absent. The domain never enters the value."""
+    import json
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "work.json").write_text(json.dumps({"dhcp_domains": ["Example.COM."]}))
+    def run(ssid, doms, storage=str(tmp_path)):
+        c = M.NetCollector({"if_counters": lambda: {"en0": iface(0, 0)}, "default_routes": lambda: [("en0", "g", 3)],
+                            "link_types": lambda: {"en0": "IEEE80211"}, "ssid": lambda path, now: ssid,
+                            "probe_ssid": lambda: "OnSiteWifi", "dhcp_domains": lambda: doms})
+        x = ctx(); x.storage = storage
+        return c.collect(x)["machine.vpn"]
+    assert run(None, ["wifi.example.com"])["on_site"] is True
+    assert run(None, ["example.com"])["on_site"] is True
+    assert run(None, ["notexample.com"])["on_site"] is False         # a suffix, not a substring
+    assert run(None, [])["on_site"] is False
+    assert "on_site" not in run(None, None)                          # store unreadable
+    assert run("OnSiteWifi", ["home.lan"])["on_site"] is True             # the SSID alone suffices
+    assert run("Home", ["wifi.example.com"])["on_site"] is True        # and so does the domain
+    assert "on_site" not in run(None, ["wifi.example.com"], storage=str(tmp_path / "none"))   # no work.json
+    assert "example" not in repr(run(None, ["wifi.example.com"]))

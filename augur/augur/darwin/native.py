@@ -598,6 +598,68 @@ def power_source() -> Optional[Dict]:
         cf.CFRelease(blob)
 
 
+def _sc():
+    """SystemConfiguration's dynamic store + the CoreFoundation calls dhcp_domains needs, typed once."""
+    if "sc" not in _L:
+        vp = ctypes.c_void_p
+        cf = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+        sc = ctypes.CDLL("/System/Library/Frameworks/SystemConfiguration.framework/SystemConfiguration")
+        sc.SCDynamicStoreCopyKeyList.restype = vp
+        sc.SCDynamicStoreCopyKeyList.argtypes = [vp, vp]
+        sc.SCDynamicStoreCopyValue.restype = vp
+        sc.SCDynamicStoreCopyValue.argtypes = [vp, vp]
+        cf.CFStringCreateWithCString.restype = vp
+        cf.CFStringCreateWithCString.argtypes = [vp, ctypes.c_char_p, ctypes.c_uint32]
+        cf.CFArrayGetCount.restype = ctypes.c_long
+        cf.CFArrayGetCount.argtypes = [vp]
+        cf.CFArrayGetValueAtIndex.restype = vp
+        cf.CFArrayGetValueAtIndex.argtypes = [vp, ctypes.c_long]
+        cf.CFDictionaryGetValue.restype = vp
+        cf.CFDictionaryGetValue.argtypes = [vp, vp]
+        cf.CFGetTypeID.restype = ctypes.c_ulong
+        cf.CFGetTypeID.argtypes = [vp]
+        cf.CFDataGetTypeID.restype = ctypes.c_ulong
+        cf.CFDataGetLength.restype = ctypes.c_long
+        cf.CFDataGetLength.argtypes = [vp]
+        cf.CFDataGetBytePtr.restype = vp
+        cf.CFDataGetBytePtr.argtypes = [vp]
+        cf.CFRelease.argtypes = [vp]
+        mk = lambda t: cf.CFStringCreateWithCString(None, t.encode(), 0x08000100)
+        _L["sc"] = (cf, sc, mk("State:/Network/Service/[^/]+/DHCP"), mk("Option_15"))
+    return _L["sc"]
+
+
+def dhcp_domains() -> Optional[List[str]]:
+    """The domain name (DHCP option 15) each active network service was handed, lower case, e.g.
+    ["wifi.example.com"]. Read from configd's dynamic store: no Location Services grant and no
+    spawn (unlike the SSID). [] when no service has one; None when the store is unreadable."""
+    try:
+        cf, sc, pattern, opt15 = _sc()
+        keys = sc.SCDynamicStoreCopyKeyList(None, pattern)
+    except OSError:
+        return None
+    if not keys:
+        return None
+    out = []
+    try:
+        for i in range(cf.CFArrayGetCount(keys)):
+            d = sc.SCDynamicStoreCopyValue(None, cf.CFArrayGetValueAtIndex(keys, i))
+            if not d:
+                continue
+            try:
+                v = cf.CFDictionaryGetValue(d, opt15)
+                if v and cf.CFGetTypeID(v) == cf.CFDataGetTypeID():
+                    name = ctypes.string_at(cf.CFDataGetBytePtr(v), cf.CFDataGetLength(v))
+                    name = name.split(b"\0", 1)[0].decode("ascii", "replace").strip().rstrip(".").lower()
+                    if name:
+                        out.append(name)
+            finally:
+                cf.CFRelease(d)
+    finally:
+        cf.CFRelease(keys)
+    return out
+
+
 NETIF_PLIST = "/Library/Preferences/SystemConfiguration/NetworkInterfaces.plist"
 _LINK = {"mtime": None, "types": {}}
 

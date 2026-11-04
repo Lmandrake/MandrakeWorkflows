@@ -9,7 +9,7 @@ The name is provisional (it was "Concept"); the owner is choosing the final one.
 
 First target and proving ground: RimMandrake (`Lmandrake/RimMandrake`), where it runs as the role
 `src/RimMandrake/rimflow/roles/designer.md` with the program `rimflow/concept_tree.py`. Its product there is a concept
-tree that the [Relentless Agent](../relentless/README.md) refuses to start without. First real project: the
+tree that the [Relentless Pipeline](../relentless/README.md) refuses to start without. First real project: the
 GimmeSomeSlack mod. This folder is built as the agent is designed; running code stays in RimMandrake until it is proven.
 Reuse is extraction only, as for Relentless: project specifics sit in an adapter, the design is not changed for reuse.
 

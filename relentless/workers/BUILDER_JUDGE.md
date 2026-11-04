@@ -1,6 +1,6 @@
-# The Relentless Agent: definition (v0, draft)
+# Relentless-style Builder/Judge: the worker definition (v0, draft)
 
-One agent, two modes. **The blindness contract lives here, in the definition**, so that Build knows exactly how blind its
+The workers that sit in the [Relentless Pipeline](../README.md)'s places. One worker definition, two modes. **The blindness contract lives here, in the definition**, so that Build knows exactly how blind its
 report must be and Judge knows exactly what to refuse. Owner, 2026-11-01: *"When the builder agent writes the report for
 it's judge switch side, it will know precisely how blind it must write the report. When the judge reads it, it can judge
 the report against the required blindness and reject it if it contains too much history and reasoning and justification,
@@ -84,7 +84,7 @@ limit as a fact; it may not explain them.
    and spends a fresh Judge instance, because the first one has read it.
 2. **Plan before reading Build's route.** Write its own check plan from the tree alone, then read `how to check`.
 3. **Rerun the checks itself.** A claim counts only as Judge reproduces it.
-4. **Hunt Build's known weaknesses.** Read `DEFECTS.md` and `STRENGTHS.md` for the classes of failure this agent has
+4. **Hunt Build's known weaknesses.** Read `DEFECTS.md` and `STRENGTHS.md` for the classes of failure these workers have
    shown, and look for those on purpose.
 5. **Rule:** accept, or reject with reasons Build can act on, without suggesting the fix's design.
 

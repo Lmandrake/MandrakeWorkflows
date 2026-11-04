@@ -6,7 +6,7 @@ vs. the number of filed to-do items present there at all."
 ## What the data is today (measured from ~/dev/.lodestar/companion/now.json)
 - Burning: `plots.burning.items` + `.hidden` (35 now), each with `project`, `tier` (red | amber | verify),
   `breathe`. Their `project` is a account code (A1: 28, B2: 6), NOT a repo name. A code -> repo map is missing.
-- Filed to-dos: open tickets per repo (`ticket list --all`: granite 40, lodestar 33, certanum 28, ...).
+- Filed to-dos: open tickets per repo (`ticket list --all`: granite 40, lodestar 33, projectcert 28, ...).
 - They are different populations (urgent asks vs filed tickets), so "burning out of all" needs a definition.
 - Both are per PROJECT and change slowly (minutes to days); session data changes in seconds. A project
   with burning items but no open Claude session has no creature today.

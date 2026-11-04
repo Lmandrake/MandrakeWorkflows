@@ -1,5 +1,12 @@
 # Version history
 
+## v0.2 (2026-11-03): pipeline and workers named apart
+
+- Owner, 2026-11-03: the system is the **Relentless Pipeline**; each worker in its places is a **Relentless-style
+  Builder/Judge** from MandrakeWorkflows, so workers can be swapped later while the pipeline keeps its design.
+- README split: `README.md` is the pipeline; `workers/README.md` and `workers/BUILDER_JUDGE.md` (was
+  `agent/RELENTLESS_AGENT.md`) are the workers.
+
 ## v0.1 (2026-11-01): designed and attacked
 
 - Full design in RimMandrake `design/RimMandrake/relentless_agent_design_2026-11-01.md`; GPT attacked it; the Conductor judged each finding.

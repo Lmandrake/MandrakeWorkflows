@@ -65,6 +65,18 @@ Until it can run, what was verified without load instead:
   `machine.api` reads `ok`, cost `pass` at 0.61 % of one core (60 s). The probes line now reads
   0.15 %, where it read 0.0075 % before finding 8's fix: the strain burst's CPU is finally on its line.
 
+**Re-run done 2026-11-04 09:17 on campus (run3, root = a live Claude session, nice 19).** The gate
+read `on_site` true, VPN `down`, default route en0 at all 33 five-second checks; the VPN never came
+up. The 1-min load average was 32 to 42 from other work, against 23 to 36 in the earlier runs.
+- +1 core: mean +0.953 (0.946 to 0.958), 4/4 in band. Pass.
+- +2 cores: mean +1.984 (1.983 to 1.984), 3/3 in band. Pass.
+- 239 short-lived children, true 0.398 cores: 0.364, 0.382, 0.411, 0.519, so 3/4 in ±15 %. The
+  0.519 reading (+30 %) is one tick. Marginal.
+- procs exact: 23/26 (88 %) against the 90 % bar, off by one in the other 3. Marginal.
+- memory: mean difference -0.0001 GB, maximum 0.0011 GB. Pass.
+Nested and orphaned attribution is not exercised by this busy loop; the synthetic tests cover it
+(`augur/tests/test_session_attribution.py`, 24 pass). Raw: `~/ClaudeWork/augur/scratch/groundtruth/results_run3.json`.
+
 The 24 h job (`check24h`) runs only `validate`, `cost` and `nettop`. These read files and add no
 load, so the gate does not apply to it.
 

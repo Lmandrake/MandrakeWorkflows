@@ -55,7 +55,7 @@
   const fin = v => typeof v === "number" && isFinite(v);
   const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 
-  // Casting (SHIP_PLAN Settings): cast.json maps project_key -> {concept, iv, hex, short?} (review R1 #2: one key; an entry
+  // Casting (SHIP_PLAN Settings): cast.json maps project_key -> {concept, iv, hex, short?, visibility?} (review R1 #2: one key; an entry
   // saved before under the launch alias or the registry Name still counts, SpritesProjects.castEntry). Anything not cast,
   // and every unmanaged (white) session, draws randomly from the range of possibilities, seeded by its id (owner,
   // 2026-10-31: "White sprites just draw randomly ... like any new project not yet selected by the user"). The hue is the
@@ -67,6 +67,7 @@
     const hue = white ? 0 : (hexHue(c.hex) ?? hexHue(e && e.hex) ?? (h >>> 7) % 360);
     return { concept, iv, hue, hex: white ? undefined : (/^#[0-9a-f]{6}$/i.test(c.hex || "") ? c.hex : e && e.hex || undefined) };
   }
+  let lastOnSite = false;   // the last vpn.on_site Augur reported (adaptState, visibility hide_at_work)
   const keyOf = n => SP ? SP.keyOf(n) : String(n || "").toLowerCase();
   const nameOf = (key, fallback) => { const e = pindex.get(key); return e && e.name || fallback || key; };
 
@@ -109,9 +110,18 @@
     const burn = Object.create(null);   // null-prototype maps: a project key may be "constructor" (R1 #16b)
     for (const p of Array.isArray(snap.projects) ? snap.projects : []) { const c = blk(p && p.counts); if (!p || !p.key || !c || !fin(c.burning)) continue;
       burn[p.key] = { burning: c.burning, burning_red: fin(c.burning_red) ? c.burning_red : 0, name: p.name || p.key }; }
+    // Per-project visibility (owner, 2026-11-04: ProjectCert "is an outside project"; "Show/Hide/Hide @ Location" in
+    // Settings): cast entry visibility "hide" draws nothing, no session and no ghost; "hide_at_work" the same while at
+    // work (vpn.on_site true: augur/bin/work_here.py, or the probe SSID). A stale or unknown vpn block keeps the last
+    // known on_site, so a moment out of coverage does not bring the project back on screen. Absent = "show".
+    if (vpn && typeof vpn.on_site === "boolean") lastOnSite = vpn.on_site;
+    const atWork = vpn && typeof vpn.on_site === "boolean" ? vpn.on_site : lastOnSite;
+    const hiddenKey = key => { const e = pindex.get(key), c = SP && SP.castEntry(cast, key, e || { name: key }), v = c && c.visibility;
+      return v === "hide" || (v === "hide_at_work" && atWork); };
     const sessions = [], s = Object.create(null), oldest = Object.create(null);
     for (const x of snap.sessions) { if (!x || x.id == null) continue;
       const id = String(x.id), white = x.managed === false, key = x.project_key ? String(x.project_key) : keyOf(x.project);
+      if (!white && hiddenKey(key)) continue;
       const name = white ? String(x.project || key) : nameOf(key, x.project ? String(x.project) : key);
       const k = castFor(key, white ? id : key, white, name);   // a project's sprites keep the project's cast: same form for each session
       sessions.push({ id, pid: x.pid | 0, project: name, key, name, label: name, white, ghost: false,
@@ -134,7 +144,7 @@
     // ghost visitors: burning > 0 and no session at all (ruling 4; Lodestar follows the same rule). An unmanaged session
     // is a session too (R1 #16a: no ghost beside a white sprite of the same project).
     const live = new Set(sessions.map(x => x.key));
-    for (const key in burn) { const b = burn[key]; if (b.burning <= 0 || live.has(key)) continue;
+    for (const key in burn) { const b = burn[key]; if (b.burning <= 0 || live.has(key) || hiddenKey(key)) continue;
       const name = nameOf(key, b.name), k = castFor(key, key, false, name), id = "ghost:" + key;
       sessions.push({ id, pid: 0, project: name, key, name, label: name, white: false, ghost: true, concept: k.concept, iv: k.iv, hue: k.hue, hex: k.hex, started: 0 });
       s[id] = { state: "idle", cpu: 0.02, procs: 0, burning: b.burning, burning_red: b.burning_red }; }
@@ -425,7 +435,7 @@
     setSize(w, h) { w = Math.round(w); h = Math.round(h); if (w === W && h === H && Object.keys(layers).length) return; W = w; H = h; rebuildLayers(); },
     setScale(s) { scale = clamp(+s || 1, 0.5, 2); sendAll({ scale }); },
   };
-  window.__stage = { adaptState, vpnDebounce, linkDebounce, resetVpn: () => { vpnShown = "ok"; lostSince = null; riskSince = null; }, get model() { return model; }, get layers() { return layers; }, allHits, clickHits, demoState,
+  window.__stage = { adaptState, vpnDebounce, linkDebounce, resetVpn: () => { vpnShown = "ok"; lostSince = null; riskSince = null; lastOnSite = false; }, get model() { return model; }, get layers() { return layers; }, allHits, clickHits, demoState,
     V: c => layers[c] && layers[c].V, canvas: cv, renderAt, get fps() { return FPS; } };
   push(true);
 })();

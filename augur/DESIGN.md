@@ -211,6 +211,7 @@ with its own per-project `burning` count. The schema already allows this (`sessi
 | net | sysctl `NET_RT_IFLIST2`, physical default-route interface | measured (0.48 ms) |
 | vpn | a tunnel interface (`utun`/`ipsec`/`ppp`) holds the primary default route | measured (0.20 ms; utun4 tonight) |
 | vpn.on_site | `~/dev/.lodestar/companion/ssid.json` (LodestarSSID.app) equals `$LODESTAR_NETWATCH_PROBE_SSID`. Only the boolean is kept; the SSID never enters the file. | the file was absent tonight: **unmeasured**, so the key is absent |
+| vpn.on_site (work networks) | OR: a network service's DHCP domain (option 15, configd's `State:/Network/Service/*/DHCP`; no Location grant, no spawn) ends with a suffix in `$AUGUR_HOME/config/work.json`, written by `augur/bin/work_here.py`. Read every 15 s; only the boolean is kept. | measured 2026-11-04 on site: 0.11 ms, `on_site` true |
 | path | unprivileged ICMP burst to the anchor, bound to the physical interface, worker thread (netwatch) | measured 2026-10-27 |
 | bandwidth.strain | section 5 | **absent** until validated |
 | power | IOKit power sources (hostnative) | measured, Laptop only |

@@ -20,7 +20,7 @@ run native_label_quad python3 "$here/native/test_label_quad.py"
 run native_shim_visibility nice -n 19 node "$here/native/test_shim_visibility.js"
 run native_present_stall python3 "$here/native/test_present_stall.py"
 run native_qos_bench python3 "$here/native/test_qos_bench.py"
-for t in stage link settings_visibility settings_keys idmaps huddle hover_follow move; do
+for t in stage link visibility settings_visibility settings_keys idmaps huddle hover_follow move; do
   run "$t" sh -c "cd '$here/stage' && python3 '$gate' python3 test_$t.py"
 done
 if [ -n "$fails" ]; then echo "FAILED:$fails"; exit 1; fi

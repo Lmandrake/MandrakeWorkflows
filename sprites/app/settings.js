@@ -10,7 +10,7 @@
  *   SpritesSettings.setVisibility({hidden, meeting}) mirrors a change made from the menu or the hotkey, posting nothing.
  *   Name label: behaviors.labelStyle ("filament"|"orbit"|"constellation"|"tag"|"whisper", default constellation) rides in the
  *   same saveBehaviors object. Backdrop tab: behaviors.backdrop ("none"|"b01".."b12", default none) and behaviors.backdropSpeed
- *   ({id: multiplier}) ride in it too (app/macos/Backdrop.swift applies them). Unknown keys (dimIcons, ...) are carried through. Short name: cast.projects[key].short (blank = automatic: SpritesProjects.shortTable over the whole table, as the stage does).
+ *   ({id: multiplier}) ride in it too (app/macos/Backdrop.swift applies them). Unknown keys (dimIcons, ...) are carried through. On screen: cast.projects[key].visibility ("hide"|"hide_at_work", absent = show). Short name: cast.projects[key].short (blank = automatic: SpritesProjects.shortTable over the whole table, as the stage does).
  * Saves via webkit.messageHandlers.settings.postMessage({saveCast: cast}); without the bridge, localStorage.
  * Browser test: settings.html?demo=1 (add &nowp=1 for the no-Waypoint view).
  * CPU: only the hero preview and the hovered tile run live; every other tile is a still frame rendered
@@ -138,14 +138,23 @@
   // the same table and rule as the stage's hover label (app/projects.js shortTable), without this window's overrides
   function autoShort(p) { try { return (SP ? SP.shortTable(table, null) : {})[p.key] || p.label; } catch (e) { return p.label; } }
   function shortOf(p) { const c = centry(p); return c.short ? String(c.short) : autoShort(p); }
-  function paintShort() { const row = $("shortRow"), inp = $("short"); row.classList.toggle("hidden", !waypoint); if (!waypoint) return;
+  function paintShort() { const row = $("shortRow"), inp = $("short"); row.classList.toggle("hidden", !waypoint); $("visRow").classList.toggle("hidden", !waypoint); if (!waypoint) return;
     const p = projects[sel]; if (!p) return; if (document.activeElement !== inp) inp.value = centry(p).short || "";
-    inp.placeholder = autoShort(p); }
+    inp.placeholder = autoShort(p); paintVis(p); }
   let shortT = 0;
   $("short").oninput = () => { const p = projects[sel]; if (!p) return; const v = $("short").value.trim().slice(0, 12), c = cur();
     const e = Object.assign({ concept: c.concept, iv: c.iv, hex: p.hex }, centry(p));
     if (v) e.short = v; else delete e.short; putCast(p, e);
     clearTimeout(shortT); shortT = setTimeout(save, 350); };
+  // ---------- on screen: Show / Hide / Hide @ Work (owner, 2026-11-04; ProjectCert "is an outside project") ----------
+  // cast.projects[key].visibility "hide" | "hide_at_work" (absent = show); the stage drops the project's sprites and
+  // ghost, for hide_at_work while Augur reads vpn.on_site true (at work).
+  const VIS = ["show", "hide", "hide_at_work"];
+  function paintVis(p) { const v = VIS.includes(centry(p).visibility) ? centry(p).visibility : "show";
+    [...$("visSeg").children].forEach(b => b.setAttribute("aria-checked", b.dataset.v === v ? "true" : "false")); }
+  [...$("visSeg").children].forEach(b => b.onclick = () => { const p = projects[sel]; if (!p) return; const c = cur();
+    const e = Object.assign({ concept: c.concept, iv: c.iv, hex: p.hex }, centry(p));
+    if (b.dataset.v === "show") delete e.visibility; else e.visibility = b.dataset.v; putCast(p, e); save(); paintVis(p); });
   let rowKey = "", varKey = "";
   function paintSpecies() { const c = cur(), hue = hexHue(c.hex), row = $("species");
     if (!row.children.length) SPECIES.forEach(s => { const cell = el("div", "cell", `<div class="tile"></div><div class="lab">${s.name}</div>`);

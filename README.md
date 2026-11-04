@@ -17,7 +17,7 @@ where it has them, references, scripts, evals and tests.
 | Folder | What it is |
 |---|---|
 | [`designer/`](designer/README.md) | **The Designer** (name provisional): a Socratic agent that argues a design into shape with its owner before anything is built, then writes what must be true so a builder and a judge cannot misread it. Definition, defects, version history. |
-| [`relentless/`](relentless/README.md) | **Relentless Agent**: a fire-and-forget agent for modest goals. Definition, blindness contract, known defects, version history. |
+| [`relentless/`](relentless/README.md) | **Relentless Pipeline**: a fire-and-forget pipeline for modest goals, and the **Relentless-style Builder/Judge** workers that fill its places ([`relentless/workers/`](relentless/workers/README.md)): definition, blindness contract, known defects, version history. |
 | [`augur/`](augur/DESIGN.md) | **Augur**: one small macOS background producer that measures the machine once (load, network, VPN, agent sessions, projects) and writes one versioned snapshot file that several consumers read instead of each measuring on its own. Design, JSON schema, LaunchAgent plists, tests. |
 | [`sprites/`](sprites/README.md) | **Sprites**: luminous desktop creatures, one per Claude Code session, that encode session and machine load. Prototypes, gallery, spec. |
 

@@ -248,6 +248,34 @@ def _rnd(v, nd):
     return None if v is None else round(float(v), nd)
 
 
+WORK_FILE = os.path.join("config", "work.json")   # under Augur's storage home; written by bin/work_here.py
+_WORK = {"key": None, "cfg": {}}
+
+
+def _work_config(path):
+    """{"dhcp_domains": [suffix, ...]} from $AUGUR_HOME/config/work.json (bin/work_here.py writes it),
+    cached by mtime. {} when missing or unreadable: on_site then rests on the SSID alone."""
+    try:
+        key = (path, os.stat(path).st_mtime)
+    except OSError:
+        return {}
+    if key != _WORK["key"]:
+        try:
+            with open(path) as fh:
+                d = json.load(fh)
+            doms = d.get("dhcp_domains") if isinstance(d, dict) else None
+            _WORK["cfg"] = {"dhcp_domains": [str(x).strip().rstrip(".").lower() for x in doms if str(x).strip()]} \
+                if isinstance(doms, list) else {}
+        except (OSError, ValueError):
+            _WORK["cfg"] = {}
+        _WORK["key"] = key
+    return _WORK["cfg"]
+
+
+def _domain_match(name, suffix):
+    return name == suffix or name.endswith("." + suffix)
+
+
 def _default_readers():
     return {
         "cpu_ticks": native.cpu_ticks,
@@ -260,6 +288,8 @@ def _default_readers():
         "ssid": lambda path, now: native.ssid_from_file(path, now=now),
         "probe_ssid": lambda: (os.environ.get("LODESTAR_NETWATCH_PROBE_SSID") or "").strip()
         or native.DEFAULT_PROBE_SSID,
+        "dhcp_domains": native.dhcp_domains,
+        "work": _work_config,
         "thermal": native.thermal_state,
         "low_power": native.low_power_mode,
         "power": native.power_source,
@@ -383,9 +413,22 @@ class NetCollector(_Base):
             st["vpn_changed_at"] = ctx.now
         st["vpn"] = state
         v = {"state": state, "changed_at": st.get("vpn_changed_at")}
+        # on_site ("at work"): the Wi-Fi name matches the probe SSID, OR a network service's DHCP domain
+        # ends with a suffix in work.json (any network, Wi-Fi or wired; no Location grant needed). True
+        # if either says so, False if one was read and neither matched, absent if neither was readable.
         ssid = self.r["ssid"](os.path.join(ctx.home, "dev", ".lodestar", "companion", "ssid.json"), ctx.now)
+        votes = []
         if ssid is not None:
-            v["on_site"] = ssid == self.r["probe_ssid"]()
+            votes.append(ssid.casefold() == self.r["probe_ssid"]().casefold())   # Lab's network reads "LabWiFi", the default says "OnSiteWifi"
+        storage = getattr(ctx, "storage", None)
+        sufs = (self.r["work"](os.path.join(storage, WORK_FILE)) if storage else {}).get("dhcp_domains") or []
+        if sufs:
+            if "doms" not in st or ctx.mono - st.get("doms_at", -1e9) >= 15:   # configd read every 15 s, not every tick
+                st["doms"], st["doms_at"] = self.r["dhcp_domains"](), ctx.mono
+            if st["doms"] is not None:
+                votes.append(any(_domain_match(n, x) for n in st["doms"] for x in sufs))
+        if votes:
+            v["on_site"] = any(votes)
         return v
 
 
