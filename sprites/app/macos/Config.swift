@@ -28,11 +28,11 @@ enum Paths {
         let env = ProcessInfo.processInfo.environment
         for k in ["SPRITES_STATE", "AUGUR_SNAPSHOT"] { if let v = env[k], !v.isEmpty { return v } }
         let ud = UserDefaults.standard.string(forKey: "augurSnapshot") ?? ""
-        return ud.isEmpty ? home + "/ClaudeWork/augur/live/snapshot.json" : ud
+        return ud.isEmpty ? home + "/agent-storage/augur/live/snapshot.json" : ud
     }()
     /// $SPRITES_CAST (tests: a cast that leaves the owner's untouched), else the saved cast.
-    static let cast: String = { let v = ProcessInfo.processInfo.environment["SPRITES_CAST"] ?? ""; return v.isEmpty ? home + "/ClaudeWork/sprites/config/cast.json" : v }()
-    static let behaviors = home + "/ClaudeWork/sprites/config/behaviors.json"
+    static let cast: String = { let v = ProcessInfo.processInfo.environment["SPRITES_CAST"] ?? ""; return v.isEmpty ? home + "/agent-storage/sprites/config/cast.json" : v }()
+    static let behaviors = home + "/agent-storage/sprites/config/behaviors.json"
     static let launches = home + "/.config/waypoint/launches.md"
 }
 
@@ -114,7 +114,7 @@ func waypointProjects() -> [[String: String]]? {
 /// Exclusive, non-blocking flock on a lock file, held for the life of the object (the process). Two Sprites from two
 /// build trees cannot both hold it. nil = another holder (or the file cannot be opened).
 final class InstanceLock {
-    static var defaultPath: String { Paths.home + "/ClaudeWork/sprites/run/sprites.lock" }
+    static var defaultPath: String { Paths.home + "/agent-storage/sprites/run/sprites.lock" }
     private let fd: Int32
     init?(path: String = InstanceLock.defaultPath) {
         try? FileManager.default.createDirectory(atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)

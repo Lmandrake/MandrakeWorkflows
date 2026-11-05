@@ -120,7 +120,7 @@ unverified until the owner's manual check runs.
    `window.__steps` (step count) and `window.__next()` (advance one step; resolves when its motion
    has settled). Reaching the same resting state under reduced motion.
 2. Capture: `python3 ~/dev/MandrakeWorkflows/visualize/tools/motion_capture.py PIECE.html RUN_DIR`,
-   with RUN_DIR under agent storage (`~/ClaudeWork/mandrakevisualize/motion-test/<piece>/`), never
+   with RUN_DIR under agent storage (`~/agent-storage/mandrakevisualize/motion-test/<piece>/`), never
    a repo.
 3. Gate: `python3 ~/dev/MandrakeWorkflows/visualize/tools/motion_gates.py RUN_DIR`. It fails on
    motion duration out of band, flashing, missing or blank reduced-motion frames, a final frame

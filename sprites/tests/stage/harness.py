@@ -1,5 +1,5 @@
 """Shared harness for the headless stage tests (app/stage.html in ONE headless Chromium per test file).
-Run each file through ~/ClaudeWork/sprites/live/native/tools/gate.py (tests/run_all.sh does): one render at a time,
+Run each file through ~/agent-storage/sprites/live/native/tools/gate.py (tests/run_all.sh does): one render at a time,
 nice 19, load < 8. Every check prints PASS/FAIL; done() exits 1 if any check failed.
 KNOWN_OPEN: checks for review findings another fixer still owns. They print XFAIL and do not fail the run; once
 they pass they print XPASS, a cue to drop the marker."""

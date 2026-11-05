@@ -5,7 +5,7 @@
                [--at T] [--speed X] [--scenario NAME] [--list-scenarios] [--print] [--check]
 
 Sprites reads ONE input shape, Augur's snapshot; this stands in for Augur (producer.name "demo_feed").
---out defaults to $SPRITES_STATE, else ~/ClaudeWork/sprites/live/demo_snapshot.json (atomic replace; never Augur's own path).
+--out defaults to $SPRITES_STATE, else ~/agent-storage/sprites/live/demo_snapshot.json (atomic replace; never Augur's own path).
 --at T evaluates the simulation at sim-second T (deterministic: same seed+T => identical JSON, including written_at).
 --speed X multiplies sim time (10 = fast churn). --scenario NAME freezes a named test state (see --list-scenarios);
 default is the full cycling demo (sessions arrive/leave, state cycles, strain/VPN/memory episodes, omitted fields,
@@ -378,7 +378,7 @@ def write(path, data):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--out", default=os.environ.get("SPRITES_STATE") or "~/ClaudeWork/sprites/live/demo_snapshot.json")
+    ap.add_argument("--out", default=os.environ.get("SPRITES_STATE") or "~/agent-storage/sprites/live/demo_snapshot.json")
     ap.add_argument("--period", type=float, default=2)
     ap.add_argument("--seed", type=int, default=20261031)
     ap.add_argument("--duration", type=float)

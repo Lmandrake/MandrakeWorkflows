@@ -3,7 +3,7 @@
 # machine's one render through gate.py (nice 19, load < 8). Exit 0 = all pass; the summary names each failure.
 # Known-open review findings print XFAIL and do not fail the run.
 here=$(cd "$(dirname "$0")" && pwd)
-gate="$HOME/ClaudeWork/sprites/live/native/tools/gate.py"
+gate="$HOME/agent-storage/sprites/live/native/tools/gate.py"
 [ -f "$gate" ] || { echo "missing $gate (the render gate)"; exit 2; }
 fails=""
 run() { name=$1; shift; echo "=== $name"; if "$@"; then echo "--- $name ok"; else fails="$fails $name"; echo "--- $name FAILED"; fi; }

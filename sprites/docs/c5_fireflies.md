@@ -77,7 +77,7 @@ huddle sits low (y 610) in the free half, above the dock.
 Timelines rendered: a2 (3, 12, 22, 30 s), c1 (4, 12, 20, 27, 32.6, 36 s), p1 at density 0.5 / 1 / 1.8,
 plus d2, e1 spot frames; every timeline a1..p1 renders with no errors and reports every session.
 Idle lit area (bg=0, >20/255): 0.2-0.6 %, peak 0.84 % (reconnect bloom). fps 120 headless (rAF cap).
-QA stills: `~/ClaudeWork/sprites/trials/qa/c5_fireflies/`.
+QA stills: `~/agent-storage/sprites/trials/qa/c5_fireflies/`.
 Weak: CPU in a2 reads mainly from spin and streaks, which a still cannot show; tasks (diamonds) and the
 fireflies can overlap at large mem; network sparks are subtle at 0.8 Mbit/s by design.
 
@@ -118,4 +118,4 @@ sparks, play comets and in-unison play blinking are gone. Machine strain: steady
 inside each swarm, band-wise horizontal misregistration of the figure (noise-in-geometry), slower shake, fewer
 embers; the white-hot flicker is removed. VPN: the heart is now a small red square beacon (on 0.25 s per 1.7 s)
 under the searchlight. Idle: slower drift, twinkle amplitude 30 %. Lanterns (tasks) are evenly spaced so the
-count reads. Play: drift together, one slow circle, part. Checks: ~/ClaudeWork/sprites/gallery/check2/c5_fireflies/.
+count reads. Play: drift together, one slow circle, part. Checks: ~/agent-storage/sprites/gallery/check2/c5_fireflies/.

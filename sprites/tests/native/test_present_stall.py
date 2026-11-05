@@ -9,9 +9,9 @@ a frame skipped while the render queue is busy is re-presented when it frees). R
 import json, subprocess, sys, tempfile
 from pathlib import Path
 HERE = Path(__file__).resolve().parent
-GATE = Path.home() / "ClaudeWork/sprites/live/native/tools/gate.py"
+GATE = Path.home() / "agent-storage/sprites/live/native/tools/gate.py"
 exe = subprocess.check_output([str(HERE / "build.sh")], text=True).strip().splitlines()[-1]
-out = Path(tempfile.mkdtemp(prefix="stall_", dir=Path.home() / "ClaudeWork/sprites/scratch"))
+out = Path(tempfile.mkdtemp(prefix="stall_", dir=Path.home() / "agent-storage/sprites/scratch"))
 spec = out / "spec.json"
 spec.write_text(json.dumps({"w": 400, "h": 300, "dpr": 2, "query": "stale=0", "scenes": [{"name": "probe", "out": str(out), "settle": 0.3, "presentProbe": 30},
     {"name": "sleep", "out": str(out), "settle": 0.5, "sleepProbe": 1, "setup": "SpritesStage.setDemo(true);"}]}))

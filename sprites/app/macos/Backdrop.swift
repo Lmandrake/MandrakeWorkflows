@@ -28,7 +28,7 @@ final class Backdrop {
     private var pipeline: MTLRenderPipelineState?, pipelineSrc = ""
     private lazy var queue = device?.makeCommandQueue()
     private let wall = Wallpaper()
-    static var cacheDir: String { Paths.home + "/ClaudeWork/sprites/backdrops" }
+    static var cacheDir: String { Paths.home + "/agent-storage/sprites/backdrops" }
 
     init() {
         let ws = NSWorkspace.shared.notificationCenter, dnc = DistributedNotificationCenter.default()
@@ -266,7 +266,7 @@ final class BackdropWindow: NSWindow {
 }
 
 /// The owner's wallpaper: set ours per screen on the current Space, remember what each Space showed before, put it back.
-/// Records live in ~/ClaudeWork/sprites/config/wallpaper_original.json keyed "<display UUID>|<space id>", written before
+/// Records live in ~/agent-storage/sprites/config/wallpaper_original.json keyed "<display UUID>|<space id>", written before
 /// the first change, so a crash or restart can still restore.
 final class Wallpaper {
     /// macOS 14+ keeps the real choice (a colour, an aerial, a dynamic image) in this store; NSWorkspace reports only
@@ -274,8 +274,8 @@ final class Wallpaper {
     /// So the store's leaves are snapshotted and are what "none" puts back, only where a Sprites PNG shows, never over a
     /// newer choice (WallpaperBook in Decide.swift; review R1 #4). The NSWorkspace records are the fallback.
     private let book = WallpaperBook(store: Paths.home + "/Library/Application Support/com.apple.wallpaper/Store/Index.plist",
-                                     snap: Paths.home + "/ClaudeWork/sprites/config/wallpaper_store_original.plist",
-                                     originalsFile: Paths.home + "/ClaudeWork/sprites/config/wallpaper_original.json",
+                                     snap: Paths.home + "/agent-storage/sprites/config/wallpaper_store_original.plist",
+                                     originalsFile: Paths.home + "/agent-storage/sprites/config/wallpaper_original.json",
                                      cacheDir: Backdrop.cacheDir, connected: { Wallpaper.connectedDisplayUUIDs() })
     /// A restore whose WallpaperAgent restart has not been verified yet (review R1_MACOS #11); no second one meanwhile.
     private var restoring = false

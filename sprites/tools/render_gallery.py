@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PIECES = ROOT / "prototype"
-OUT = Path.home() / "ClaudeWork/sprites/gallery/v"
+OUT = Path.home() / "agent-storage/sprites/gallery/v"
 ALL = ["c1_choir", "c2_siphon", "c3_sigils", "c4_kaleido", "c5_fireflies"]
 
 

@@ -229,7 +229,7 @@ def test_rbn15_unwritable_storage_backs_off_in_process(tmp_path):
     def build():
         calls["n"] += 1
         if calls["n"] < 4:
-            raise OSError(30, "Read-only file system", "/Users/x/ClaudeWork/augur/live")
+            raise OSError(30, "Read-only file system", "/Users/x/agent-storage/augur/live")
         return "core"
     assert amain.make_core(build, sleep=waits.append, log=logs.append) == "core"
     assert waits == [5.0, 15.0, 60.0] and len(logs) == 3

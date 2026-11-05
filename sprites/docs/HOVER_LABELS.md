@@ -104,7 +104,7 @@ Code: `prototype/labels/labels.js` (`SpritesLabels.draw(ctx, option, label, env)
 `prototype/labels/mockup.html?opt=1..5` (move the mouse over a creature to see it animate in and out; `&e=0..1` freezes the
 animation at that point, `&size=0.5..2` matches the Size slider). The scene is drawn from real parts: real creatures captured from
 app/stage.html in live mode on a transparent background (`prototype/labels/assets/sprite_*.png`), over the real desktop
-screenshot (`assets/desktop.jpg`, from ~/ClaudeWork/sprites/live/widgets_off.png), plus one drawn white window, since no
+screenshot (`assets/desktop.jpg`, from ~/agent-storage/sprites/live/widgets_off.png), plus one drawn white window, since no
 light window was open in that screenshot. Creatures: Lodestar (Sigils, #FFCA42) over the red wallpaper; KesMine
 (KestrelWorks_Mandrake, Choir, #40C888) over the white window; Ember28 (Siphonophore, #8888EE) over a dark terminal.
 
@@ -141,11 +141,11 @@ lights. **Filament** is the more beautiful alternative if creatures mostly rest 
 prefer.
 
 ## Images (all at desktop scale, 3456x2234 for scenes)
-- v2, after the fix pass (current): `~/ClaudeWork/sprites/labels/v2/contact_sheet.png`; per option N:
+- v2, after the fix pass (current): `~/agent-storage/sprites/labels/v2/contact_sheet.png`; per option N:
   `opt{N}_scene.png` (whole desktop), `opt{N}_close0|1|2.png` (close-ups over red, white and terminal),
   `opt{N}_animation.png` (in at 25/50/80%, shown, out at 50%), `opt{N}_size0.5.png` and `opt{N}_size2.png`.
-- v1, before the fix pass: same names under `~/ClaudeWork/sprites/labels/v1/`.
-- Render tooling (not committed, regenerable): `~/ClaudeWork/sprites/labels/work/render.py <tag>` (one browser, nice 19,
+- v1, before the fix pass: same names under `~/agent-storage/sprites/labels/v1/`.
+- Render tooling (not committed, regenerable): `~/agent-storage/sprites/labels/work/render.py <tag>` (one browser, nice 19,
   waits for 1-min load < 8) and `capture_creatures.py` (recaptures the creature stills).
 
 ## Halo only over bright ground (owner ruling, 2026-11-01)
@@ -161,14 +161,14 @@ Alacritty, WezTerm; by bundle id, cached per pid). `SpritesLabels.groundAt(windo
 returns "bright" when the label's box overlaps any window not marked dark, and "dark" over the wallpaper or a terminal.
 Known misses: a dark-themed non-terminal window (dark mode Safari, a dark IDE) counts as bright and gets a halo it does
 not need, which is harmless. A white page inside a terminal (rare) gets none.
-Images: `~/ClaudeWork/sprites/labels/v2/constellation_white_before.png` and `constellation_white_after.png`; for Filament and
+Images: `~/agent-storage/sprites/labels/v2/constellation_white_before.png` and `constellation_white_after.png`; for Filament and
 Whisper, `{filament,whisper}_white_{before,after}.png`. `*_red_after.png` shows that the wallpaper stays pure.
 
 ## Integration (for the stage agent; do not edit here, wire it in the shared-canvas stage)
 Load `prototype/labels/shortname.js` and `prototype/labels/labels.js` before the runtime (both are plain scripts, no
 dependencies). Then three changes:
 1. **Settings to the stage.** `labelStyle` arrives inside the behaviours object (`SpritesStage.setBehaviors({..., labelStyle})`,
-   from ~/ClaudeWork/sprites/config/behaviors.json). Unknown or absent = `SpritesLabels.DEFAULT` ("constellation"). It is not a
+   from ~/agent-storage/sprites/config/behaviors.json). Unknown or absent = `SpritesLabels.DEFAULT` ("constellation"). It is not a
    bool, so the code that reads behaviours as switches must skip it (`on(k)` is `B[k] !== false`, so it is safe as is).
    `hoverName: false` still turns labels off entirely. Short names: `cast.projects[name].short` overrides. Build the table once
    per cast change with `SpritesShortNames.shortNames(allNames.map(n => ({ name: n, alias: waypointAlias(n), short: cast.projects[n]?.short })))`
@@ -205,7 +205,7 @@ Cost: one label at a time (the hovered creature plus at most one fading out). Co
   automatic, which shows as the placeholder. Maximum 12 characters.
 - Host: no new key plumbing. `saveBehaviors` and `saveCast` store any JSON object. App.swift adds `dark: true` to the
   windows of terminal apps.
-- Images: `~/ClaudeWork/sprites/labels/v2/settings_name_label.png`, `settings_short_name.png`.
+- Images: `~/agent-storage/sprites/labels/v2/settings_name_label.png`, `settings_short_name.png`.
 - Tests: `sprites/tests/test_labels.py`. Every style draws without throwing at scales 0.5, 1 and 2, in every phase, on both
   grounds, with and without hex. The registry shortname table is distinct and at most 12 characters, and the override wins.
   Settings round-trips `labelStyle` (default, save, reload, host init, unknown falls back) and the short name.

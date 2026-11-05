@@ -2,7 +2,7 @@
 
 Serves brief b (strain escalation, timeline b2), brief e (social play, e2) and the saturation pole
 pair on p1 (sat 0.5 vs 1.8). Handles all other timelines generically. Taste reference:
-`~/ClaudeWork/sprites/renders/c4_mandala.png`.
+`~/agent-storage/sprites/renders/c4_mandala.png`.
 
 ## Intent records (visual-intent)
 Brief b:
@@ -75,7 +75,7 @@ amber/orange/red = ordinal; grey-blue = VPN state; red heartbeat = alarm highlig
 ## Self-check (2026-10-31)
 `tools/qa_gates.py c4_kaleido`: all PASS on b2, e2, p1 sat 0.5 and 1.8; 120 fps real time (headless);
 peak lit 1.96 % (b2), idle 0.58 % (e2); min peak contrast 7.7:1; 0 flash flips. Stills in
-`~/ClaudeWork/sprites/trials/qa/c4_kaleido/` and `.../qa/gates_c4/`.
+`~/agent-storage/sprites/trials/qa/c4_kaleido/` and `.../qa/gates_c4/`.
 Weak: at idle with small memory the seeds are small (about 25 px); medium crown ring is subtle
 against amber; strain shiver plus crown may score annoyance > 4 at danger.
 
@@ -106,7 +106,7 @@ into arm sectors, cached; drawn arm by arm so CPU spin/chase and strain jitter a
 Trial timelines (named session ids, no `iv` URL param) keep the original Lotus at the original per-colour k.
 Gallery layout: no focus -> even grid of homes; seed scale 0.16 H x (3/n)^0.35 when chrome=0 (one factor for
 all seeds, so area stays true to memory); all margins scale with V.H/800 and use V.TOP/V.BOT.
-Check stills: `~/ClaudeWork/sprites/gallery/check/c4_kaleido/`. Worst frame ~1.8 ms (8 seeds).
+Check stills: `~/agent-storage/sprites/gallery/check/c4_kaleido/`. Worst frame ~1.8 ms (8 seeds).
 
 ## Round 2 (2026-10-31, GRAMMAR_V2)
 - Network: inner moire removed. Per-session rx = blue-white beads streaming rim -> core along the arm axes; tx = gold
@@ -117,4 +117,4 @@ Check stills: `~/ClaudeWork/sprites/gallery/check/c4_kaleido/`. Worst frame ~1.8
 - VPN: tighter phyllotaxis huddle, separation relaxed; heart replaced by small blinking red beacon; searchlight kept.
 - Play: gear teeth and motes removed; pair drifts together, one short twirl, parts. Idle: slow 7 s breath, slower satellites.
 - Needs-you rings shortened and knock spot kept a full ring radius from every edge (Granite ran off the 640x400 top).
-Check stills: `~/ClaudeWork/sprites/gallery/check2/c4_kaleido/`.
+Check stills: `~/agent-storage/sprites/gallery/check2/c4_kaleido/`.

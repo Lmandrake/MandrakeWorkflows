@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage adapter and render health (was ~/ClaudeWork/sprites/live/verify/stage_test.py + stale_test.py, which asserted
+"""Stage adapter and render health (was ~/agent-storage/sprites/live/verify/stage_test.py + stale_test.py, which asserted
 nothing). Expected values are derived by hand from tests/fixtures/augur_test_snapshot.json and the owner's rulings
 (augur/DESIGN.md s11: a stale block is absent; ruling 3: lights on a project's OLDEST session; ruling 4: a ghost per
 burning project with no session). One headless Chromium. Exit 0 = pass."""

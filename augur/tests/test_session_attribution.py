@@ -30,7 +30,7 @@ class Sim(object):
         self.repo = os.path.join(str(tmp), "dev", "Repo")
         os.makedirs(os.path.join(self.repo, ".git"))
         os.makedirs(os.path.join(self.home, ".claude", "sessions"))
-        self.storage = os.path.join(str(tmp), "ClaudeWork", "augur")
+        self.storage = os.path.join(str(tmp), "agent-storage", "augur")
         os.makedirs(self.storage)
         self.p = {}            # pid -> dict
         self.truth = {}        # owner root pid -> CPU seconds burnt

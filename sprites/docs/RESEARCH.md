@@ -1,5 +1,5 @@
 # Ambient desktop pets: research report (2026-10-31)
-Source: GPT research consult (full text: ~/ClaudeWork/sprites/research/consult_out.txt, id 20261031T120637-SidePulse-literature_review). Load-bearing URLs below returned HTTP 200 on a direct fetch (red3d.com returned 403 to curl, likely bot-blocking; it is the canonical boids page). Claims are leads, not measurements; no Apple Silicon power numbers exist in any source.
+Source: GPT research consult (full text: ~/agent-storage/sprites/research/consult_out.txt, id 20261031T120637-SidePulse-literature_review). Load-bearing URLs below returned HTTP 200 on a direct fetch (red3d.com returned 403 to curl, likely bot-blocking; it is the canonical boids page). Claims are leads, not measurements; no Apple Silicon power numbers exist in any source.
 
 ## A. Prior art
 - Shijima-Qt (Shimeji for macOS/Qt; uses Accessibility for frontmost-window tracking; ARCHIVED 2026-04-29, GPL-3.0, ~200 stars): https://github.com/pixelomer/Shijima-Qt

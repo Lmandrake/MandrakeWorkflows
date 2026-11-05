@@ -92,7 +92,7 @@ class World(object):
         for r in (self.repo_a, self.repo_b) + ((self.lodestar,) if lodestar else ()):
             os.makedirs(os.path.join(r, ".git"))
         os.makedirs(os.path.join(self.repo_a, "src"))
-        self.storage = os.path.join(self.tmp, "ClaudeWork", "augur")
+        self.storage = os.path.join(self.tmp, "agent-storage", "augur")
         os.makedirs(self.storage)
         os.makedirs(os.path.join(self.home, ".claude", "sessions"))
         if lodestar:
@@ -121,7 +121,7 @@ class World(object):
             json.dump(d, fh)
 
     def sidepulse(self, slots):
-        d = os.path.join(self.tmp, "ClaudeWork", "sidepulse")
+        d = os.path.join(self.tmp, "agent-storage", "sidepulse")
         os.makedirs(d, exist_ok=True)
         with open(os.path.join(d, "state.json"), "w") as fh:
             json.dump({"slots": {str(i): s for i, s in enumerate(slots)}}, fh)
@@ -153,7 +153,7 @@ class World(object):
 def machine_key(monkeypatch, tmp_path):
     monkeypatch.setenv("LODESTAR_MACHINE", "test-key")
     # RB-n13: SidePulse's dir comes from its own variable, never from AUGUR_HOME's parent
-    monkeypatch.setenv("SIDEPULSE_STATE_DIR", os.path.join(str(tmp_path), "ClaudeWork", "sidepulse"))
+    monkeypatch.setenv("SIDEPULSE_STATE_DIR", os.path.join(str(tmp_path), "agent-storage", "sidepulse"))
 
 
 def standard(tmp_path, **kw):
@@ -277,7 +277,7 @@ def test_shell_and_subagent(tmp_path):
 
 def test_sessionid_fallback_newest_transcript(tmp_path):
     w = standard(tmp_path)
-    os.remove(os.path.join(w.tmp, "ClaudeWork", "sidepulse", "state.json"))
+    os.remove(os.path.join(w.tmp, "agent-storage", "sidepulse", "state.json"))
     w.transcripts(w.repo_a + "/src", "sid-old", agents=[("agent-z.jsonl", T0 - 1)],
                   top_mtime=1793499000)                           # before the session started
     r = FakeReaders(w.procs, ru_tick(1.0))
@@ -378,7 +378,7 @@ def test_attention_slots_and_fallback(tmp_path):
     a = S.AttentionCollector().collect(w.ctx(T0, 0.0))["sessions.attention"]
     assert a == {"101@1793500000": {"state": "needs_you", "since": T0}}
     # state.json corrupt and no fallback: read_failed for that session
-    with open(os.path.join(w.tmp, "ClaudeWork", "sidepulse", "state.json"), "w") as fh:
+    with open(os.path.join(w.tmp, "agent-storage", "sidepulse", "state.json"), "w") as fh:
         fh.write("{nope")
     a = S.AttentionCollector().collect(w.ctx(T0, 0.0))["sessions.attention"]
     assert a["201@1793501000"] == {"unknown": "read_failed"}
@@ -1029,7 +1029,7 @@ def test_rb_n13_sidepulse_dir_is_read_from_the_environment(tmp_path, monkeypatch
     ctx = w.ctx(T0, 0.0)
     assert S.read_sidepulse(ctx)[0] == "ok" and 101 in S.read_sidepulse(ctx)[1]
     monkeypatch.delenv("SIDEPULSE_STATE_DIR")
-    monkeypatch.setenv("AGENT_STORAGE_ROOT", os.path.join(w.tmp, "ClaudeWork"))
+    monkeypatch.setenv("AGENT_STORAGE_ROOT", os.path.join(w.tmp, "agent-storage"))
     assert 101 in S.read_sidepulse(ctx)[1]
 
 

@@ -26,9 +26,9 @@ Built and run on the Laptop desktop in demo mode. The LaunchAgent is NOT install
 - `tools/demo_feed.py`: Augur-shape demo/test feed with scenarios (calm, busy, needs, strain, vpn_down, bw_jam, churn,
   lodestar_closed, lodestar_closed_quiet, ghosts, twin, unmanaged); `--check` validates against the schema.
 - Host (`app/macos`): reads `$SPRITES_STATE`, else `$AUGUR_SNAPSHOT`, else default `augurSnapshot`, else
-  ~/ClaudeWork/augur/live/snapshot.json. `--demo` / `--no-demo` for smoke tests.
+  ~/agent-storage/augur/live/snapshot.json. `--demo` / `--no-demo` for smoke tests.
 
-## Verified (evidence under ~/ClaudeWork/sprites/live/)
+## Verified (evidence under ~/agent-storage/sprites/live/)
 - Headless (one Chromium, nice 10): `verify/stage_test.py` -> `verify/results.json` + PNGs. Demo, demo_feed t=0/200/400,
   six scenarios and the Augur sample render with zero page or frame errors; transparent background (rgba 0); hits
   reported for every non-ghost creature; ghost:lodestar present in lodestar_closed and absent in lodestar_closed_quiet;
@@ -51,7 +51,7 @@ Built and run on the Laptop desktop in demo mode. The LaunchAgent is NOT install
 
 ## CPU and checks (2026-11-01, overnight)
 Measured (app + its WebKit GPU/WebContent/Networking processes, ps CPU time over 60 s; tool
-~/ClaudeWork/sprites/live/cpu/measure.sh, log ~/ClaudeWork/sprites/live/cpu/results.txt). Load was 7-25 throughout, so
+~/agent-storage/sprites/live/cpu/measure.sh, log ~/agent-storage/sprites/live/cpu/results.txt). Load was 7-25 throughout, so
 treat as indicative:
 | build | calm (4 idle sprites) | demo |
 |---|---|---|
@@ -68,15 +68,15 @@ five full-screen iframes (all species drawing into one document), then 20-24 fps
 
 PENDING, gated (load testing runs only on a trusted on-site network without the VPN): re-measure only
 when Augur reads machine.vpn.on_site == true and state != "up":
-  python3 -c "import json;v=json.load(open('$HOME/ClaudeWork/augur/live/snapshot.json'))['machine']['vpn'];exit(0 if v.get('on_site') is True and v.get('state')!='up' else 1)" && for r in 1 2 3; do ~/ClaudeWork/sprites/live/cpu/measure.sh fps24_calm_$r calm 60; ~/ClaudeWork/sprites/live/cpu/measure.sh fps24_demo_$r demo 60; done
+  python3 -c "import json;v=json.load(open('$HOME/agent-storage/augur/live/snapshot.json'))['machine']['vpn'];exit(0 if v.get('on_site') is True and v.get('state')!='up' else 1)" && for r in 1 2 3; do ~/agent-storage/sprites/live/cpu/measure.sh fps24_calm_$r calm 60; ~/agent-storage/sprites/live/cpu/measure.sh fps24_demo_$r demo 60; done
 
 GUI checks still to do with the owner idle > 120 s (ioreg HIDIdleTime): click-through on empty desktop, click a live creature
 -> its iTerm2 window focused, click a ghost once -> new window via `launch <Name>` (then close it), full-screen fade, no focus
 steal while typing. Verified so far: never takes focus (frontmost stayed iTerm2 through every launch), transparent.
 Tests that pass (headless): verify/move_test.py 25/25, verify/vpn_truth.py all, verify/huddle_test.py (all five species
 within 20-55 px of the one beacon by 8 s), smooth.py (24 fps calm and on hover, < 0.7 px/frame).
-Gallery re-render: PENDING under the same load gate. Only c1_choir 8/12 re-rendered (~/ClaudeWork/sprites/gallery/v, 05:53);
-round-2 reference kept at ~/ClaudeWork/sprites/gallery/v_round2; resume with ~/ClaudeWork/sprites/live/gallery_compare/run.sh
+Gallery re-render: PENDING under the same load gate. Only c1_choir 8/12 re-rendered (~/agent-storage/sprites/gallery/v, 05:53);
+round-2 reference kept at ~/agent-storage/sprites/gallery/v_round2; resume with ~/agent-storage/sprites/live/gallery_compare/run.sh
 then compare.py (untested).
 
 ## One canvas (764a1b2, 2026-11-01)
@@ -98,7 +98,7 @@ its WebKit GPU/WebContent/Networking, before and after builds interleaved (load 
 | before (5 iframes, HEAD 9fde09f) | 22.1, 25.1, 26.4 % | **25.1 %** |
 | after, one canvas (764a1b2) | 19.2, 19.3, 19.4 % | **19.3 %** |
 (The earlier "12.0 % calm" was with the demo calm feed, 4 idle sprites; the live cast today is busier, so compare within a row pair.)
-A/B on the same live feed, to find where the rest goes (variants under ~/ClaudeWork/sprites/live/onecanvas/var_*):
+A/B on the same live feed, to find where the rest goes (variants under ~/agent-storage/sprites/live/onecanvas/var_*):
 | variant | CPU |
 |---|---|
 | step at 24 Hz, never paint | 2.0-2.3 % |
@@ -116,7 +116,7 @@ target (<= 3 % calm at constant 24 fps) is NOT reachable in WKWebView: the paint
 (the draw-call batcher is in stage.html behind ?batch=1, unmeasured; batching fillRect needs one fillStyle per run, so the
 pieces' per-dot hsl strings defeat it as written).
 
-Look parity: ~/ClaudeWork/sprites/live/verify/onecanvas/frames/sheet.png (before | after | diff x8), diff.json. 17 scenes x
+Look parity: ~/agent-storage/sprites/live/verify/onecanvas/frames/sheet.png (before | after | diff x8), diff.json. 17 scenes x
 2 times, frozen virtual clock, cold start; a before-vs-before control is 0. 26 of 34 frames identical (max <= 7/255, 0 px
 > 8); 8 mixed-species frames differ: 4 in 1-5 px, 4 in 431-3 943 px (1.2-5.8 % of lit pixels, max 121/255), all where two species overlap: the old stage composited each
 iframe separately, one canvas composites "lighter" glows across species, so overlapping glows add instead of stacking.

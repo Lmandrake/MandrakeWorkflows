@@ -109,7 +109,7 @@ Faint glass hairlines trace every ring so a form still reads when memory lights 
 Gallery layout: free rect and all margins now derive from V.W/V.H/V.TOP/V.BOT (1280x800 reproduces the old
 numbers). Crafts sit on a fitted grid (two columns keep the old zigzag) and scale `G.sc` with stage and count.
 With focus null every craft keeps its slot, and the HUD band is kept clear. Checks:
-`~/ClaudeWork/sprites/gallery/check/c1_choir/` (no errors, at most 0.8 ms/frame with 8 sessions).
+`~/agent-storage/sprites/gallery/check/c1_choir/` (no errors, at most 0.8 ms/frame with 8 sessions).
 
 ## Round 2 (owner gallery feedback, GRAMMAR_V2)
 - Bandwidth now lives inside the saucer: 8 radial lanes in the main deck. Download = cool white-blue pulses rim -> core (core takes a cool tint), upload = gold pulses core -> rim; pulse count/brightness on a log Mbit/s scale. Link strain (net.strain, weighted by the session's own traffic) = pulses compress and stall at the rim, stutter, and pile into a bright clogged band. The rising uplink motes are gone (no particle enters or leaves the creature).
@@ -117,4 +117,4 @@ With focus null every craft keeps its slot, and the HUD band is kept clear. Chec
 - Play: bead arc and rainbow LEDs removed; the pair drifts together, makes one eased half-orbit twirl and parts.
 - Idle: slower base chase, slow breathing brightness, smaller wander.
 - Satellites = background tasks (count); their drift is now constant, so CPU shows only in the ring's chase tempo.
-- VPN huddle, searchlight and small red blinking beacon kept as is. Headless check: ~/ClaudeWork/sprites/gallery/check2/c1_choir/ (no errors, all scenarios and the a1/b1/d2 1280x800 trials).
+- VPN huddle, searchlight and small red blinking beacon kept as is. Headless check: ~/agent-storage/sprites/gallery/check2/c1_choir/ (no errors, all scenarios and the a1/b1/d2 1280x800 trials).

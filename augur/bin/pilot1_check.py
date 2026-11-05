@@ -397,7 +397,7 @@ def cmd_nettop(a):
 
 
 # ---------------------------------------------------------------- groundtruth (a load test)
-GT_DIR = os.path.join(os.path.expanduser("~"), "ClaudeWork", "augur", "scratch", "groundtruth")
+GT_DIR = os.path.join(os.path.expanduser("~"), "agent-storage", "augur", "scratch", "groundtruth")
 
 
 def load_test_allowed(snap, now=None):

@@ -19,7 +19,7 @@ is too high, the port is v2, concept by concept, against these pieces as the ref
   visible ("Movement and terrain" rule 7).
 
 ## Data contract (the owner's sampler will write this; nothing here gathers data)
-File: `$SPRITES_STATE`, default `~/ClaudeWork/sprites/live/state.json`, rewritten atomically, any cadence.
+File: `$SPRITES_STATE`, default `~/agent-storage/sprites/live/state.json`, rewritten atomically, any cadence.
 ```json
 { "schema": 1, "t": 1793500000.0,
   "sessions": [ { "id": "43901", "pid": 43901, "project": "SidePulse", "hue": 350,
@@ -43,7 +43,7 @@ sessions for the duration of that session."
   same runtime, so previews are the real sprites).
 - With Waypoint (`~/dev/Waypoint/launches.md` readable): one row per **focus** project (Focus = yes), its
   Waypoint colour, a species picker (5) with live previews side by side, then a variant strip (8 live
-  thumbnails); click to choose. Saved to `~/ClaudeWork/sprites/config/cast.json`; the stage reloads it live.
+  thumbnails); click to choose. Saved to `~/agent-storage/sprites/config/cast.json`; the stage reloads it live.
 - Without Waypoint, or a session whose project is not in the cast: a random species + variant + hue chosen
   at session start (seeded by session id) and kept for that session only, never saved.
   **As built (pending the owner's word, R1-SPEC S9):** an uncast managed project is seeded by its project_key, so all its
@@ -91,7 +91,7 @@ cursor and eases toward it (exponential, tau 0.42 s, no overshoot, no orbit), th
 forms. avoidCursor still applies to every creature that is not hovered. Terrain still holds: it may follow over a non-focus
 window but never onto the focused window (it stops at the edge). Unhovered, it eases back (tau 0.9 s) and resumes
 wandering. Constant fps as always. Built as a display offset in the runtime (visitors_runtime.js `pull`), no piece changes.
-Test: ~/ClaudeWork/sprites/live/verify/hover_follow_test.py (cursor parked: within 6 px at 1.5 s and 4 px at 5 s; never
+Test: ~/agent-storage/sprites/live/verify/hover_follow_test.py (cursor parked: within 6 px at 1.5 s and 4 px at 5 s; never
 inside the focus after a drag onto it).
 
 ## Sprite Size (owner, 2026-10-31)
@@ -146,14 +146,14 @@ Rules as built (prototype/visitors_runtime.js `nav`, used by every piece; stage.
 8. VPN huddle: ONE beacon for the whole desktop (runtime draws it once), placed in open space on the flock's side of the
    focus; every species huddles to it.
 9. Ghosts: edge spots no window covers (setWindows).
-Tests: ~/ClaudeWork/sprites/live/verify/move_test.py (evict, split by focus, sliver/huge focus, jitter, terrain), huddle_test.py.
+Tests: ~/agent-storage/sprites/live/verify/move_test.py (evict, split by focus, sliver/huge focus, jitter, terrain), huddle_test.py.
 
 ## VPN lost, on site (owner, 2026-11-01 05:30)
 On site the VPN is off but the machine is on the site network, so either the network must be the site's
 or the VPN must be on, or both. Built in app/stage.html adaptState + vpnDebounce: lost = Augur
 machine.vpn.state "down" AND on_site is not true (absent on_site counts as off site: we cannot confirm). Lost must hold 20 s
 before the flock huddles (walking around the site flaps on_site); recovery (VPN up or arriving on the on-site network) is immediate and fires
-the reconnect bloom in every piece. Test: ~/ClaudeWork/sprites/live/verify/vpn_truth.py (truth table, flap, debounce).
+the reconnect bloom in every piece. Test: ~/agent-storage/sprites/live/verify/vpn_truth.py (truth table, flap, debounce).
 Refinement (owner idea, 2026-11-01 05:35, "truer to the source"): when Augur's `machine.api` is present (an agent made an API
 call recently), it decides: lost = state "failing" AND error_kind "network"; rate-limit, server and other errors never
 huddle; "ok" is not lost even with the VPN down. Absent `machine.api` = the VPN/on-site rule above. Same 20 s debounce;
@@ -170,7 +170,7 @@ cannot be reached... they are interrelated and each informative." All three are 
 | absent | absent | - | nothing (all unknown is never assumed ok or lost) |
 Entering LOST holds 20 s first (AT RISK is no longer produced by the adapter; the debounce and layers still carry it); recovery is immediate; LOST -> OK fires the reconnect
 bloom. Hovering the beacon names the signal(s) down in the chosen label style ("API unreachable", "VPN down", "not on Lab
-WiFi"). Test: ~/ClaudeWork/sprites/live/verify/vpn_truth.py (all 42 combinations, flap, both debounces, live risk/lost
+WiFi"). Test: ~/agent-storage/sprites/live/verify/vpn_truth.py (all 42 combinations, flap, both debounces, live risk/lost
 beacon + hover text). Built against the Augur schema as it stands (machine.api latency fix in progress there).
 
 ## Click (owner, 2026-11-01 05:47)
@@ -189,7 +189,7 @@ wallpaper -2147483624, Finder's desktop-icon window -2147483603 (= the desktopIc
 the creatures stay at full brightness. Windows are reused across didChangeScreenParameters (no rebuild flash); 0 = ordered out.
 Setting "Dim desktop icons", 0-80 %, default 45.
 PENDING (Settings UI owner): write `"dimIcons": <integer percent 0-80>` into behaviors.json
-(~/ClaudeWork/sprites/config/behaviors.json) through the existing `saveBehaviors` message, alongside the boolean switches;
+(~/agent-storage/sprites/config/behaviors.json) through the existing `saveBehaviors` message, alongside the boolean switches;
 missing key = 45, 0 = off, values clamp to 0-80, a boolean is ignored (= 45). The host re-reads it within 2 s (FileWatch) or
 at once on saveBehaviors. Note `behaviorOn` treats non-Bool keys as absent, so the number does not disturb the switches.
 Test override: `Sprites -dimIcons N` (argument domain, not persisted).

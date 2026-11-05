@@ -106,7 +106,7 @@ def test_vpn_flap_moves_changed_at():
 
 
 def test_on_site_boolean_only():
-    for ssid, want in (("OnSiteWifi", True), ("LabWiFi", True), ("Home", False)):   # the real network reads "LabWiFi"
+    for ssid, want in (("OnSiteWifi", True), ("OnSiteWiFi", True), ("Home", False)):   # the real network reads "OnSiteWiFi"
         c = netc([{"en0": iface(0, 0)}], [[("en0", "g", 3)]], ssid=ssid)
         v = c.collect(ctx())["machine.vpn"]
         assert v["on_site"] is want and ssid not in repr(v)

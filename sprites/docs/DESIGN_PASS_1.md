@@ -20,7 +20,7 @@ MandrakeVisualize/visual-beautiful stack (truth floor, BEAUTIFUL pole, motion le
 | Datum | Source | Channel on the creature |
 |---|---|---|
 | session alive, project, colour | `~/dev/.lodestar/companion/now.json` `plots.agents.segments[]` | existence; hue family = project colour |
-| working / needs-you / done | `~/ClaudeWork/sidepulse/state.json` (hook-driven, freshest) | needs-you = it approaches and "knocks" near the dock/menu bar, gentle |
+| working / needs-you / done | `~/agent-storage/sidepulse/state.json` (hook-driven, freshest) | needs-you = it approaches and "knocks" near the dock/menu bar, gentle |
 | CPU cores per session | `host-trace.json` `sessions[].cpu` | pulse rate / internal spin speed |
 | footprint (RSS) | `host-trace.json` `sessions[].footprint` | body size / lit-pixel count |
 | process tree count `procs` (proxy for bg tasks) | `host-trace.json` | orbiting satellites |

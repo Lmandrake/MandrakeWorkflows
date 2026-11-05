@@ -1,7 +1,7 @@
 # C3 Living Sigils: design case file
 
 Piece: `pieces/c3_sigils.html`. Serves brief a (timeline a1), brief d (d1), and the size pole pair on p1
-(size 0.5 vs 1.8). Taste reference: `~/ClaudeWork/sprites/renders/c3_sigils.png`.
+(size 0.5 vs 1.8). Taste reference: `~/agent-storage/sprites/renders/c3_sigils.png`.
 
 ## Intent records (visual-intent)
 Brief a:
@@ -107,7 +107,7 @@ orbits off the base, so a busy sigil shimmers but keeps its name. Bitmaps resamp
 Old trial timelines (no iv, runtime sets 0) fall back to session order so their 5 sigils stay distinct.
 Gallery layout: stages under 1000x700 scale sigils to the stage (crowd-shrunk for 4+), place them on a
 centred grid when no window is focused, and use V.TOP/V.BOT throughout. Checks:
-`~/ClaudeWork/sprites/gallery/check/c3_sigils/`.
+`~/agent-storage/sprites/gallery/check/c3_sigils/`.
 
 ## Round 2
 Applied GRAMMAR_V2 after owner gallery round 1 ("pulling random pixels in from beyond is odd but glyphs themselves are amazing"; idle "still a bit busy"; strain "tinge more red glow behind pixels"; rotating lights kept as is).
@@ -116,4 +116,4 @@ Applied GRAMMAR_V2 after owner gallery round 1 ("pulling random pixels in from b
 - Play: the bead bridge and partner-tint exchange are removed. The pair drift together, do one eased half-turn twirl, then part.
 - Idle: mutation runs at 1/4 rate, drift range is 0.55x, and the glyph breathes slowly (7 s period).
 - VPN: the red heartbeat is replaced by a small red blinking beacon. Huddle and searchlight are unchanged.
-Verified headless: __errors empty for all 12 gallery scenarios plus a1/d1 at 1280x800. Screens: ~/ClaudeWork/sprites/gallery/check2/c3_sigils/ (g_net_strip.png = download/upload/jam over time).
+Verified headless: __errors empty for all 12 gallery scenarios plus a1/d1 at 1280x800. Screens: ~/agent-storage/sprites/gallery/check2/c3_sigils/ (g_net_strip.png = download/upload/jam over time).

@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PIECES = ROOT / "prototype"
-G = Path.home() / "ClaudeWork/sprites/gallery"
+G = Path.home() / "agent-storage/sprites/gallery"
 CONCEPTS = [("c1_choir", "Mothership Choir"), ("c2_siphon", "Siphonophores"), ("c3_sigils", "Living Sigils"),
             ("c4_kaleido", "Kaleidoscope Seeds"), ("c5_fireflies", "Firefly Murmurations")]
 ROWS = ["g_variants", "g_projects", "g_idle", "g_cpu", "g_mem", "g_tasks", "g_needs", "g_strain", "g_net",

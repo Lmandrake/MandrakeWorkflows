@@ -17,7 +17,7 @@ Mothership Choir, Siphonophores, Living Sigils, Kaleidoscope Seeds, Firefly Murm
 Spec: `docs/GRAMMAR_V2.md`. Data will come from the sampler being built in MandrakeWorkflows; until then the
 prototypes run on scripted timelines. The judged design study (blind trials, pre-registration, skill lessons) is
 `../visualize/evaluation/runs/2026-10-31-visitors/` (working name then: Visitors).
-Large artifacts (videos, screenshots) live in agent storage, `~/ClaudeWork/sprites/`, never in git.
+Large artifacts (videos, screenshots) live in agent storage, `~/agent-storage/sprites/`, never in git.
 The product will be a native macOS overlay (SpriteKit or Metal), reading Lodestar's collector files.
 
 Gallery: `python3 tools/build_gallery.py && tools/serve_gallery.sh` (videos: `nice -n 10 python3 tools/render_gallery.py`).

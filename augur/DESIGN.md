@@ -137,7 +137,7 @@ How a session is found:
 | tasks.subagents | transcripts under `~/.claude/projects/<slug>/<sessionId>/subagents/agent-*.jsonl` (any depth) whose last complete line is not a terminal assistant line (`end_turn` or an API error), written within 24 h; a mid-stream assistant line older than 5 min reads as cut off. Only the tail is read (at most 1 MiB). Replaced the 30 s mtime window (owner bug 2026-11-01: it dropped agents blocked on long tool calls). | one scandir per session plus a tail read per changed file | provisional; checked against the transcripts in PILOT1.md |
 | tasks (exact) | `SIDEPULSE_MEASURE_BACKGROUND_TASKS`: the session hook already sees Task / `run_in_background` calls and their completions. It would publish a live count beside the attention state. Augur prefers it (`method: hook`) whenever it is present and fresh. | ~0 for Augur | **unmeasured**: needs a hook change in Lodestar |
 | wait_s_per_s, starved | load_levels' runnable-wait idea per tree: max(0, d `ri_runnable_time` - d CPU) / dt. "Asking for more than it is getting" = `starved` when wait >= 0.5 s/s, held for 10 s (two agents ticks). | inside the sweep | the signal is measured (rest median 0.02 s/s, under 12 spinners ~3). **The 0.5 / 10 s threshold is a proposal.** |
-| attention | `~/ClaudeWork/sidepulse/state.json` slots (hook-driven: working, needs-you, done), joined by pid. Fallback: `~/.claude/sessions/<pid>.json` `status` (busy/idle/waiting). needs_you = Notification, or a turn that ended on a question. stopped = a `done` within the last 10 min. idle = everything older. | 1 file read per fast tick (0.64 ms, measured) | measured. Without SidePulse hooks only the fallback remains, and it cannot show `stopped`. |
+| attention | `~/agent-storage/sidepulse/state.json` slots (hook-driven: working, needs-you, done), joined by pid. Fallback: `~/.claude/sessions/<pid>.json` `status` (busy/idle/waiting). needs_you = Notification, or a turn that ended on a question. stopped = a `done` within the last 10 min. idle = everything older. | 1 file read per fast tick (0.64 ms, measured) | measured. Without SidePulse hooks only the fallback remains, and it cannot show `stopped`. |
 | net (per session) | section 5 | one `nettop` exec per 5 s | **measured as possible tonight, not yet validated** |
 
 ### Per project (from Lodestar when present)
@@ -157,7 +157,7 @@ registry row keeps its own key but is never drawn as a `managed` ghost (C7). It 
 when no Lodestar session is open. Its `sessions` count is 0 in that case.
 
 **Code map: not Augur's (owner ruling 2026-10-31).** The earlier design had Augur keep an editable
-code-to-project map (`~/ClaudeWork/augur/project-codes.json`). It is withdrawn: mapping account codes to
+code-to-project map (`~/agent-storage/augur/project-codes.json`). It is withdrawn: mapping account codes to
 repos is Lodestar's job (ticket BURNING_WIRE_TO_PROJECTS). In pilot 2 Augur reads Lodestar's
 per-project burning count and puts every unattributed item on the Lodestar entry.
 
@@ -251,7 +251,7 @@ Augur's own code lives at `augur/augur/` when it is built. Layout:
 Collectors stay pure where they can: input structs in, Signal dicts out. Fixtures can then replay
 them on any OS.
 
-**What a Windows (Archmagi) port would need.** Each item is one collector. The schema does not
+**What a Windows port would need.** Each item is one collector. The schema does not
 change.
 
 | Signal | Windows source | Hard? |
@@ -259,7 +259,7 @@ change.
 | cpu, memory | `GetSystemTimes`, `GlobalMemoryStatusEx`. Windows has no kernel "pressure" level: derive one from commit charge and available memory | easy, but `pressure` is not equivalent and must be named as different |
 | net, vpn | `GetIfTable2` byte counters. VPN = the default route's interface is a tunnel (`IF_TYPE_PPP` or an adapter description match) | easy |
 | path | `IcmpSendEcho2`, no admin needed | easy |
-| sessions | `CreateToolhelp32Snapshot` for the tree; `GetProcessTimes`, `GetProcessMemoryInfo`. Claude Code on Archmagi runs inside **WSL2**, so the trees live in the Linux VM and Windows sees only `vmmem`. The port is really a **Linux** collector (`/proc`) running inside WSL. | medium: a Linux collector set, not a Windows one |
+| sessions | `CreateToolhelp32Snapshot` for the tree; `GetProcessTimes`, `GetProcessMemoryInfo`. Claude Code on the Windows desktop runs inside **WSL2**, so the trees live in the Linux VM and Windows sees only `vmmem`. The port is really a **Linux** collector (`/proc`) running inside WSL. | medium: a Linux collector set, not a Windows one |
 | strain (sched delay) | the same burst trick works with `SetThreadPriority`; the thresholds need re-measuring | medium (re-baseline) |
 | per-session net | `/proc/<pid>/net` is per network namespace, not per process; per-process bytes need eBPF or `nethogs` (root) | hard: leave absent |
 | thermal | no unprivileged API | absent |
@@ -341,7 +341,7 @@ What it measures:
   has fully elapsed, with at least 20 of 24 present (R1 finding 18).
 
 All of it goes into `cost` in the snapshot and into one line every 10 min in
-`~/ClaudeWork/augur/cost.jsonl`.
+`~/agent-storage/augur/cost.jsonl`.
 
 **Budget** (mt-AAAAAA, M1 Max 10 cores; same on the Desktop):
 - **Pass:** 1 h average CPU <= **1.0 % of one core**, RSS <= 40 MB, spawns <= 1500/h, and no fast
@@ -371,7 +371,7 @@ file. **Not measured yet:** Augur's own Python baseline. Importing the vendored 
 ## 7. File, delivery, privacy
 
 Paths:
-- **Snapshot:** `~/ClaudeWork/augur/live/snapshot.json`, under the agent storage root
+- **Snapshot:** `~/agent-storage/augur/live/snapshot.json`, under the agent storage root
   (`python3 ~/dev/Lodestar/bin/lib/agent_storage.py`; `$AUGUR_HOME` overrides it). Mode **0600**
   in 0700 directories, as are `samples/`, `cost.jsonl` and `audit.jsonl` (R5 S3): every consumer
   runs as the owner, and the "levels and counts" are not harmless. They republish Lodestar's
@@ -407,15 +407,15 @@ check `valid_until`.
 - Units are in the key names (`_mbps`, `_gb`, `_pct`, `_s_per_s`) so nothing silently changes unit.
 
 **Socket (later, optional):**
-- `~/ClaudeWork/augur/live/augur.sock`, a Unix stream socket, mode 0600, newline-delimited JSON:
+- `~/agent-storage/augur/live/augur.sock`, a Unix stream socket, mode 0600, newline-delimited JSON:
   each line is a complete snapshot, sent on every write.
 - It is only worth building if a consumer needs data in under 1 s. None does today (Sprites polls at
   1 s and wants 15 s). Until then the file is the only interface.
 
 **Off switches:**
-- `~/ClaudeWork/augur/off`: if present, Augur writes `{"off": true, ...}` once with empty arrays.
+- `~/agent-storage/augur/off`: if present, Augur writes `{"off": true, ...}` once with empty arrays.
   Readers show nothing, not idle. Augur then sleeps and re-checks every 5 s, with no restart needed.
-- Per collector: `~/ClaudeWork/augur/collectors.json` (`{"session_net": false}`).
+- Per collector: `~/agent-storage/augur/collectors.json` (`{"session_net": false}`).
 - Kill switch: `launchctl bootout gui/$UID/com.mandrake.augur`.
 
 ## 8. Install on both Macs
@@ -425,7 +425,7 @@ The install follows Lodestar's conventions:
   `ThrottleInterval` 20.
 - `ProcessType` `Standard` under `/usr/bin/nice -n 10`, with `LowPriorityIO` (Background was
   measured and dropped, below).
-- The interpreter is `~/ClaudeWork/python/py`, the one the SidePulse plists use. Explicit `PATH`.
+- The interpreter is `~/agent-storage/python/py`, the one the SidePulse plists use. Explicit `PATH`.
 - Logs go to `~/Library/Logs/augur.log` / `.err`.
 - `augur/bin/install.sh` (`--remove`) is modelled on `~/dev/Lodestar/bin/install_sidepulse_resources.sh`:
   it refuses on a different `$HOME` (one that is not the account's own home directory, checked with
@@ -499,7 +499,7 @@ Companion.
 
 **Shadow period** (pilot 3, 7 days per consumer):
 - The consumer keeps measuring as today and also reads Augur.
-- A comparator logs paired readings each tick to `~/ClaudeWork/augur/shadow-<consumer>.jsonl`.
+- A comparator logs paired readings each tick to `~/agent-storage/augur/shadow-<consumer>.jsonl`.
 - **Agreement rule:** each paired field must agree in >= 95 % of ticks within the tolerance below.
   Levels may differ by at most one step, and only during a transition window (10 s). There must be
   no tick where one side reads a value and the other reads absent or unknown without a logged
@@ -540,7 +540,7 @@ keeps its own shape and the adapter maps it. Below are the differences, each wit
 
 | SHIP_PLAN key | Augur | Difference | Recommendation |
 |---|---|---|---|
-| file `~/ClaudeWork/sprites/live/state.json`, `$SPRITES_STATE` | `~/ClaudeWork/augur/live/snapshot.json` | path | Set `SPRITES_STATE` to Augur's file in the Sprites plist. Keep `demo_feed.py` writing the old path for demos. |
+| file `~/agent-storage/sprites/live/state.json`, `$SPRITES_STATE` | `~/agent-storage/augur/live/snapshot.json` | path | Set `SPRITES_STATE` to Augur's file in the Sprites plist. Keep `demo_feed.py` writing the old path for demos. |
 | `schema: 1`, `t` | `schema`, `version`, `written_at`, `valid_until` | richer | The adapter treats `now > valid_until` as "all unknown", drawn calm. |
 | `sessions[].id` = `"43901"` | `"43901@1793472837"` + `pid` | id carries the start time | Key sprites by Augur's `id`, so a reused pid never inherits a creature's species. |
 | `project` | `project` (+ `project_key`, `managed`) | adds | Draw `managed: false` white and a different shape, with no counts (owner decision 5). |

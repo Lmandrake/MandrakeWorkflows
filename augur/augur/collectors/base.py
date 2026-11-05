@@ -33,7 +33,7 @@ Signal paths and their values (the core stamps observed_at / valid_until, never 
 
 ctx (core.Ctx): now (epoch s, wall), mono (monotonic s), cadence {tier: s}, state (a dict private
 to this collector that persists between calls), shared (one dict shared by all collectors),
-home (the user's HOME), storage (Augur's home dir, ~/ClaudeWork/augur), lodestar (Lodestar
+home (the user's HOME), storage (Augur's home dir, ~/agent-storage/augur), lodestar (Lodestar
 checkout path or None).
 
 Shared keys in use:

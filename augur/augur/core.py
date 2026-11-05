@@ -474,7 +474,7 @@ class Core(object):
 
     def _ensure_dirs(self):
         """live/ and samples/ exist and are the owner's only (S3). Called at start and again when
-        a write finds its directory gone (RB3: an agent tidied ~/ClaudeWork under us)."""
+        a write finds its directory gone (RB3: an agent tidied ~/agent-storage under us)."""
         for d in (self.storage, self.live, os.path.join(self.storage, "samples")):
             os.makedirs(d, mode=PRIVATE_DIR, exist_ok=True)
             if os.stat(d).st_mode & 0o777 != PRIVATE_DIR:

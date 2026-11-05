@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""LOST huddle (owner ruling 2026-11-01 08:15; was ~/ClaudeWork/sprites/live/verify/huddle_test.py, which asserted
+"""LOST huddle (owner ruling 2026-11-01 08:15; was ~/agent-storage/sprites/live/verify/huddle_test.py, which asserted
 nothing). Per species, 4 sessions, link fine, then LOST (VPN down off site and the API unreachable): the flock gathers
 at one huddle point outside the focused window. Bars, set from the spec's "gather together", not from a run: by 8 s
 every creature is within 120 px of the point and the mean distance is under half of what it was at 0.3 s.

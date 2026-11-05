@@ -419,7 +419,7 @@ class NetCollector(_Base):
         ssid = self.r["ssid"](os.path.join(ctx.home, "dev", ".lodestar", "companion", "ssid.json"), ctx.now)
         votes = []
         if ssid is not None:
-            votes.append(ssid.casefold() == self.r["probe_ssid"]().casefold())   # Lab's network reads "LabWiFi", the default says "OnSiteWifi"
+            votes.append(ssid.casefold() == self.r["probe_ssid"]().casefold())   # Lab's network reads "OnSiteWiFi", the default says "OnSiteWifi"
         storage = getattr(ctx, "storage", None)
         sufs = (self.r["work"](os.path.join(storage, WORK_FILE)) if storage else {}).get("dhcp_domains") or []
         if sufs:

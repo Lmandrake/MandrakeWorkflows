@@ -4,7 +4,7 @@ Owner, 2026-11-01 08:47: port the drawing from the WebKit canvas to native macOS
 core calm (passive, live feed), look unchanged. Evidence for why: docs/LIVE_MODE.md "One canvas": ~2 % is simulation, ~8 %
 is the bare cost of any painted frame in a full-screen transparent WKWebView, ~10 % is the canvas commands replayed in the
 WebKit GPU process. Baseline for this port, same day, live feed (1 session + 3 ghosts), passive ps over 60 s:
-**21.4, 21.4, 19.8 % (median 21.4 %)**, ~/ClaudeWork/sprites/live/native/cpu/passive.txt.
+**21.4, 21.4, 19.8 % (median 21.4 %)**, ~/agent-storage/sprites/live/native/cpu/passive.txt.
 
 ## Shape
 1. **The simulation stays in JS, unchanged.** stage.html's script, visitors_runtime.js, the five pieces and labels.js run in
@@ -64,9 +64,9 @@ stage.html stays only as the headless test harness and Settings previews (those 
   after the full port). Fail = stop and report before porting the rest.
 - **Parity:** a `--render-frames` mode renders fixed-seed frames (frozen clock, seeded Math.random, cold start,
   renderAt(t)) offscreen through the same Metal path; the reference is the per-layer (five iframe) tree rendered by
-  ~/ClaudeWork/sprites/live/onecanvas/tools/parity.py's scenes. Every species x calm/busy, plus the mixed scenes (needs,
+  ~/agent-storage/sprites/live/onecanvas/tools/parity.py's scenes. Every species x calm/busy, plus the mixed scenes (needs,
   strain, vpn_down, ghosts, unmanaged), t = 3 s and 9 s. Diff sheets and diff.json in
-  ~/ClaudeWork/sprites/live/verify/native/. The reference rasterizer (Skia) and Metal differ in antialiasing, so the bar is
+  ~/agent-storage/sprites/live/verify/native/. The reference rasterizer (Skia) and Metal differ in antialiasing, so the bar is
   the one-canvas bar: no frame with structure missing or added, >= 99 % of lit pixels within 8/255, and the mixed-species
   overlap frames must match the per-layer reference (not the one-canvas additive look).
 - Existing tests: move_test 25/25, vpn_truth (42-combination table), huddle_test, hover_follow_test, stage_test on
@@ -76,7 +76,7 @@ stage.html stays only as the headless test harness and Settings previews (those 
 
 ## Spike result (c5 fireflies, 2026-11-01 ~10:00)
 Passive, live feed (1 session + 3 ghosts, every project cast to c5 by a test cast), ps over 60 s, interleaved, load 4-7.5
-(~/ClaudeWork/sprites/live/native/cpu/ab_run2.txt):
+(~/agent-storage/sprites/live/native/cpu/ab_run2.txt):
 | build | runs | median |
 |---|---|---|
 | WebKit (one canvas) | 17.2, 19.0, 18.6 % | **18.6 %** |
@@ -90,4 +90,4 @@ Trap found: a JSContext in an app without the `com.apple.security.cs.allow-jit` 
 slower; first native run measured 19.9 %). app/macos/Sprites.entitlements; the Makefile signs with it.
 Look: the simulation is bit-identical under JSC (reported positions equal the Chromium reference to the last digit).
 Pixels vs the per-layer reference (t = 3 and 9 s, calm and busy): max 27-62/255, 2.2-3.5 % of lit pixels > 8/255
-(~/ClaudeWork/sprites/live/verify/native/cmp/sheet.png); the parity bar (>= 99 % within 8/255) is not met yet.
+(~/agent-storage/sprites/live/verify/native/cmp/sheet.png); the parity bar (>= 99 % within 8/255) is not met yet.

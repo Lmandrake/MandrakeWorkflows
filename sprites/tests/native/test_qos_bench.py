@@ -6,7 +6,7 @@ off it 0'. Runs under tools/gate.py; exit 0 = pass."""
 import re, subprocess, sys
 from pathlib import Path
 HERE = Path(__file__).resolve().parent
-GATE = Path.home() / "ClaudeWork/sprites/live/native/tools/gate.py"
+GATE = Path.home() / "agent-storage/sprites/live/native/tools/gate.py"
 exe = subprocess.check_output([str(HERE / "build.sh")], text=True).strip().splitlines()[-1]
 p = subprocess.run([sys.executable, str(GATE), exe, "--native-qos-bench", "1"], capture_output=True, text=True)
 lines = [l for l in p.stderr.splitlines() if "qos-bench" in l]

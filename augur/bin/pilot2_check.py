@@ -17,7 +17,7 @@ HOME = os.path.expanduser("~")
 
 
 def snapshot():
-    root = os.environ.get("AUGUR_HOME") or os.path.join(HOME, "ClaudeWork", "augur")
+    root = os.environ.get("AUGUR_HOME") or os.path.join(HOME, "agent-storage", "augur")
     with open(os.path.join(root, "live", "snapshot.json")) as fh:
         s = json.load(fh)
     if time.time() > s["valid_until"]:

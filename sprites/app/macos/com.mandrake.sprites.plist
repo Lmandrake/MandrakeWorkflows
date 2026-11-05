@@ -24,6 +24,6 @@
     <key>ProcessType</key>
     <string>Interactive</string>
     <key>StandardErrorPath</key>
-    <string>__HOME__/ClaudeWork/sprites/logs/sprites.err.log</string>
+    <string>__HOME__/agent-storage/sprites/logs/sprites.err.log</string>
 </dict>
 </plist>

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Three-signal link (was ~/ClaudeWork/sprites/live/verify/vpn_truth.py, which printed FAIL but exited 0). Owner,
+"""Three-signal link (was ~/agent-storage/sprites/live/verify/vpn_truth.py, which printed FAIL but exited 0). Owner,
 2026-11-01 ~08:15: VPN, on-site network and API, "interrelated and each informative". want() restates the table by hand:
   lost = API failing with error_kind network (whatever the VPN says)
   risk = VPN down and not on the on-site network (on_site false or unknown), API ok/absent/other failure

@@ -8,7 +8,7 @@
     <string>/usr/bin/nice</string>
     <string>-n</string>
     <string>10</string>
-    <string>__HOME__/ClaudeWork/python/py</string>
+    <string>__HOME__/agent-storage/python/py</string>
     <string>__REPO__/augur/bin/augurd.py</string>
   </array>
   <key>RunAtLoad</key><true/>

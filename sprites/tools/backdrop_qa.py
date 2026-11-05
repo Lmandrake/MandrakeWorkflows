@@ -31,7 +31,7 @@ def grab(pg, n, t, boost=False, nc=False):
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--w", type=int, default=1728); ap.add_argument("--h", type=int, default=1117)
     ap.add_argument("--t", type=float, default=0); ap.add_argument("--n", default=""); ap.add_argument("--frames", type=int, default=0)
-    ap.add_argument("--span", type=float, default=60); ap.add_argument("--out", default=str(Path.home() / "ClaudeWork/art/backgrounds/live"))
+    ap.add_argument("--span", type=float, default=60); ap.add_argument("--out", default=str(Path.home() / "agent-storage/art/backgrounds/live"))
     a = ap.parse_args(); out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
     cat = json.loads((ROOT / "catalog.json").read_text())["backdrops"]
     ns = [int(x) for x in a.n.split(",") if x] or [b["n"] for b in cat]

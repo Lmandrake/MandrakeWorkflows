@@ -12,9 +12,9 @@ import json, subprocess, sys, tempfile
 from pathlib import Path
 from PIL import Image
 HERE = Path(__file__).resolve().parent
-GATE = Path.home() / "ClaudeWork/sprites/live/native/tools/gate.py"
+GATE = Path.home() / "agent-storage/sprites/live/native/tools/gate.py"
 exe = subprocess.check_output([str(HERE / "build.sh")], text=True).strip().splitlines()[-1]
-out = Path(tempfile.mkdtemp(prefix="labelquad_", dir=Path.home() / "ClaudeWork/sprites/scratch"))
+out = Path(tempfile.mkdtemp(prefix="labelquad_", dir=Path.home() / "agent-storage/sprites/scratch"))
 BASE = "x.fillStyle = 'rgba(0,0,255,1)'; x.fillRect(0, 0, 100, 40);"
 LAB = ("x.__beginLabel(); x.fillStyle = 'rgba(255,0,0,1)'; x.fillRect(10, 10, 20, 10); x.globalAlpha = 0.5; x.fillRect(50, 10, 20, 10);"
        "x.globalAlpha = 1; x.fillStyle = '#fff'; x.font = '20px Helvetica'; x.fillText('H', 120, 30); x.__endLabel();")

@@ -6,11 +6,11 @@ command that settles it.
 
 ## What runs
 
-- LaunchAgent `com.mandrake.augur`: `/usr/bin/nice -n 10 ~/ClaudeWork/python/py
+- LaunchAgent `com.mandrake.augur`: `/usr/bin/nice -n 10 ~/agent-storage/python/py
   ~/dev/MandrakeWorkflows/augur/bin/augurd.py`, `ProcessType Standard`, `LowPriorityIO`, bare
-  `PATH`, `AUGUR_HOME=~/ClaudeWork/augur`. Installed with `augur/bin/install.sh` (`--remove`
+  `PATH`, `AUGUR_HOME=~/agent-storage/augur`. Installed with `augur/bin/install.sh` (`--remove`
   undoes it). Logs are `~/Library/Logs/augur.err` and `~/Library/Logs/augur.log`.
-- It writes `~/ClaudeWork/augur/live/snapshot.json` (0644) every 2 s, atomically. It also writes
+- It writes `~/agent-storage/augur/live/snapshot.json` (0644) every 2 s, atomically. It also writes
   `samples/snap-<date>.jsonl` (one snapshot a minute), `audit.jsonl` (0600, the falsifier
   counters) and `cost.jsonl` (10 min and 1 h lines).
 - Collectors:
@@ -38,9 +38,9 @@ command that settles it.
 | Falsifier: tasks heuristic vs hand count of 10 moments | <= 1 in 3 off by more than 1 | needs the owner's hand count | pending (owner) |
 
 Raw files:
-- `~/ClaudeWork/augur/pair-hostrec-2.jsonl`
-- `~/ClaudeWork/augur/scratch/groundtruth/` (`results_run2.json`, `gt.py`)
-- `~/ClaudeWork/augur/scratch/net_truth.py`
+- `~/agent-storage/augur/pair-hostrec-2.jsonl`
+- `~/agent-storage/augur/scratch/groundtruth/` (`results_run2.json`, `gt.py`)
+- `~/agent-storage/augur/scratch/net_truth.py`
 
 ### After review R1 (2026-11-01): ground truth re-run pending, load-test gate
 
@@ -75,7 +75,7 @@ up. The 1-min load average was 32 to 42 from other work, against 23 to 36 in the
 - procs exact: 23/26 (88 %) against the 90 % bar, off by one in the other 3. Marginal.
 - memory: mean difference -0.0001 GB, maximum 0.0011 GB. Pass.
 Nested and orphaned attribution is not exercised by this busy loop; the synthetic tests cover it
-(`augur/tests/test_session_attribution.py`, 24 pass). Raw: `~/ClaudeWork/augur/scratch/groundtruth/results_run3.json`.
+(`augur/tests/test_session_attribution.py`, 24 pass). Raw: `~/agent-storage/augur/scratch/groundtruth/results_run3.json`.
 
 The 24 h job (`check24h`) runs only `validate`, `cost` and `nettop`. These read files and add no
 load, so the gate does not apply to it.
@@ -191,7 +191,7 @@ DESIGN asks for 24 h at rest and 24 h at work. The at-work day is the cost falsi
 
 **These run by themselves.** The LaunchAgent `com.mandrake.augur.check24h` (installed with
 `AUGUR_LABEL=com.mandrake.augur.check24h augur/bin/install.sh`) runs `augur/bin/scheduled_check.sh 24`
-every day at 00:15. Each run writes `~/ClaudeWork/augur/checks/pilot1-<stamp>.txt` and appends one
+every day at 00:15. Each run writes `~/agent-storage/augur/checks/pilot1-<stamp>.txt` and appends one
 line to `checks/index.jsonl` (verdict pass, fail or pending). The first full 24 h window closes at
 00:15 on 2026-11-02. Once a run reads pass or fail, it writes `checks/pilot1-24h.done` and later runs
 do nothing; a pending run leaves it armed. Remove it with

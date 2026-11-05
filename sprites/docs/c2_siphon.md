@@ -2,7 +2,7 @@
 
 Piece: `pieces/c2_siphon.html`. Serves brief c (timeline c3, the strain-only catch trial), brief e (e1),
 and the idle-drift-speed pole pair on p1 (drift 0.5 vs 1.8). Taste reference (taste only):
-`~/ClaudeWork/sprites/renders/c2_jelly.png`, `s2_states.png`.
+`~/agent-storage/sprites/renders/c2_jelly.png`, `s2_states.png`.
 
 ## Intent records (visual-intent)
 Brief c:
@@ -105,7 +105,7 @@ lobes, cauliflower oral cluster). Structure only: bell AREA stays memory, pulse 
 stays processes; no variant spins or resizes. Deterministic from iv (precomputed geometry, no V.rand).
 Gallery layout (non-1280x800 stages): creature scale follows stage height and session count, homes on a
 centred grid in the free region, bounds computed from each variant's own extent. The 1280x800 trial path is
-unchanged (`LEGACY`). Checks: `~/ClaudeWork/sprites/gallery/check/c2_siphon/`.
+unchanged (`LEGACY`). Checks: `~/agent-storage/sprites/gallery/check/c2_siphon/`.
 
 ## Round 2 (owner gallery feedback, GRAMMAR_V2)
 - **Sky, not sea:** jellies became hovering light-craft. Swim thrust cut to a gentle hover bob, tentacles straighter (beam-like) inside a faint tractor-beam cone, a blinking beacon at every tentacle tip (still one per background task, countable), and running hull lights chasing round the rim.

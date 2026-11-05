@@ -30,7 +30,7 @@ if [ -z "${AUGUR_HOME:-}" ]; then
   [ -n "$ROOT" ] || { echo "refused: agent_storage.py printed nothing" >&2; exit 2; }
   AUGUR_HOME="$ROOT/augur"
 fi
-PY="$HOME/ClaudeWork/python/py"
+PY="$HOME/agent-storage/python/py"
 [ -x "$PY" ] || { echo "refused: $PY is not executable" >&2; exit 2; }
 esc() { printf '%s' "$1" | sed -e 's/[\\&|]/\\&/g'; }
 sed -e "s|__HOME__|$(esc "$HOME")|g" -e "s|__REPO__|$(esc "$REPO")|g" -e "s|__AUGUR_HOME__|$(esc "$AUGUR_HOME")|g" "$SRC" > "$OUT"

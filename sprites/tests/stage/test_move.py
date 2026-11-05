@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Movement and terrain (owner rulings 2026-11-01; was ~/ClaudeWork/sprites/live/verify/move_test.py, which printed FAIL
+"""Movement and terrain (owner rulings 2026-11-01; was ~/agent-storage/sprites/live/verify/move_test.py, which printed FAIL
 but exited 0). Per species, one session: (a) a focused window dropped over it -> it ends outside, visible; (b) a focus
 splitting the screen -> it never crosses to the other side; (c) a focus leaving a 80 px sliver -> hidden or not
 squeezed into it; (d) no jitter; (e) it prefers bare desktop to a non-focused window. One headless Chromium.

@@ -8,9 +8,9 @@ import json, os, subprocess, sys, tempfile
 from pathlib import Path
 from PIL import Image
 HERE = Path(__file__).resolve().parent
-GATE = Path.home() / "ClaudeWork/sprites/live/native/tools/gate.py"
+GATE = Path.home() / "agent-storage/sprites/live/native/tools/gate.py"
 exe = subprocess.check_output([str(HERE / "build.sh")], text=True).strip().splitlines()[-1]
-out = Path(tempfile.mkdtemp(prefix="gradtest_", dir=Path.home() / "ClaudeWork/sprites/scratch" if (Path.home() / "ClaudeWork/sprites/scratch").is_dir() else None))
+out = Path(tempfile.mkdtemp(prefix="gradtest_", dir=Path.home() / "agent-storage/sprites/scratch" if (Path.home() / "agent-storage/sprites/scratch").is_dir() else None))
 # 200 CSS px wide at dpr 1; the radial centred at x=0, r=200; the linear from x=0 to x=200. Pixel 100's centre is t=0.5025.
 R, L = "const g = x.createRadialGradient(0, 0, 0, 0, 0, 200);", "const g = x.createLinearGradient(0, 0, 200, 0);"
 S2 = " g.addColorStop(0, 'rgba(0,0,255,1)'); g.addColorStop(1, 'rgba(255,0,0,0)');"

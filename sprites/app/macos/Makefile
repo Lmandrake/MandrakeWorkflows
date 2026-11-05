@@ -13,7 +13,7 @@ AGENT   := $(HOME)/Library/LaunchAgents/com.mandrake.sprites.plist
 # switches. `make signing-identity` makes it once, in its own keychain under the agent storage root (not the login
 # keychain); without it the build falls back to ad hoc and says so.
 SIGN_NAME     ?= Sprites Local Signing
-SIGN_KEYCHAIN ?= $(HOME)/ClaudeWork/sprites/signing/sprites-signing.keychain-db
+SIGN_KEYCHAIN ?= $(HOME)/agent-storage/sprites/signing/sprites-signing.keychain-db
 SIGN_PASS     ?= sprites-local-signing
 # codesign finds an identity only in the user keychain search list: the keychain is added for the one call, then the
 # list is put back as it was. sign_app DIR: the identity's SHA-1 if made, else ad hoc ("-").
@@ -68,7 +68,7 @@ signing-identity:
 	rm -rf $$t; echo "made $(SIGN_NAME) in $(SIGN_KEYCHAIN)"
 
 install-agent: install
-	@mkdir -p $(HOME)/Library/LaunchAgents $(HOME)/ClaudeWork/sprites/logs
+	@mkdir -p $(HOME)/Library/LaunchAgents $(HOME)/agent-storage/sprites/logs
 	sed "s#__HOME__#$(HOME)#g" com.mandrake.sprites.plist > $(AGENT)
 	plutil -lint $(AGENT)
 	-launchctl bootout gui/$$(id -u) $(AGENT) 2>/dev/null
