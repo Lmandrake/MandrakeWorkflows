@@ -8,6 +8,7 @@
 <script>window.VISITORS_SHARED = true;</script>
 <script src="../prototype/timelines.js"></script>
 <script src="../prototype/scenarios.js"></script>
+<script src="../prototype/size_norm.js"></script>
 <script src="../prototype/visitors_runtime.js"></script>
 <!-- 🔴 A glyph species' piece file is ONE line (SpritesSigilsEngine or SpritesVectorEngine (V, table)), and the stage runs only that
      line: loadSrc() keeps a piece's LAST inline script and ignores its src-tags entirely. So the shared
@@ -333,7 +334,7 @@
     const x = new XMLHttpRequest(); x.open("GET", PROTO + concept + ".html");
     x.onload = () => { const m = [...x.responseText.matchAll(/<script>([\s\S]*?)<\/script>/g)]; SRC[concept] = m.length ? m[m.length - 1][1] : ""; cb(SRC[concept]); };
     x.onerror = () => window.__errors.push("cannot load " + concept); x.send(); }
-  function params(concept) { return new URLSearchParams({ live: 1, w: W, h: H, top: TOP(), bot: BOT(), dpr: DPR, size: scale, hover: 0,
+  function params(concept) { return new URLSearchParams({ live: 1, species: concept, w: W, h: H, top: TOP(), bot: BOT(), dpr: DPR, size: scale, hover: 0,
     seed: hashStr(concept) % 100000 }); }
   let gen = 0;
   function ensureLayer(concept) { let L = layers[concept]; if (L) { L.dropAt = 0; return L; }

@@ -11,6 +11,7 @@
 ]</script>
 <script src="timelines.js"></script>
 <script src="scenarios.js"></script>
+<script src="size_norm.js"></script>
 <script src="visitors_runtime.js"></script>
 <script>
 V.piece((function () {
@@ -38,8 +39,9 @@ V.piece((function () {
   const J_RING = JT.rings > 0 ? JT.rings : 1, J_DOTS = JT.dots > 0 ? JT.dots : 1, J_BEADS = JT.beads > 0 ? JT.beads : 1;
   const J_SIZE = JT.size > 0 ? JT.size : 1, J_GLOW = JT.glow >= 0 ? JT.glow : 1, J_HALO = JT.halo >= 0 ? JT.halo : 1;
   const J_PGLOW = JT.pulseGlow > 0 ? JT.pulseGlow : 0, J_PGLOWR = JT.pulseGlowR > 0 ? JT.pulseGlowR : 2.5;
-  // sizeParity: whole-craft size multiplier (bell radius, tentacles, dot sizes) chosen 2026-11-07 so the jellyfish bbox AREA matches Choir at equal memory (Jellyfish A); 1 = old size, tune here.
-  const sizeParity = 0.53, lowMemBoost = (m) => 1 + 0.075 * clamp((0.8 - m) / 0.4, 0, 1), PSZ = () => P.size * sizeParity;
+  // sizeParity (0.53, 2026-11-07, bbox-area parity with Choir) is RETIRED: drawn size is now equalised for every species
+  // and context by one table (prototype/size_norm.js, measured by tools/size_calibrate.py). Kept at 1 as a seam only.
+  const sizeParity = 1, lowMemBoost = (m) => 1 + 0.075 * clamp((0.8 - m) / 0.4, 0, 1), PSZ = () => P.size * sizeParity;
   const FIT = new URLSearchParams(location.search).get("fit") === "1";
   function scales() {
     NS = V.sessions.length;
@@ -525,6 +527,7 @@ V.piece((function () {
     }
 
     for (const j of J) {
+      V.report(j.id, j.x, j.y, j.r * 1.2);   // before creature(): its size-normalisation zoom is centred on this report
       V.creature(j.id, () => {   // live: arrival/departure/ghost alpha multiplies everything drawn for this craft
       const h = j.hue, B = (0.5 + 0.5 * j.bright) * (1 - 0.3 * vpn) * (1 + 0.5 * bloom);
       const sat = 88 * satK, warm = 0.25 * A + 0.25 * heat;

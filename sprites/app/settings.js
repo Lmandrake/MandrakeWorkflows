@@ -57,8 +57,10 @@
   function hexHue(h) { const r = parseInt(h.slice(1, 3), 16) / 255, g = parseInt(h.slice(3, 5), 16) / 255, b = parseInt(h.slice(5, 7), 16) / 255;
     const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn; if (!d) return 0;
     const x = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return Math.round((x * 60 + 360) % 360); }
-  const url = (c, iv, hue, [w, h], live) => `${PROTO}${c}.html?tl=g_cast&w=${w}&h=${h}&chrome=0&bg=0&dim=0&hover=0` +
-    `&hue=${hue}&iv=${iv}` + (h < STAGE.hero[1] ? "&fit=1" : "") + (live ? "&autostart=1&loop=1" : "&autostart=0");   // fit: tiles size the craft to the cell
+  // norm: which column of prototype/size_norm.js sizes the creature (tools/size_calibrate.py measures each context)
+  const NORM = { hero: "hero", species: "tile", variant: "form" };
+  const url = (c, iv, hue, [w, h], live, size) => `${PROTO}${c}.html?tl=g_cast&w=${w}&h=${h}&chrome=0&bg=0&dim=0&hover=0` +
+    `&hue=${hue}&iv=${iv}` + "&fit=1&norm=" + NORM[size] + (live ? "&autostart=1&loop=1" : "&autostart=0");   // fit: hero and tiles size the craft to the cell
 
   const SP = window.SpritesProjects;
   // centry: the cast entry of a row (by key; an entry saved before #2 under the alias or registry Name still counts)
@@ -86,7 +88,7 @@
         x.fillStyle = "#000"; x.fillRect(0, 0, out.width, out.height); cs.forEach(cv => x.drawImage(cv, 0, 0));
         step(out); }
       catch (e) { canStill = false; step(null); } };
-    loader.src = url(j.c, j.iv, j.hue, st, false); }
+    loader.src = url(j.c, j.iv, j.hue, st, false, j.size); }
   const nameOf = (c, iv) => (names[c] || NAMES[c])[iv] || ("Form " + (iv + 1));
   function onNames(c) { if (cur().concept === c) { paintVariantLabels(); paintInfo(); } paintList(); }
 
@@ -101,7 +103,7 @@
     t._args = [c, iv, hue, size]; }
   function live(t, on) { if (!t._args) return;
     if (on && !t._live) { const f = el("iframe", "loading"); f.tabIndex = -1; f.onload = () => f.classList.remove("loading");
-      f.src = url(t._args[0], t._args[1], t._args[2], STAGE[t._args[3]], true); t.appendChild(f); t._live = f;
+      f.src = url(t._args[0], t._args[1], t._args[2], STAGE[t._args[3]], true, t._args[3]); t.appendChild(f); t._live = f;
       if (t._still) setTimeout(() => { if (t._live === f && t._still) t._still.style.opacity = "0"; }, 350); }
     else if (!on && t._live) { t._live.src = "about:blank"; t._live.remove(); t._live = null; if (t._still) t._still.style.opacity = "1"; } }
 
@@ -112,7 +114,7 @@
     if (document.hidden) { old.forEach(o => o.remove()); return; }
     const f = el("iframe", "loading"); f.tabIndex = -1; f.title = "preview";
     f.onload = () => { f.classList.remove("loading"); setTimeout(() => old.forEach(o => { o.src = "about:blank"; o.remove(); }), 650); };
-    f.src = url(c.concept, c.iv, hue, STAGE.hero, true); slot.appendChild(f); }
+    f.src = url(c.concept, c.iv, hue, STAGE.hero, true, "hero"); slot.appendChild(f); }
   document.addEventListener("visibilitychange", () => { if (document.hidden) { $("heroSlot").innerHTML = "";
       document.querySelectorAll(".tile").forEach(t => live(t, false)); } else paintHero(true); });
 

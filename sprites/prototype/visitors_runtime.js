@@ -44,6 +44,17 @@ function createRuntime(q, env) {
   // 100% = half of it, 50% = a quarter.
   const LIVE_BASE = 0.5;
   if (q.get("live") === "1") P.size *= LIVE_BASE;
+  // Size normalisation (owner, 2026-11-07: "for the same memory configuration the stdev of the distribution of pixel
+  // distance from its center is roughly equal"). ONE zoom per creature, k = SPRITES_SIZE_NORM[context][species][iv]
+  // (prototype/size_norm.js, generated and measured by tools/size_calibrate.py), applied about the creature's reported
+  // centre in creature() below, to its reported radius (hits, hover, labels, satellites) and to the radius the runtime's
+  // nav/steer keep clear. k never depends on the data, so memory -> area holds within a species exactly as each piece
+  // draws it. Context: live=1 -> "live"; Settings passes norm=hero|tile|form; anything else (gallery, trials) -> none.
+  const NORM_CTX = q.get("norm") || (LIVE ? "live" : "");
+  const SPECIES_ID = q.get("species") || (((typeof location !== "undefined" && location.pathname) || "").match(/(c\d+_\w+)\.html$/) || [])[1] || "";
+  const NORM_ROW = (NORM_CTX && window.SPRITES_SIZE_NORM && window.SPRITES_SIZE_NORM[NORM_CTX] && window.SPRITES_SIZE_NORM[NORM_CTX][SPECIES_ID]) || null;
+  const sizeK = id => { if (!NORM_ROW) return 1; const s = V.sessions.find(x => x.id === id); const iv = s ? ((Math.round(s.iv || 0) % 8) + 8) % 8 : 0;
+    const k = NORM_ROW[iv]; return k > 0 ? k : 1; };
   const brief = q.get("brief") || "a", variant = q.get("variant") || "1";
   const ALL = Object.assign({}, window.VISITORS_TIMELINES || {}, window.VISITORS_SCENARIOS || {});
   const TL = LIVE ? { id: "live", seed: num("seed", 20261031), duration: Infinity, sessions: [], keys: [] }
@@ -129,7 +140,13 @@ function createRuntime(q, env) {
   function creature(id, fn) { const m = LIVE ? alphaOf(id) : 1, s = V.sessions.find(x => x.id === id);
     V.cur = s || null; if (m <= 0.004) { V.cur = null; return; }
     const pm = AS.mul, o = pull[id]; AS.mul = m; ctx.globalAlpha = AS.raw; if (o) ctx.translate(o[0], o[1]);
-    try { fn(); } finally { if (o) ctx.translate(-o[0], -o[1]); AS.mul = pm; ctx.globalAlpha = AS.raw; V.cur = null; } }
+    // size normalisation: zoom by k about the creature's own centre (its last report, before any hover pull)
+    const k = sizeK(id), rc = k !== 1 ? reports[id] : null;
+    if (rc) { ctx.translate(rc.bx, rc.by); ctx.scale(k, k); ctx.translate(-rc.bx, -rc.by); }
+    try { fn(); } finally { if (rc) { ctx.translate(rc.bx, rc.by); ctx.scale(1 / k, 1 / k); ctx.translate(-rc.bx, -rc.by); }
+      if (o) ctx.translate(-o[0], -o[1]); AS.mul = pm; ctx.globalAlpha = AS.raw; V.cur = null; } }
+  // a piece's own point for creature id (running lights, hover motes), moved as creature() zooms it
+  const zoomPt = (id, p) => { const k = sizeK(id), r = reports[id]; return k === 1 || !r ? p : [r.bx + (p[0] - r.bx) * k, r.by + (p[1] - r.by) * k]; };
   function fit() { if (SHARED) return; const s = Math.min(innerWidth / W, innerHeight / H);
     stage.style.transform = `translate(${(innerWidth - W * s) / 2}px,${(innerHeight - H * s) / 2}px) scale(${s})`; }
   if (!SHARED) { addEventListener("resize", fit); fit(); }
@@ -192,10 +209,11 @@ function createRuntime(q, env) {
     sessions: TL.sessions, t: 0, frame: 0, LIVE,
     huddlePt: null,                       // live: ONE shared VPN-huddle point for every species (stage picks open space)
     on: k => on(k),                       // behaviour switch (live: Settings; default ON; gallery: always on)
-    alpha: id => alphaOf(id), lightCount: d => lightCount(d), nav: (id, x, y, tx, ty, r) => nav(id, x, y, tx, ty, r || 30), navNeed: (id, x, y, tx, ty, r) => navNeed(id, x, y, tx, ty, r || 30), creature: (id, fn) => creature(id, fn), cur: null,
+    alpha: id => alphaOf(id), lightCount: d => lightCount(d), nav: (id, x, y, tx, ty, r) => nav(id, x, y, tx, ty, (r || 30) * sizeK(id)), navNeed: (id, x, y, tx, ty, r) => navNeed(id, x, y, tx, ty, (r || 30) * sizeK(id)), creature: (id, fn) => creature(id, fn), cur: null,
+    sizeK: id => sizeK(id),               // the size-normalisation zoom of creature id (1 when no table/context applies)
     isWhite: id => { const s = V.sessions.find(x => x.id === id); return !!(s && s.white); },
     isGhost: id => { const s = V.sessions.find(x => x.id === id); return !!(s && s.ghost); },             // arrival/departure/ghost opacity for a creature, multiply into its draw
-    steer: (id, tx, ty, r) => steer(id, tx, ty, r || 30),   // live: blend the behaviour targets into a home target
+    steer: (id, tx, ty, r) => steer(id, tx, ty, (r || 30) * sizeK(id)),   // live: blend the behaviour targets into a home target
     // the reconnect bloom fires on LOST -> OK only (SHIP_PLAN; R1 #7): a lost -> at risk or lost -> none edge also turns
     // vpn "down" to "up" but is no reconnect. No link field (gallery timelines) = the old vpn edge alone.
     reconnected: net => !net || net.link == null || net.link === "ok",
@@ -203,7 +221,7 @@ function createRuntime(q, env) {
     // Constellation labels: a piece may hand over up to ~40 screen points it draws for a creature (V.motes(id, pts));
     // kept only for the hovered one, shifted by its hover pull
     motes(id, pts) { if (id !== hoverId || !Array.isArray(pts)) return; motePts[id] = pts.slice(0, 40); },
-    report(id, x, y, r) { const o = pull[id]; reports[id] = o ? { x: x + o[0], y: y + o[1], r, bx: x, by: y } : { x, y, r, bx: x, by: y }; },  // once per frame per session
+    report(id, x, y, r) { const o = pull[id]; r *= sizeK(id); reports[id] = o ? { x: x + o[0], y: y + o[1], r, bx: x, by: y } : { x, y, r, bx: x, by: y }; },  // once per frame per session
     piece(def) { V._def = def; boot(); },
     _alpha: AS,                           // shared mode: this instance's globalAlpha state (the stage sets ctx.__aS to it)
   };
@@ -546,7 +564,7 @@ function createRuntime(q, env) {
   function drawAllLights() { for (const s of V.sessions) { const d = S.s[s.id], n = lightCount(d), r = reports[s.id]; if (!n || !r || s.white) continue;
       const a = alphaOf(s.id) * (s.ghost ? 2.6 : 1);   // a ghost is faint but its lights are lit
       const spots = V._def.lightSpots ? V._def.lightSpots(V, s.id, n) : null, sz = Math.max(1.0, 1.3 * Math.sqrt(P.size));   // pip core (r = 0.9 sz) >= 1.8 px across
-      if (spots) { const o = pull[s.id] || [0, 0]; spots.forEach((p, i) => drawLight(ctx, p[0] + o[0], p[1] + o[1], sz, i, d, a)); continue; }
+      if (spots) { const o = pull[s.id] || [0, 0]; spots.forEach((p0, i) => { const p = zoomPt(s.id, p0); drawLight(ctx, p[0] + o[0], p[1] + o[1], sz, i, d, a); }); continue; }
       const gap = Math.max(4, 6 * Math.sqrt(P.size)), w = (n - 1) * gap, y = r.y + r.r * 0.92 + 6;
       for (let i = 0; i < n; i++) drawLight(ctx, r.x - w / 2 + i * gap, y, sz, i, d, a); } }
 
@@ -760,7 +778,7 @@ function createRuntime(q, env) {
   // the piece's own points: V.motes() if it reported any, else its running-light spots (its rim/body points), else none
   function hoverMotes(id) { let pts = motePts[id];
     if (!pts && V._def.lightSpots) { try { pts = V._def.lightSpots(V, id, 32); } catch (e) { pts = null; } }
-    if (!Array.isArray(pts) || !pts.length) return undefined; const o = pull[id] || [0, 0]; return pts.map(p => [p[0] + o[0], p[1] + o[1]]); }
+    if (!Array.isArray(pts) || !pts.length) return undefined; const o = pull[id] || [0, 0]; return pts.map(p0 => { const p = zoomPt(id, p0); return [p[0] + o[0], p[1] + o[1]]; }); }
   V._frame = (now, noDraw) => { skipDraw = !!noDraw; try { loop(now); } finally { skipDraw = false; } }; V._onLive = onLive; V._anyVisible = anyVisible; V._isPaused = () => paused;
   return V;
 }

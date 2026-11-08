@@ -88,6 +88,10 @@ def scenarios():
     add("g_cast", "Cast preview: one session, gently working (hue and variant set by URL)", 12, sess(1),
         [key(0, one(cpu=0.3, mem=0.8, procs=3, state="working")), key(6, one(cpu=1.2, mem=0.8, procs=4, state="working")),
          key(12, one(cpu=0.3, mem=0.8, procs=3, state="working"))], [])
+    # size calibration (tools/size_calibrate.py): one session, steady, 0.8 GB, no background tasks, no network beads
+    add("g_calib", "Size calibration: one session, steady working, 0.8 GB, procs 0, no network", 12, sess(1),
+        [key(0, one(cpu=0.3, mem=0.8, procs=0, state="working", rx=0, tx=0), mbps=0),
+         key(12, one(cpu=0.3, mem=0.8, procs=0, state="working", rx=0, tx=0), mbps=0)], [])
     return out
 
 
