@@ -72,7 +72,7 @@ def json_block(html: str, tag_id: str):
     return None, f'no <script id="{tag_id}" type="application/json"> block'
 
 
-def check(path: str, decisions_path: str | None) -> list[tuple[str, str, str]]:
+def check(path: str, decisions_path: str | None, kind: str = "rows") -> list[tuple[str, str, str]]:
     """Returns [(severity, label, detail)]."""
     out: list[tuple[str, str, str]] = []
 
@@ -146,21 +146,23 @@ def check(path: str, decisions_path: str | None) -> list[tuple[str, str, str]]:
             "the decisions file and use showOpenFilePicker (or the sidecar) instead")
 
     # ── 3. the group label follows, and does not sit on top of a one-row group ────────
-    sticky = re.search(r"\.gh\s*\{[^}]*position\s*:\s*sticky", html) is not None
-    add(FAIL if not sticky else OK, "group labels are sticky",
-        "" if sticky else '"I really like when the different blocks have a persistent name '
-                          'that follows along with you while you scroll"')
-    nostick = "nostick" in html
-    add(FAIL if not nostick else OK, "short groups are de-stuck",
-        "" if nostick else "a sticky label covers the only row in a group of one — "
-                           "unreadable and unclickable")
-    measured = re.search(r"offsetHeight[^\n]*\n?[^\n]*\.top|\.top\s*=\s*h\s*\+", html) is not None
-    add(FAIL if not measured else OK, "sticky offset comes from the MEASURED header height",
-        "" if measured else "a hardcoded top leaves labels floating or buried once the "
-                            "brief folds and the header changes height")
-    remeasure = html.count("measure()") >= 3
-    add(WARN if not remeasure else OK, "measure() is re-run after render and on resize",
-        "" if remeasure else "new group nodes have no top until you measure again")
+    # A trial/comprehension sheet (--kind trial) has no rows and so no groups.
+    if kind != "trial":
+        sticky = re.search(r"\.gh\s*\{[^}]*position\s*:\s*sticky", html) is not None
+        add(FAIL if not sticky else OK, "group labels are sticky",
+            "" if sticky else '"I really like when the different blocks have a persistent name '
+                              'that follows along with you while you scroll"')
+        nostick = "nostick" in html
+        add(FAIL if not nostick else OK, "short groups are de-stuck",
+            "" if nostick else "a sticky label covers the only row in a group of one — "
+                               "unreadable and unclickable")
+        measured = re.search(r"offsetHeight[^\n]*\n?[^\n]*\.top|\.top\s*=\s*h\s*\+", html) is not None
+        add(FAIL if not measured else OK, "sticky offset comes from the MEASURED header height",
+            "" if measured else "a hardcoded top leaves labels floating or buried once the "
+                                "brief folds and the header changes height")
+        remeasure = html.count("measure()") >= 3
+        add(WARN if not remeasure else OK, "measure() is re-run after render and on resize",
+            "" if remeasure else "new group nodes have no top until you measure again")
 
     # ── 4. storage keys are namespaced (the shared file:// origin) ────────────────────
     # Look at the whole first ARGUMENT, not just a quoted literal: a backtick template
@@ -183,6 +185,12 @@ def check(path: str, decisions_path: str | None) -> list[tuple[str, str, str]]:
     add(FAIL if tree.remote_srcs else OK, "no CDN or remote assets",
         f"remote: {tree.remote_srcs[:3]}" if tree.remote_srcs else
         "these are opened from disk, often offline")
+
+    # A non-row sheet (live trial, comprehension check) has no ITEMS/CONFIG by design: the
+    # row, decisions-file, posture and option checks cannot apply. Fold, copy, save-banner,
+    # storage-namespace and no-CDN checks above still bind.
+    if kind == "trial":
+        return out
 
     # ── 6. the data ──────────────────────────────────────────────────────────────────
     cfg, err = json_block(html, "CONFIG")
@@ -339,6 +347,35 @@ def check(path: str, decisions_path: str | None) -> list[tuple[str, str, str]]:
         "" if any(o.get("counts") for o in opts) else
         'set "counts":"in"/"out" so the page can show a live kept/stripped counter')
 
+    # ── viewport fit: the page must fit a 1440x900 window (SHEET_FIX_VIEWPORT_OVERFLOW) ──
+    # The Visitors blind sheet passed every static check yet was wider than the owner's
+    # screen, with the questions off to the right. Only a real render can see that.
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as pw:
+            br = pw.chromium.launch()
+            try:
+                pg = br.new_page(viewport={"width": 1440, "height": 900})
+                pg.goto("file://" + os.path.abspath(path))
+                pg.wait_for_timeout(300)
+                m = pg.evaluate("""() => {
+                    const rows = [...document.querySelectorAll('.row')];
+                    const off = rows.filter(r => { const b = r.getBoundingClientRect();
+                        return b.width > 0 && (b.right > innerWidth + 1 || b.left < -1); }).length;
+                    return {sw: document.documentElement.scrollWidth, iw: innerWidth,
+                            rows: rows.length, off};
+                }""")
+            finally:
+                br.close()
+        bad = m["sw"] > m["iw"] + 1 or m["off"] > 0
+        add(FAIL if bad else OK, "the sheet fits a 1440x900 window",
+            f"scrollWidth {m['sw']} vs {m['iw']}, {m['off']}/{m['rows']} rows extend past the right edge"
+            if bad else "")
+    except ImportError:
+        add(WARN, "viewport fit NOT checked", "playwright is not installed")
+    except Exception as exc:                                  # noqa: BLE001
+        add(WARN, "viewport fit NOT checked", str(exc)[:120])
+
     # ── 8. cross-check the decisions file, if given ──────────────────────────────────
     if decisions_path:
         try:
@@ -386,6 +423,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Verify a generated review sheet is usable.")
     ap.add_argument("sheet")
     ap.add_argument("--decisions", help="cross-check the pre-fill file too")
+    ap.add_argument("--kind", choices=("rows", "trial"), default="rows",
+                    help="trial = live-trial/comprehension sheet with no ITEMS/CONFIG: skip row checks")
     ap.add_argument("--quiet", action="store_true", help="only print WARN and FAIL")
     args = ap.parse_args()
 
@@ -394,7 +433,7 @@ def main() -> int:
         return 2
 
     try:
-        results = check(args.sheet, args.decisions)
+        results = check(args.sheet, args.decisions, args.kind)
     except OSError as exc:
         print(f"cannot read: {exc}", file=sys.stderr)
         return 2

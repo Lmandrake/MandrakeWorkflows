@@ -33,7 +33,19 @@ enum Paths {
     /// $SPRITES_CAST (tests: a cast that leaves the owner's untouched), else the saved cast.
     static let cast: String = { let v = ProcessInfo.processInfo.environment["SPRITES_CAST"] ?? ""; return v.isEmpty ? home + "/agent-storage/sprites/config/cast.json" : v }()
     static let behaviors = home + "/agent-storage/sprites/config/behaviors.json"
-    static let launches = home + "/.config/waypoint/launches.md"
+    /// Waypoint's tables: $WAYPOINT_DATA if set (as the waypoint CLI reads it), else ~/.config/waypoint.
+    static var launches: String { waypointData + "/launches.md" }
+    static var waypoints: String { waypointData + "/waypoints.md" }
+    /// The waypoint CLI beside its data (`waypoint install` symlinks it there), else the checkout's.
+    static var waypointCLI: [String] { [waypointData + "/waypoint", home + "/dev/MandrakeWorkflows/tools/waypoint/waypoint"] }
+    /// Per-project colour and focus WITHOUT Waypoint (owner, 2026-11-05). Beside cast.json and
+    /// behaviors.json, the app's other preferences — not a third location. With Waypoint these two
+    /// settings live in launches.md instead and this file is never written.
+    /// $SPRITES_PROJECTS overrides it, as $SPRITES_CAST does for the cast (tests).
+    static let projects: String = { let v = ProcessInfo.processInfo.environment["SPRITES_PROJECTS"] ?? ""
+        return v.isEmpty ? home + "/agent-storage/sprites/config/projects.json" : v }()
+    static var waypointData: String { ProcessInfo.processInfo.environment["WAYPOINT_DATA"].flatMap { $0.isEmpty ? nil : $0 }
+        ?? (home + "/.config/waypoint") }
 }
 
 func fail(_ msg: String) -> Never {
@@ -42,8 +54,15 @@ func fail(_ msg: String) -> Never {
 }
 
 func log(_ msg: String) {
-    FileHandle.standardError.write("sprites: \(msg)\n".data(using: .utf8)!)
+    let t = debugClicks ? String(format: "[%.3f] ", CFAbsoluteTimeGetCurrent()) : ""
+    FileHandle.standardError.write("sprites: \(t)\(msg)\n".data(using: .utf8)!)
 }
+
+/// `SPRITES_DEBUG_CLICKS=1`: log where every sprite is, when the panel arms and disarms its mouse capture, and what a
+/// click decided — with a timestamp on every line. The reason this exists: the click path failed SILENTLY for weeks
+/// (CLICK-1, CLICK-2, 2026-11-05) because nothing was logged until a click had already been accepted, so a click lost
+/// before that point looked identical to no click at all. Diagnosing a dead click starts here.
+let debugClicks = ProcessInfo.processInfo.environment["SPRITES_DEBUG_CLICKS"] == "1"
 
 /// Polls a file's mtime; calls back with its bytes when it changes, nil once when it disappears.
 final class FileWatch {
@@ -107,6 +126,102 @@ func waypointProjects() -> [[String: String]]? {
         out.append(row)
     }
     return out
+}
+
+// MARK: Waypoint presence, and writing a project's colour / focus back (owner, 2026-11-05)
+
+/// Waypoint is PRESENT when both halves resolve: an executable CLI, and a launches.md that parses
+/// into at least one launch row. A path string that merely exists is not enough — the no-Waypoint
+/// view is what the owner sees when either half is missing, the same switch `nowp=1` drives.
+/// Returns the CLI path when present.
+func waypointCLIPath() -> String? {
+    let fm = FileManager.default
+    // At least one launch ROW, not one focus row: Waypoint with nothing focused yet is still installed,
+    // and that is exactly the state the focus toggle exists to change.
+    guard launchRowCount() > 0 else { return nil }
+    for p in Paths.waypointCLI where fm.isExecutableFile(atPath: p) { return p }
+    return nil
+}
+
+/// How many launch rows launches.md actually parses into (0 when it is missing or has no table).
+func launchRowCount() -> Int {
+    guard let text = try? String(contentsOfFile: Paths.launches, encoding: .utf8) else { return 0 }
+    var seenHeader = false, n = 0
+    for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
+        let line = raw.trimmingCharacters(in: .whitespaces)
+        guard line.hasPrefix("|") else { continue }
+        let cells = line.dropFirst().split(separator: "|", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        if !seenHeader { if cells.contains("Name") && cells.contains("Command") { seenHeader = true }; continue }
+        if cells.first?.hasPrefix("---") == true || cells.first?.hasPrefix(":--") == true { continue }
+        if let first = cells.first, !first.isEmpty { n += 1 }
+    }
+    return n
+}
+
+/// Run `waypoint <args>`, inheriting $WAYPOINT_DATA. Returns nil on success, else a message for the UI.
+/// Synchronous and short (the CLI rewrites one markdown table); called off the main thread.
+func runWaypoint(_ args: [String]) -> String? {
+    guard let cli = waypointCLIPath() else { return "Waypoint is not installed" }
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: cli)
+    p.arguments = args
+    let out = Pipe(), errp = Pipe()
+    p.standardOutput = out; p.standardError = errp
+    do { try p.run() } catch { return error.localizedDescription }
+    let o = out.fileHandleForReading.readDataToEndOfFile(), e = errp.fileHandleForReading.readDataToEndOfFile()
+    p.waitUntilExit()
+    if p.terminationStatus == 0 { return nil }
+    let msg = (String(data: e, encoding: .utf8) ?? "") + (String(data: o, encoding: .utf8) ?? "")
+    let line = msg.split(separator: "\n").last.map(String.init) ?? "waypoint exited \(p.terminationStatus)"
+    log("waypoint \(args.joined(separator: " ")): \(line)")
+    return line
+}
+
+/// The local store used ONLY when Waypoint is absent: {"projects": {"<key>": {"hex", "focus"}}}.
+/// Beside cast.json and behaviors.json (Paths.projects), because these are the owner's settings for
+/// the same projects those files describe, not agent scratch.
+func loadLocalProjects() -> [String: [String: Any]] {
+    guard let d = FileManager.default.contents(atPath: Paths.projects),
+          let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+          let p = o["projects"] as? [String: [String: Any]] else { return [:] }
+    return p
+}
+
+/// Merge one project's `hex` / `focus` into the local store. Returns nil on success, else a message.
+func saveLocalProject(key: String, hex: String?, focus: Bool?) -> String? {
+    guard !key.isEmpty else { return "no project key" }
+    var all = loadLocalProjects()
+    var entry = all[key] ?? [:]
+    if let h = hex { entry["hex"] = h }
+    if let f = focus { entry["focus"] = f }
+    all[key] = entry
+    guard let d = try? JSONSerialization.data(withJSONObject: ["projects": all],
+                                              options: [.prettyPrinted, .sortedKeys]) else { return "not JSON" }
+    do { try writeAtomically(d, to: Paths.projects) } catch { return error.localizedDescription }
+    return nil
+}
+
+/// Set a project's ONE colour (owner's ruling: the sprite, the iTerm2 text and the SidePulse LED share it).
+/// Waypoint present: `waypoint launch colour <alias> <hex>` rewrites only the `]10;` hex in that alias's
+/// Command cell (every machine row for the alias, as `focus add` does). Absent: the local file, by key.
+func setProjectColour(key: String, alias: String, hex: String) -> String? {
+    guard hex.range(of: "^#[0-9A-Fa-f]{6}$", options: .regularExpression) != nil else { return "not a #RRGGBB colour" }
+    if waypointCLIPath() != nil {
+        guard !alias.isEmpty else { return "this project has no launch alias to colour" }
+        return runWaypoint(["launch", "colour", alias, hex])
+    }
+    return saveLocalProject(key: key, hex: hex, focus: nil)
+}
+
+/// Mark or unmark a project as a focus item. Waypoint present: the `Focus` column, through
+/// `waypoint focus add|remove <alias>`; a project with no launch alias CANNOT be focused and says so.
+func setProjectFocus(key: String, alias: String, on: Bool) -> String? {
+    if waypointCLIPath() != nil {
+        guard !alias.isEmpty else { return "this project has no launch alias, so it cannot be a focus project" }
+        return runWaypoint(["focus", on ? "add" : "remove", alias])
+    }
+    return saveLocalProject(key: key, hex: nil, focus: on)
 }
 
 // MARK: single instance (review R1_MACOS #3)

@@ -134,18 +134,18 @@ them and **degrade to two** (rule 7) rather than pad. Finally, **individual exce
 each finalist must be genuinely strong on their axis, not merely past the bar — the hardest lesson
 below.
 
-The method here is generalized from a visualization pipeline; read the source (in the companion MandrakeVisualize repository) in this order to see
+The method here is generalized from a visualization pipeline; read the source (in the `visualize/` tree of MandrakeWorkflows) in this order to see
 the mechanism and the evidence:
-- `MandrakeVisualize/DESIGN.md` — the generate → validate → select → characterize pipeline
+- `MandrakeWorkflows/visualize/DESIGN.md` — the generate → validate → select → characterize pipeline
   and the "different analytical question" diversity axis ("It is a Pareto set, not a point estimate").
-- `MandrakeVisualize/principles/analytical_questions.yaml` — enumerating the distinct
+- `MandrakeWorkflows/visualize/principles/analytical_questions.yaml` — enumerating the distinct
   questions *first*, before generating, so selection fills slots rather than judging look-alikes.
-- `MandrakeVisualize/evaluation/PORTFOLIO_RUBRIC.md` — the validity floor as pass/fail per
+- `MandrakeWorkflows/visualize/evaluation/PORTFOLIO_RUBRIC.md` — the validity floor as pass/fail per
   member, and diversity/coverage/contribution as the scored axes above it.
-- `MandrakeVisualize/skills/v0.1/visual-portfolio/SKILL.md` — the domain-specific orchestrator:
+- `MandrakeWorkflows/skills/visual-portfolio/SKILL.md` — the domain-specific orchestrator:
   frame → enumerate → best-per-question → per-member floor → MMR-style select → trade-off card, with
   explicit graceful degradation to two.
-- `MandrakeVisualize/evaluation/runs/2026-09-02-triptych/RESULTS_BALANCED.md` — the case-C
+- `MandrakeWorkflows/visualize/evaluation/runs/2026-09-02-triptych/RESULTS_BALANCED.md` — the case-C
   lesson: the judge found "Set 1 had the better questions, Set 2 had the better visualizations" and
   called it a **tie** — *diversity is necessary but not sufficient* (rule 8).
 
@@ -170,7 +170,7 @@ generalized from **one** project's `visual-portfolio` orchestrator — a visuali
 cross-domain study. The supporting comparison was **n=3**, position-balanced, and is reported as
 *corroborated, not proven*. One honest nuance about maturity: when `visual-portfolio` was first
 written it had **not** been run end to end; it has *since* been dogfooded exactly **once**
-(`MandrakeVisualize/evaluation/runs/2026-09-03-dogfood/DOGFOOD.md`, n=1), where the full
+(`MandrakeWorkflows/visualize/evaluation/runs/2026-09-03-dogfood/DOGFOOD.md`, n=1), where the full
 pipeline produced a genuine distinct-question set and the floor did real work. So this is engineering
 practice from a single project with one end-to-end trial behind its generalization — not an
 established finding. Treat the rules as reasoned defaults whose *reasons* travel, and expect the

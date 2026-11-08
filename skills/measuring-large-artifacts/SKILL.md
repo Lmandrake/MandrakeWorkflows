@@ -168,6 +168,7 @@ Worked cases with the real numbers: **`references/incidents.md`**.
 8. **Did anything WRITE?** Then read the diff.
 9. **Has the CHECK been shown to fail?** Break the code and require the named case
    to notice.
+- **`glob.glob` and an `os.path.lexists`/`exists` guard both turn an unreadable directory into 'empty'.** A safety reader (are helpers alive?) must call `os.listdir` directly: `FileNotFoundError` = none, any other `OSError` = UNMEASURED/hold.
 
 ## Project specifics
 

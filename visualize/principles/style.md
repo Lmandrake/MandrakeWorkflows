@@ -61,6 +61,14 @@ skill (`visual-beautiful` for BEAUTIFUL; `visual-encoding` and `visual-compositi
 ## Time
 - **Motion must mean something:** animate data time or a meaningful transition, never an
   algorithm settling (a layout solver's motion is an artefact, not data).
+- **Motion earns its place in exactly three ways** (owner, 2026-11-07, after rejecting the first
+  taste sheet: "these do little of that"): (1) a sweep of something of importance within the project
+  (energy slowly rising, funding levels); (2) actual temporal relationship, how it played out, so
+  that the sequence clarifies something; (3) non-temporal flow, directional relationship, or a
+  complex design unfolding one portion at a time. Decorative drift, spin or flicker that does none
+  of these is out.
+- **Every motion sheet must let the owner replay each video** (owner, 2026-11-07: the first sheet
+  did not): visible controls plus a replay button per clip, never autoplay-once.
 - **A movie needs an interesting question, not just a true one.** Choose the time axis for the
   question it answers (when things began, how a project grew), not the nearest timestamp.
 - **Appearances ease in:** fade, grow or bloom new elements over several frames; never pop.

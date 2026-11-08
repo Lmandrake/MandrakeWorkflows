@@ -97,7 +97,8 @@ strain. Focus centre-inside time <= 0.5 s after a jump.
 
 ## Individualizer
 Identity no longer comes from a hash of the session id: `s.iv` (0..7) picks one of 8 hand-drawn 9x9 LED
-bitmaps (`GLYPHS`, exposed as `window.VARIANT_NAMES`): Lantern (outlined diamond, 4-fold), Trident (fork
+bitmaps (the table is now `prototype/sigils/glyphs_sigils.js`, the renderer `prototype/sigils/engine.js`;
+names still exposed as `window.VARIANT_NAMES`): Lantern (outlined diamond, 4-fold), Trident (fork
 on a stem, bilateral), Halo (open ring with a pilot dot), Star (8-ray burst), Invader (dense 8-bit
 creature), Ascent (stacked chevrons, an upward arrow), Lattice (sparse dot grid), Eye (flat lens). They
 differ in silhouette (round/square/diamond/flat/tall), symmetry (4-fold vs left-right only), and texture

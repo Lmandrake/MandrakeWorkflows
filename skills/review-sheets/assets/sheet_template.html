@@ -616,8 +616,15 @@ function redo() {
   const r = redoStack.pop(); if (!r) return;
   undoStack.push({ entries: applyEntries(r.entries) });
 }
+/* Bulk applies only where a single click could: an option marked bulk:false never bulks
+   (it has no "all X" button, and shift+digit must not reach round that), and a row whose
+   window.itemOptions(it) list lacks the option is skipped. Before this, shift+digit set
+   the same letter on every row of the group (SHEET_BULK_ENFORCE_NOBULK_FLAG). */
 function bulkGroup(group, key) {
-  const rows = shown.filter(it => it.group === group);
+  const op = OPTBY[key];
+  if (!op || op.bulk === false) { showErr(`"${op ? op.label : key}" is per-row only: it has no bulk apply.`); return; }
+  const allows = it => { const ro = window.itemOptions && window.itemOptions(it); return !ro || ro.some(o => o.key === key); };
+  const rows = shown.filter(it => it.group === group && allows(it));
   if (!rows.length) return;
   const entries = rows.map(it => ({ id: it.id, before: DEC[it.id] ? JSON.parse(JSON.stringify(DEC[it.id])) : null }));
   rows.forEach(it => setDecision(it.id, key, { noUndo: true, bulk: true }));

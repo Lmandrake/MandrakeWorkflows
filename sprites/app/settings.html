@@ -34,6 +34,11 @@
           <input id="short" type="text" maxlength="12" spellcheck="false" autocomplete="off"></label>
         <div class="short vis" id="visRow" title="Whether this project's sprites show. Hide @ Work: an outside project, hidden while this Mac is on a work network (Augur's on_site)">On screen
           <div class="seg" id="visSeg" role="radiogroup"><button data-v="show" role="radio">Show</button><button data-v="hide" role="radio">Hide</button><button data-v="hide_at_work" role="radio">Hide @ Work</button></div></div>
+        <div class="short clr" id="clrRow" title="This project's one colour: its sprite, its iTerm2 text and its SidePulse LED all use it">Colour
+          <label class="swatch" id="clrWrap"><input type="color" id="clr" aria-label="Project colour"><span class="hx" id="clrHex"></span></label></div>
+        <div class="short vis" id="focusRow" title="Focus projects are the ones `waypoint focus launch` opens, and the ones listed here">In focus
+          <div class="seg" id="focusSeg" role="radiogroup"><button data-f="1" role="radio">Focus</button><button data-f="0" role="radio">Not now</button></div>
+          <span class="why" id="focusWhy"></span></div>
         <div class="sname" id="sname"></div>
         <div class="vname" id="vname"></div>
         <p class="blurb" id="blurb"></p>

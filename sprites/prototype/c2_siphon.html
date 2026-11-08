@@ -26,6 +26,21 @@ V.piece((function () {
   // For a fixed session count and size 1 the numbers are exactly the load-time ones they used to be.
   let NS, SC, KMEM, TLEN, NB;
   const NTMAX = 12;                                  // max tentacles (procs 1..12)
+  // ---- fine-pixel experiment hook (docs/SYMBOL_RESOLUTION.md, round 2) ----------------------------------
+  // Read from ONE optional global that only tools/build_symbol_comparison.py sets (via a playwright init
+  // script); app/stage.html never sets it, so with nothing set every default below is the shipped value and
+  // the jellyfish render exactly as before. Knobs: rings / dots = multipliers on bell rings and dots per
+  // ring; beads = multiplier on beads per tentacle; size = multiplier on every hard dot; glow = multiplier on
+  // the per-dot soft glows; halo = multiplier on the body halo and the core flashes (0 = none); pulseGlow = alpha of
+  // an extra faint wide glow under each bandwidth pulse only (0 = none, shipped), pulseGlowR = its radius in pulse
+  // dot diameters (default 2.5). Additive, so body dots are untouched wherever no pulse is near.
+  const JT = (typeof window.SPRITES_JELLY_TUNE === "object" && window.SPRITES_JELLY_TUNE) || {};
+  const J_RING = JT.rings > 0 ? JT.rings : 1, J_DOTS = JT.dots > 0 ? JT.dots : 1, J_BEADS = JT.beads > 0 ? JT.beads : 1;
+  const J_SIZE = JT.size > 0 ? JT.size : 1, J_GLOW = JT.glow >= 0 ? JT.glow : 1, J_HALO = JT.halo >= 0 ? JT.halo : 1;
+  const J_PGLOW = JT.pulseGlow > 0 ? JT.pulseGlow : 0, J_PGLOWR = JT.pulseGlowR > 0 ? JT.pulseGlowR : 2.5;
+  // sizeParity: whole-craft size multiplier (bell radius, tentacles, dot sizes) chosen 2026-11-07 so the jellyfish bbox AREA matches Choir at equal memory (Jellyfish A); 1 = old size, tune here.
+  const sizeParity = 0.53, lowMemBoost = (m) => 1 + 0.075 * clamp((0.8 - m) / 0.4, 0, 1), PSZ = () => P.size * sizeParity;
+  const FIT = new URLSearchParams(location.search).get("fit") === "1";
   function scales() {
     NS = V.sessions.length;
     // creature scale: 1 on the trial stage; in gallery cells it follows stage height and session count
@@ -34,12 +49,15 @@ V.piece((function () {
     // Cap SC at the blind-trial scale, min(W/1280, H/800): the trial look (1280x800) scaled to this screen.
     // (Non-LEGACY at SC=1 has bell 1.45x and tentacles 0.78x the trial's; whole-craft height is about the same.)
     if (V.LIVE) SC = Math.min(SC, Math.min(W / 1280, H / 800));
+    // fit=1 (Settings tiles only): size the craft to the cell, as Choir's grid fit does, instead of H/400, which
+    // left a ~15 px bell in a 110 px tile. Craft height per unit SC is about 160 * PSZ() (bell 2*KMEM*sqrt(0.8) + TLEN).
+    if (FIT) SC = 0.65 * (H - TOP - BOT) / (160 * PSZ());
     KMEM = 26 * SC * (LEGACY ? 1 : 1.45);                               // bell radius px = KMEM*sqrt(GB): area true to memory
-    NB = Math.max(6, Math.round(16 * P.density)); // beads per tentacle
-    TLEN = 118 * P.size * SC * (LEGACY ? 1 : 0.78);                     // tentacle length (fixed: memory reads on the bell only)
+    NB = Math.max(6, Math.round(16 * P.density * J_BEADS)); // beads per tentacle
+    TLEN = 118 * PSZ() * SC * (LEGACY ? 1 : 0.78);                     // tentacle length (fixed: memory reads on the bell only)
   }
   scales();
-  const rad = m => KMEM * Math.sqrt(clamp(m, 0.15, 3)) * P.size;
+  const rad = m => KMEM * Math.sqrt(clamp(m, 0.15, 3)) * PSZ() * lowMemBoost(m);   // lowMemBoost: parity needs ~7% more bell at 0.4 GB
 
   // ---------- individualizer: 8 forms (silhouette, dot pattern, tentacle arrangement, oral arms) ----------
   // None touches a data channel: bell AREA stays memory, pulse RATE stays CPU, tentacle COUNT stays procs.
@@ -86,17 +104,20 @@ V.piece((function () {
   }
   // precomputed geometry per variant: bell dots, apex, rim, extents
   const GEO = VARS.map(v => {
-    const dots = [];
-    for (let k = 0; k < v.R; k++) {
-      const t = v.R === 1 ? 1 : k / (v.R - 1);
-      const r0 = profile(v.prof, t, 0)[0], m = Math.max(3, Math.round((v.prof === "dome" ? 4 + k * 5 : 4 + 30 * r0) * P.density));
+    const dots = [], Rn = J_RING === 1 ? v.R : Math.round((v.R - 1) * J_RING) + 1;
+    for (let kk = 0; kk < Rn; kk++) {
+      const t = Rn === 1 ? 1 : kk / (Rn - 1);
+      // fine rings map back onto the variant's own ring index for its dot pattern; the rim stays ONE ring
+      const k = J_RING === 1 ? kk : kk === Rn - 1 ? v.R - 1 : Math.min(v.R - 2, Math.round(t * (v.R - 1)));
+      const kf = J_RING === 1 ? k : t * (v.R - 1);
+      const r0 = profile(v.prof, t, 0)[0], m = Math.max(3, Math.round((v.prof === "dome" ? 4 + kf * 5 : 4 + 30 * r0) * P.density * J_DOTS));
       for (let l = 0; l < m; l++) {
-        const az = l / m * TAU + (v.pat === "spokes" || v.pat === "wire" || v.pat === "meridians" ? 0 : k * 0.35);
+        const az = l / m * TAU + (v.pat === "spokes" || v.pat === "wire" || v.pat === "meridians" ? 0 : kf * 0.35);
         let [rho, y] = profile(v.prof, t, az), X = rho * Math.cos(az), Z = rho * Math.sin(az);
         if (v.prof === "box") { const c = Math.cos(az), s = Math.sin(az), e = 0.25;   // square cross-section
           X = rho * Math.sign(c) * Math.abs(c) ** e; Z = rho * Math.sign(s) * Math.abs(s) ** e * 0.9; }
         const w = pattern(v, k, l, az, t, X, Z); if (w <= 0) continue;
-        dots.push({ k, az, X, Y: y, Z, f: Math.sin(az), w, rim: k === v.R - 1 });
+        dots.push({ k, az, X, Y: y, Z, f: Math.sin(az), w, rim: kk === Rn - 1 });
       }
     }
     const top = profile(v.prof, 0, 0)[1], rimP = profile(v.prof, 1, 0);
@@ -238,15 +259,15 @@ V.piece((function () {
     for (const j of J) { if (!keep.has(j.id)) { j.x = j.hx; j.y = j.hy; j.vx = 0; j.vy = 0; } buildTentacles(j, V.t); }
     snap = new Map();
   }
-  // live: P.size eased by the Size slider; tentacle length follows, homes re-planned (bell radius reads P.size per frame)
+  // live: PSZ() eased by the Size slider; tentacle length follows, homes re-planned (bell radius reads PSZ() per frame)
   function resize(V, S) {
-    TLEN = 118 * P.size * SC * (LEGACY ? 1 : 0.78);
+    TLEN = 118 * PSZ() * SC * (LEGACY ? 1 : 0.78);
     if (J.length && S) planHomes(S);
   }
   // live: burning-item running lights along the front of the bell skirt, just under the rim
   function lightSpots(V, id, n) {
     const j = J.find(o => o.id === id); if (!j) return null;
-    const ds = Math.sqrt(P.size) * (LEGACY ? 1 : Math.max(0.62, Math.sqrt(SC)));
+    const ds = Math.sqrt(PSZ()) * (LEGACY ? 1 : Math.max(0.62, Math.sqrt(SC)));
     const cx = j.x + j.jx, cy = j.y + j.jy, rr = j.g.rimR * j.r * (1 - 0.15 * j.c) * 0.92, ry = cy + j.g.rimY * j.r * (1 + 0.08 * j.c) + 5 * ds;
     const out = [];
     for (let i = 0; i < n; i++) { const az = Math.PI * (0.12 + 0.76 * (n === 1 ? 0.5 : i / (n - 1)));
@@ -299,7 +320,7 @@ V.piece((function () {
           + shape * lim;
         let px = Math.cos(ang) * segBase * lenK, py = Math.sin(ang) * segBase * lenK;
         if (mode === 2) {   // corkscrew: a helix around the hanging line, phase fixed per tentacle
-          const hp = b * 1.15 + k * TAU / nT, hr = 5.5 * SC * P.size * lim * (0.4 + fb);
+          const hp = b * 1.15 + k * TAU / nT, hr = 5.5 * SC * PSZ() * lim * (0.4 + fb);
           px += (Math.cos(hp + 1.15) - Math.cos(hp)) * hr;
         }
         x += px; y += py;
@@ -363,7 +384,7 @@ V.piece((function () {
       let f = (0.14 + 0.52 * j.cpu) * (1 - 0.94 * vpn);
       f *= 1 + A * 0.9 * (V.vnoise(t * 1.7, j.i * 9.3) - 0.5) * 2;
       j.phase += Math.max(0, f) * dt;
-      if (j.phase >= 1) { j.phase -= 1; j.vy -= (3 + 2.5 * Math.min(j.cpu, 3.5)) * (1 - vpn) * Math.sqrt(P.size) * (LEGACY ? 1 : SC); }
+      if (j.phase >= 1) { j.phase -= 1; j.vy -= (3 + 2.5 * Math.min(j.cpu, 3.5)) * (1 - vpn) * Math.sqrt(PSZ()) * (LEGACY ? 1 : SC); }
       j.ch += dt * (0.5 + 1.1 * j.cpu) * (1 - 0.95 * vpn) * (1 + A * 0.8 * (V.vnoise(t * 2.3, j.i * 4.1) - 0.5) * 2);   // rim chase lights: tempo = CPU
       const ph = j.phase;
       const cTarget = vpn > 0.5 ? 0.35 : (ph < 0.28 ? Math.sin(ph / 0.28 * Math.PI / 2) : 0.5 + 0.5 * Math.cos((ph - 0.28) / 0.72 * Math.PI));
@@ -488,7 +509,7 @@ V.piece((function () {
     ctx.globalCompositeOperation = "lighter";
     const bt = (t - bloomT) / 1.4, bloom = bt >= 0 && bt < 1 ? 1 - bt : 0;
     const satK = 1 - 0.68 * vpn;                        // VPN: drain colour but keep the hue
-    const ds = Math.sqrt(P.size) * (LEGACY ? 1 : Math.max(0.62, Math.sqrt(SC))), G = P.glow;
+    const ds = Math.sqrt(PSZ()) * (LEGACY ? 1 : Math.max(0.62, Math.sqrt(SC))), G = P.glow;
     const huddle = V.on("vpnHuddle"), AG = V.on("strainAgitation") ? A : 0;
 
     // searching beam (VPN loss)
@@ -512,8 +533,8 @@ V.piece((function () {
       // halo (decoration, follows brightness)
       const hr = r * 1.9 * (LEGACY ? 1 : 1.15);
       const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, hr);
-      g.addColorStop(0, V.hsl(h, sat, 55, 0.13 * B * G)); g.addColorStop(1, V.hsl(h, sat, 40, 0));
-      disc(ctx, cx, cy, hr, g);
+      g.addColorStop(0, V.hsl(h, sat, 55, 0.13 * B * G * J_HALO)); g.addColorStop(1, V.hsl(h, sat, 40, 0));
+      if (J_HALO > 0) disc(ctx, cx, cy, hr, g);
       // machine strain: a red ember glow behind and inside the craft, rising with level (and heat)
       const emb = clamp(0.85 * A + 0.35 * heat, 0, 1.1) * (1 - 0.7 * vpn);
       if (emb > 0.02) {
@@ -541,9 +562,9 @@ V.piece((function () {
           if (tip) {   // beacon tip: always lit (countable), blinks in turn
             const bl = Math.max(0, Math.sin(t * 2.2 - k * 0.9 + j.i)) ** 8 * (1 - vpn) * (0.25 + 0.75 * j.bright);
             ctx.fillStyle = V.hsl(hh, sat * (1 - 0.5 * bl), 74 + 16 * bl, Math.min(1, a * 1.9 + 0.35 * bl));
-            sq(ctx, x, y, (3.6 + 1.2 * bl) * ds);
-            glow(ctx, x, y, 7.5 * ds, hh, sat * P.sat, 65, 2 * (0.12 + 0.25 * bl) * G * vis * B);
-          } else { ctx.fillStyle = V.hsl(hh, sat, 60, a * 0.8); sq(ctx, x, y, 2.1 * ds); }
+            sq(ctx, x, y, (3.6 + 1.2 * bl) * ds * J_SIZE);
+            glow(ctx, x, y, 7.5 * ds * Math.sqrt(J_SIZE), hh, sat * P.sat, 65, 2 * (0.12 + 0.25 * bl) * G * vis * B * J_GLOW);
+          } else { ctx.fillStyle = V.hsl(hh, sat, 60, a * 0.8); sq(ctx, x, y, 2.1 * ds * J_SIZE); }
         }
       }
       // network pulses along the tentacles: rx cool white-blue inward, tx gold outward; clog at the throat
@@ -551,8 +572,9 @@ V.piece((function () {
       const atS = (k, f) => { const arr = j.tent[Math.min(k, nTd - 1)], fp = clamp(f, 0, 1) * (NB - 1), b0 = Math.floor(fp), b1 = Math.min(NB - 1, b0 + 1), fr = fp - b0;
         return [arr[b0 * 2] + (arr[b1 * 2] - arr[b0 * 2]) * fr, arr[b0 * 2 + 1] + (arr[b1 * 2 + 1] - arr[b0 * 2 + 1]) * fr]; };
       const pulse = (x, y, col, al, sz) => {
-        glow(ctx, x, y, sz * 2.4 * ds, col[0], col[1], col[2], 0.44 * al * G);
-        ctx.fillStyle = `hsla(${col[0]},${col[1] * 0.6}%,${Math.min(90, col[2] + 14)}%,${al})`; sq(ctx, x, y, sz * ds); };
+        if (J_PGLOW > 0) glow(ctx, x, y, J_PGLOWR * sz * ds * J_SIZE, col[0], col[1], col[2], J_PGLOW * al * G);
+        glow(ctx, x, y, sz * 2.4 * ds * Math.sqrt(J_SIZE), col[0], col[1], col[2], 0.44 * al * G * J_GLOW);
+        ctx.fillStyle = `hsla(${col[0]},${col[1] * 0.6}%,${Math.min(90, col[2] + 14)}%,${al})`; sq(ctx, x, y, sz * ds * J_SIZE); };
       for (const pk of j.rxP) { const [x, y] = atS(pk.k, pk.s), al = pk.b * sm(Math.min(1, (1 - pk.s) * 8 + 0.2));
         pulse(x, y, RX_COL, al, 3.4); const [x2, y2] = atS(pk.k, pk.s + 0.05); pulse(x2, y2, RX_COL, al * 0.35, 2.2); }
       const rootXY = (k) => { const rt = rootOf(j, k, Math.max(1, nT)); return [cx + rt[0] * (1 - 0.15 * c), cy + rt[1]]; };
@@ -566,7 +588,7 @@ V.piece((function () {
         const cyc = cy + j.g.rimY * r * 0.35;
         const kg = ctx.createRadialGradient(cx, cyc, 0, cx, cyc, r * 0.7);
         const mix = j.rxC / (j.rxC + j.txC + 1e-6), col = mix > 0.5 ? RX_COL : TX_COL;
-        kg.addColorStop(0, `hsla(${col[0]},${col[1]}%,${col[2]}%,${0.28 * Math.min(1, j.rxC + j.txC) * G})`); kg.addColorStop(1, `hsla(${col[0]},${col[1]}%,${col[2]}%,0)`);
+        kg.addColorStop(0, `hsla(${col[0]},${col[1]}%,${col[2]}%,${0.28 * Math.min(1, j.rxC + j.txC) * G * J_HALO})`); kg.addColorStop(1, `hsla(${col[0]},${col[1]}%,${col[2]}%,0)`);
         disc(ctx, cx, cyc, r * 0.7, kg);
       }
       // jam: a bright stuttering clog band across the throat
@@ -597,8 +619,8 @@ V.piece((function () {
         const rim = d.rim ? warm : warm * 0.4;
         const L = 58 + 8 * front + (d.w > 1.2 ? 8 : 0);
         ctx.fillStyle = V.hsl(hh, sat * (1 - 0.3 * rim), L, a);
-        sq(ctx, x, y, (1.8 + 1.3 * front) * ds * (d.w > 1.2 ? 1.2 : d.w < 0.5 ? 0.8 : 1));
-        if (front > 0.8 && d.w >= 1) glow(ctx, x, y, 4.5 * ds, hh, sat * P.sat, 55, 0.18 * a * G);
+        sq(ctx, x, y, (1.8 + 1.3 * front) * ds * J_SIZE * (d.w > 1.2 ? 1.2 : d.w < 0.5 ? 0.8 : 1));
+        if (front > 0.8 && d.w >= 1 && J_GLOW > 0) glow(ctx, x, y, 4.5 * ds * Math.sqrt(J_SIZE), hh, sat * P.sat, 55, 0.18 * a * G * J_GLOW);
       }
       // running lights chasing round the rim (CPU = tempo), like a hovering craft's hull lights
       { const nL = 3, rr = gm.rimR * r * (1 - 0.15 * c), ry = cy + gm.rimY * r * (1 + 0.08 * c);
@@ -606,12 +628,12 @@ V.piece((function () {
           const az = (j.ch + q / nL) * TAU - tr * 0.17, zf = Math.sin(az), fr = 0.4 + 0.6 * (zf + 1) / 2;
           const al = (1 - tr * 0.27) * fr * (0.55 + 0.45 * B) * (1 - 0.8 * vpn);
           const lx = cx + Math.cos(az) * rr * (v.prof === "box" ? 0.95 : 1), ly = ry + zf * r * 0.26;
-          ctx.fillStyle = V.hsl(h, sat * 0.3, 92, Math.min(1, al * 1.2)); sq(ctx, lx, ly, (tr ? 2.6 : 4.2) * ds);
-          if (!tr) glow(ctx, lx, ly, 10.5 * ds, h, sat * P.sat, 72, 0.6 * al * G);
+          ctx.fillStyle = V.hsl(h, sat * 0.3, 92, Math.min(1, al * 1.2)); sq(ctx, lx, ly, (tr ? 2.6 : 4.2) * ds * J_SIZE);
+          if (!tr) glow(ctx, lx, ly, 10.5 * ds * Math.sqrt(J_SIZE), h, sat * P.sat, 72, 0.6 * al * G * J_GLOW);
         } }
       // oral arms (variant form; sway with the bell, decoration)
       const oy0 = cy + gm.rimY * r * 0.55, ol = r * 0.9;
-      const ob = (x, y, sz, al, dh = 40) => { ctx.fillStyle = V.hsl(h + dh, sat, 66, al * B); sq(ctx, x, y, sz * ds); };
+      const ob = (x, y, sz, al, dh = 40) => { ctx.fillStyle = V.hsl(h + dh, sat, 66, al * B); sq(ctx, x, y, sz * ds * J_SIZE); };
       switch (v.oral) {
         case "manubrium":
           for (let q = 0; q < 5; q++) ob(cx + Math.sin(j.tw * 0.7 + q * 0.5) * 2.5 * (q / 4), cy - r * 0.25 + q * r * 0.17 * (1 + 0.15 * c), 2.6 - q * 0.25, 0.55 - q * 0.07);
@@ -644,7 +666,7 @@ V.piece((function () {
       if (v.prof === "spire") { sq(ctx, ax, ay - 4 * ds, 2 * ds); sq(ctx, ax, ay - 7 * ds, 1.6 * ds); sq(ctx, ax, ay, 3 * ds); }
       else if (v.prof === "box") { sq(ctx, ax - 3 * ds, ay, 2.2 * ds); sq(ctx, ax + 3 * ds, ay, 2.2 * ds); sq(ctx, ax, ay - 3 * ds, 2.2 * ds); sq(ctx, ax, ay + 3 * ds, 2.2 * ds); }
       else { sq(ctx, ax, ay, 3 * ds); sq(ctx, ax - 3 * ds, ay, 2 * ds); sq(ctx, ax + 3 * ds, ay, 2 * ds); sq(ctx, ax, ay - 3 * ds, 2 * ds); }
-      glow(ctx, ax, ay, 7.5 * ds, h, sat * P.sat, 60, 0.36 * G * lanA);
+      glow(ctx, ax, ay, 7.5 * ds * Math.sqrt(J_SIZE), h, sat * P.sat, 60, 0.36 * G * lanA * J_GLOW);
 
       // VPN lost: a small red beacon blinks inside the bell (one short blink every 1.6 s)
       if (vpn > 0.3 && huddle && !V.LIVE) {

@@ -3,7 +3,7 @@
 nothing). Per species, 4 sessions, link fine, then LOST (VPN down off site and the API unreachable): the flock gathers
 at one huddle point outside the focused window. Bars, set from the spec's "gather together", not from a run: by 8 s
 every creature is within 120 px of the point and the mean distance is under half of what it was at 0.3 s.
-One headless Chromium. Args: species (default all five). Exit 0 = pass."""
+One headless Chromium. Args: species (default: all of harness.SPECIES). Exit 0 = pass."""
 import json, sys, time
 from playwright.sync_api import sync_playwright
 from harness import check, done, url, feed, layer_errors, errors_on, Layer, SPECIES

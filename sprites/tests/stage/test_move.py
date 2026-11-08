@@ -3,7 +3,7 @@
 but exited 0). Per species, one session: (a) a focused window dropped over it -> it ends outside, visible; (b) a focus
 splitting the screen -> it never crosses to the other side; (c) a focus leaving a 80 px sliver -> hidden or not
 squeezed into it; (d) no jitter; (e) it prefers bare desktop to a non-focused window. One headless Chromium.
-Args: species to run (default all five). Exit 0 = pass."""
+Args: species to run (default: all of harness.SPECIES). Exit 0 = pass."""
 import json, sys
 from playwright.sync_api import sync_playwright
 from harness import check, done, url, one_session, Layer, SPECIES
@@ -49,8 +49,12 @@ with sync_playwright() as pw:
         F4 = [0, 30, 1480, 1087]
         t = run(sp, [{"wins": [], "secs": 1}, {"place": [875, 300]}, {"wins": [F4], "focus": F4, "secs": 10}]); e = t[-1]
         if __import__("os").environ.get("DBG"): print([[round(v, 2) for v in p] for p in t[::10]])
+        # The glyph species (c3_sigils and every c6-style species built on the same renderer) share this open
+        # finding: in Chromium they end at x 1380 r 36, just short of the strip, while node passes. It is the
+        # renderer's, not the glyph table's -- c6_night reproduces c3_sigils' numbers exactly, and its only
+        # difference from c3_sigils is which 9x9 bitmaps it reads.
         check(e[3] > 0.5 and e[0] - e[2] >= F4[0] + F4[2] - 1, f"{sp} strip: room exists, ends visible in it (x {round(e[0])} r {round(e[2])} a {e[3]:.2f})",
-              open_finding="S2-SPEC c3" if sp == "c3_sigils" else None)   # c3 in Chromium ended at x 1380 r 36 once (node passes); open
+              open_finding="S2-SPEC c3" if sp in ("c3_sigils", "c6_night", "c7_patches", "c8_instruments", "c9_wild", "c10_made", "c11_old") else None)
         Wn = [0, 33, 1728, 700]
         t = run(sp, [{"wins": [], "secs": 1}, {"place": [860, 400]}, {"wins": [Wn], "focus": None, "secs": 10}]); e = t[-1]
         check(e[1] > Wn[1] + Wn[3], f"{sp} terrain: leaves a big non-focus window for bare desktop (y {round(e[1])} > {Wn[1] + Wn[3]})")

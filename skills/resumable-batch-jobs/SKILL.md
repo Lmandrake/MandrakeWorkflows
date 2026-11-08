@@ -36,6 +36,7 @@ If the key is unstable or partly read, finished items look pending and work is
 3. Parse the key to its delimiter or read the whole record; a fixed head read
    (`f.read()[:4000]`) fails on the long records.
 4. Test idempotency: run twice against a populated store; the second run creates nothing.
+- **Stamp every appended row with a fingerprint of the model code and params, and refuse or set aside rows with another fingerprint.** Otherwise a fixed bug's stale rows mix silently into the ensemble. Hash model code only (not reporting code), or every report edit invalidates hours of runs; restamp only after an exact recompute of a sample matches.
 
 ## Shapes to distrust
 
@@ -49,6 +50,7 @@ If the key is unstable or partly read, finished items look pending and work is
 | `processed: 3535` | attempts that produced a record | `succeeded`, `failed_terminal`, `pending` as separate fields, with identity conservation asserted |
 | stage 2 starts because stage 1 returned | shell reported last pipeline command, or nothing checked | stage 2 refuses without a completion marker naming the expected item count |
 | resume test reruns a finished job | no-op path, always passes | inject a synthetic outage mid-run, resume, assert conservation |
+- **A sweep that flushes its output file only every N rows loses every finished row when an outer timeout kills it, so it looks as if it made no progress** (a multiprocessing sweep kept 0 rows after 530 s). Flush and fsync each row as it finishes.
 
 ## Retry safety
 

@@ -263,6 +263,24 @@ do {
     check(!activateAllAfterScript("none") && !activateAllAfterScript(nil) && !activateAllAfterScript("ok"), "#8 no tty match never raises every window")
     check(snapshotValidUntil(#"{"valid_until": 1793564693.057}"#) == 1793564693.057 && snapshotValidUntil("null") == nil, "#8 valid_until parse")
 }
+
+// CLICK-3 (owner, 2026-11-05: "I really do want to be able to DOUBLE-CLICK on a Sprite and have it open the
+// relevant Claude session or switch Spaces/Focus to it"). The gesture is the double-click; the single click must
+// still never be eaten (R3-SPEC #1, #2: "no behaviour may block a click"), so one click acts too, after the
+// double-click window has passed with no second click. clickGesture is the pure rule the host follows.
+do {
+    check(clickGesture(count: 2) == .act, "CLICK-3 the second click of a double-click acts at once")
+    check(clickGesture(count: 1) == .waitForSecond, "CLICK-3 a single click waits out the double-click window")
+    check(clickGesture(count: 3) == .alreadyActed, "CLICK-3 a third click does not act again (one action per gesture)")
+    check(clickGesture(count: 4) == .alreadyActed, "CLICK-3 a fourth click does not act again")
+    check(clickGesture(count: 0) == .waitForSecond, "CLICK-3 a clickCount the window server did not set is treated as one click")
+    // The fallback delay must be the user's own double-click interval, never a hardcoded guess, and must stay sane
+    // when the preference is absent or absurd.
+    check(singleClickDelay(doubleClickInterval: 0.5) == 0.5, "CLICK-3 the delay is the user's double-click interval")
+    check(singleClickDelay(doubleClickInterval: 0) == 0.25, "CLICK-3 no preference: a 0.25 s default, not zero")
+    check(singleClickDelay(doubleClickInterval: 9) == 1.0, "CLICK-3 an absurd interval is capped at 1 s")
+    check(singleClickDelay(doubleClickInterval: 0.05) == 0.15, "CLICK-3 a tiny interval is floored at 0.15 s")
+}
 do {   // #8 independent truth for the kernel reads: a child we spawn, and ps.
     let t0 = Int(Date().timeIntervalSince1970)
     let p = Process(); p.executableURL = URL(fileURLWithPath: "/bin/sleep"); p.arguments = ["3"]
@@ -367,6 +385,153 @@ do {
     if case .unreachable = spaceSwitchPlan(displays: disp, windowSpaces: [77], hotkeys: keys) { check(true, "") } else { check(false, "space: unknown space unreachable") }
     check(spaceSwitchPlan(displays: d4, windowSpaces: [3], hotkeys: ["119": ["enabled": 1, "value": ["parameters": [65535, 19, 262144]]]]) == .desktop(2, keyCode: 19, flags: 262144), "space: enabled as 1")
     check(focusedWindow("ok 26848") == 26848 && focusedWindow("ok") == 0 && focusedWindow("none") == nil && focusedWindow(nil) == nil, "focusedWindow parses the script reply")
+}
+
+// MARK: SPRITES_UNIFY_MONITORS_AS_ONE — one wandering area across every screen.
+// Truth is hand-derived from the arrangement geometry, not from the code under test. The Desktop's real arrangement was
+// MEASURED 2026-11-05 (probe over NSScreen): LG TV (main) frame (0,0,1920,1080) scale 2, TH-55CQE1 (-1920,-103,1920,1080)
+// scale 2 — NOT the equal-height, aligned case, so the offset cases below are live, not hypothetical.
+do {
+    // --- the Laptop regression guard: ONE screen must come out exactly as before the change ---
+    let lf = CGRect(x: 0, y: 0, width: 1728, height: 1117), lv = CGRect(x: 0, y: 0, width: 1728 - 70, height: 1117 - 33)
+    let one = spanLayout(frames: [lf], visibleFrames: [lv])
+    check(one.world == lf, "span: one screen, world is that screen's frame")
+    check(one.size == CGSize(width: 1728, height: 1117), "span: one screen, world size unchanged")
+    check(one.rects == [CGRect(x: 0, y: 0, width: 1728, height: 1117)], "span: one screen sits at the world origin")
+    // The literal is what visibleStageRect produces today for this frame/visible pair; the host suite asserts the two
+    // helpers agree (it builds Stage.swift too), so setVisible stays byte-identical on the Laptop.
+    check(one.visible == [CGRect(x: 0, y: 33, width: 1658, height: 1084)], "span: one screen visible (menu bar 33, Dock 70)")
+    check(spanVisibleRect(one) == CGRect(x: 0, y: 33, width: 1658, height: 1084), "span: one screen's walkable area IS its visible rect")
+    check(deadSpaceFraction(one) == 0, "span: one screen has no dead space")
+
+    // --- this Desktop, as measured: secondary LEFT of main at NEGATIVE x, offset 103 px DOWN ---
+    let m = CGRect(x: 0, y: 0, width: 1920, height: 1080), s2 = CGRect(x: -1920, y: -103, width: 1920, height: 1080)
+    let mv = CGRect(x: 0, y: 0, width: 1862, height: 1050), s2v = CGRect(x: -1920, y: -103, width: 1920, height: 1050)
+    let two = spanLayout(frames: [m, s2], visibleFrames: [mv, s2v])
+    check(two.world == CGRect(x: -1920, y: -103, width: 3840, height: 1183), "span: Desktop world is the union, 3840x1183")
+    // main's top IS the world's top (world.maxY == m.maxY == 1080): y 0. The secondary hangs 103 px lower.
+    check(two.rects[0] == CGRect(x: 1920, y: 0, width: 1920, height: 1080), "span: main screen sits right, at world y 0")
+    check(two.rects[1] == CGRect(x: 0, y: 103, width: 1920, height: 1080), "span: a NEGATIVE-origin secondary maps to world x 0, y 103")
+    check(abs(deadSpaceFraction(two) - (1183.0 * 3840 - 2 * 1920.0 * 1080) / (1183.0 * 3840)) < 1e-12, "span: Desktop dead-space fraction is the union minus both screens")
+    check(deadSpaceFraction(two) > 0.08 && deadSpaceFraction(two) < 0.09, "span: the measured Desktop really has ~8.7 % dead space")
+    // walkable = the common band both screens show: full 3840 wide, from the lower top edge to the higher bottom edge
+    let w2 = spanVisibleRect(two)
+    check(w2.width == 3782, "span: the walkable area spans BOTH monitors (1920 + 1862 px), which is the whole point")
+    check(w2 == CGRect(x: 0, y: 133, width: 3782, height: 947), "span: walkable band is the 947 px both screens share, 58 px of main lost to its Dock")
+    // every corner of the walkable area is on a real screen: nothing can wander into dead space
+    for (nm, p) in [("top-left", CGPoint(x: w2.minX + 1, y: w2.minY + 1)), ("top-right", CGPoint(x: w2.maxX - 1, y: w2.minY + 1)),
+                    ("bottom-left", CGPoint(x: w2.minX + 1, y: w2.maxY - 1)), ("bottom-right", CGPoint(x: w2.maxX - 1, y: w2.maxY - 1))] {
+        check(screenOf(worldPoint: p, two) >= 0, "span: walkable \(nm) corner is on a real screen")
+    }
+    // the dead bands themselves are correctly reported as belonging to no screen
+    check(screenOf(worldPoint: CGPoint(x: 100, y: 50), two) == -1, "span: the secondary's missing top band is dead space")
+    check(screenOf(worldPoint: CGPoint(x: 3000, y: 1150), two) == -1, "span: the main's missing bottom band is dead space")
+    check(screenOf(worldPoint: CGPoint(x: 3000, y: 50), two) == 0, "span: a point high on the right is the main screen")
+    check(screenOf(worldPoint: CGPoint(x: 100, y: 1150), two) == 1, "span: a point low on the left is the secondary")
+    // crossing the seam: one step in world x moves from one panel to the other, with no gap between them
+    check(screenOf(worldPoint: CGPoint(x: 1919, y: 500), two) == 1 && screenOf(worldPoint: CGPoint(x: 1920, y: 500), two) == 0,
+          "span: the seam is continuous — x 1919 is the secondary, x 1920 the main, no gap")
+
+    // --- equal heights, top aligned (the brief's 'easy case'): the whole combined visible area is walkable ---
+    let a = CGRect(x: 0, y: 0, width: 1920, height: 1080), b = CGRect(x: 1920, y: 0, width: 1920, height: 1080)
+    let flat = spanLayout(frames: [a, b], visibleFrames: [CGRect(x: 0, y: 0, width: 1920, height: 1055), CGRect(x: 1920, y: 0, width: 1920, height: 1055)])
+    check(flat.world == CGRect(x: 0, y: 0, width: 3840, height: 1080), "span: aligned pair unions to 3840x1080")
+    check(deadSpaceFraction(flat) == 0, "span: aligned equal heights have NO dead space")
+    check(spanVisibleRect(flat) == CGRect(x: 0, y: 25, width: 3840, height: 1055), "span: aligned pair is walkable across its whole visible area")
+
+    // --- unequal heights (a laptop beside a monitor) ---
+    let big = CGRect(x: 0, y: 0, width: 2560, height: 1440), small = CGRect(x: 2560, y: 0, width: 1440, height: 900)
+    let un = spanLayout(frames: [big, small], visibleFrames: [big, small])
+    check(un.world == CGRect(x: 0, y: 0, width: 4000, height: 1440), "span: unequal heights union")
+    check(un.rects[0] == CGRect(x: 0, y: 0, width: 2560, height: 1440), "span: the taller screen fills the world height")
+    check(un.rects[1] == CGRect(x: 2560, y: 540, width: 1440, height: 900), "span: a SHORTER bottom-aligned screen is pushed down in world y")
+    let wu = spanVisibleRect(un)
+    check(wu == CGRect(x: 0, y: 540, width: 4000, height: 900), "span: unequal heights walk the shared 900 px band across both")
+    check(wu.width == 4000, "span: unequal heights still span both screens")
+    // 4000x1440 union = 5 760 000; covered 2560*1440 + 1440*900 = 4 982 400; dead 777 600 = 13.5 %
+    check(abs(deadSpaceFraction(un) - 777_600.0 / 5_760_000.0) < 1e-12, "span: unequal heights leave 13.5 % dead space, and it is excluded")
+
+    // --- a vertical stack (one above the other): the shared band is the narrower width, not zero ---
+    let top = CGRect(x: 0, y: 1080, width: 1920, height: 1080), bot = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+    let st = spanLayout(frames: [top, bot], visibleFrames: [top, bot])
+    check(st.world == CGRect(x: 0, y: 0, width: 1920, height: 2160), "span: a stacked pair unions vertically")
+    check(st.rects[0] == CGRect(x: 0, y: 0, width: 1920, height: 1080), "span: the upper screen is world y 0")
+    check(st.rects[1] == CGRect(x: 0, y: 1080, width: 1920, height: 1080), "span: the lower screen is world y 1080")
+    check(spanVisibleRect(st) == CGRect(x: 0, y: 0, width: 1920, height: 2160), "span: a stack is walkable over its whole height")
+    check(deadSpaceFraction(st) == 0, "span: an exact stack has no dead space")
+
+    // --- an L shape: three screens where the inscribed rect must NOT include the notch ---
+    let l1 = CGRect(x: 0, y: 0, width: 1920, height: 1080), l2 = CGRect(x: 1920, y: 0, width: 1920, height: 1080), l3 = CGRect(x: 0, y: 1080, width: 1920, height: 1080)
+    let L = spanLayout(frames: [l1, l2, l3], visibleFrames: [l1, l2, l3])
+    check(L.world == CGRect(x: 0, y: 0, width: 3840, height: 2160), "span: L world is the bounding box")
+    check(deadSpaceFraction(L) > 0.24 && deadSpaceFraction(L) < 0.26, "span: the L's empty quadrant is a quarter of the union")
+    let wl = spanVisibleRect(L)
+    check(wl.width * wl.height == 3840 * 1080, "span: the L's walkable rect is the full-width band, never the empty quadrant")
+    check(screenOf(worldPoint: CGPoint(x: wl.midX, y: wl.midY), L) >= 0, "span: the L's walkable centre is on a real screen")
+    // the empty quadrant is the top-right in world coords (l3 is the upper-left); confirm it is excluded
+    check(!wl.contains(CGPoint(x: 3000, y: 100)), "span: the L's empty quadrant is NOT walkable")
+
+    // --- the conversions, which the ticket flags as the error-prone part ---
+    // a window on the secondary, reported by CGWindowList in primary-top-left coordinates
+    check(worldRectFromCG(CGRect(x: -1920, y: 103, width: 400, height: 300), world: two.world, primaryMaxY: 1080)
+            == CGRect(x: 0, y: 103, width: 400, height: 300), "span: a CG rect on the negative-origin secondary maps into the world")
+    check(worldRectFromCG(CGRect(x: 0, y: 0, width: 400, height: 300), world: two.world, primaryMaxY: 1080)
+            == CGRect(x: 1920, y: 0, width: 400, height: 300), "span: a CG rect at the primary's top-left is world (1920, 0)")
+    // the Cocoa point conversion, against the per-screen one it replaces
+    check(worldPoint(CGPoint(x: 10, y: 1070), world: two.world) == CGPoint(x: 1930, y: 10), "span: a Cocoa point near the main's top-left")
+    check(worldPoint(CGPoint(x: -1910, y: 967), world: two.world) == CGPoint(x: 10, y: 113), "span: a Cocoa point on the secondary")
+    // a one-screen world must agree with the per-screen helper exactly (the Laptop guard, at the point level)
+    for p in [CGPoint(x: 0, y: 0), CGPoint(x: 864, y: 558), CGPoint(x: 1728, y: 1117), CGPoint(x: 5, y: 1112)] {
+        let w = worldPoint(p, world: one.world)
+        check(w.x == p.x && w.y == lf.maxY - p.y, "span: one screen, world point == stage point at (\(Int(p.x)),\(Int(p.y)))")
+    }
+    check(panelScale(2) == 2 && panelScale(3) == 2 && panelScale(1) == 1, "span: each panel keeps its own backing scale, clamped at 2")
+
+    // degenerate inputs must not crash or produce a bogus world
+    check(spanLayout(frames: [], visibleFrames: []).world == .zero, "span: no screens, zero world")
+    check(largestInscribedRect([]) == .zero, "span: no rects, zero inscribed rect")
+    check(largestInscribedRect([CGRect(x: 5, y: 7, width: 100, height: 50)]) == CGRect(x: 5, y: 7, width: 100, height: 50), "span: one rect inscribes itself")
+    // two screens that touch at a corner only share no band: the inscribed rect is one of them, never the union
+    let diag1 = CGRect(x: 0, y: 0, width: 800, height: 600), diag2 = CGRect(x: 800, y: 600, width: 800, height: 600)
+    let dg = largestInscribedRect([diag1, diag2])
+    check(dg == diag1 || dg == diag2, "span: corner-touching screens fall back to ONE screen, never a rect over dead space")
+}
+
+// MARK: SQUISH/BLUR — the drawable and the viewport output (regressions of f48a980, owner, 2026-11-05)
+// Truth is hand-derived from the measured arrangement and from what CAMetalLayer does with a drawable that does not
+// match its layer: it RESCALES it into the layer's bounds. Both numbers below come from that geometry, not the code.
+do {
+    // --- the stale-drawable guard tested WIDTH ONLY, and this Desktop's two screens share a width ---
+    let d = CGSize(width: 3840, height: 2160)          // one 1920x1080 @2 panel, correct
+    check(!drawableStale(d, w: 3840, h: 2160), "squish: a drawable that already matches is left alone")
+    check(drawableStale(d, w: 2560, h: 2160), "squish: a different WIDTH is stale (the old guard caught this one)")
+    // 🔴 the regression itself: equal width, different height. The old `width != w` test said "fine" and the drawable
+    // kept the other viewport's size, so the content was scaled — the owner's "kept something from one screen to another".
+    check(drawableStale(d, w: 3840, h: 2366), "squish: EQUAL WIDTH but a different height is stale too (the bug)")
+    check(drawableStale(.zero, w: 3840, h: 2160), "squish: a fresh layer (0x0) is stale")
+    check(drawableStale(CGSize(width: 7680, height: 2366), w: 3840, h: 2160), "squish: a union-sized drawable on a one-screen panel is stale")
+
+    // --- a viewport's output is its PANEL, never the world ---
+    // Measured Desktop: both panels 1920x1080 @2; the world is the union 3840x1183.
+    let o0 = viewportOutput(panelSize: CGSize(width: 1920, height: 1080), backing: 2)
+    check(o0.size == CGSize(width: 1920, height: 1080), "squish: the primary viewport renders its PANEL's size, not the union's")
+    check(o0.scale == 2, "squish: the primary viewport renders at its own backing scale")
+    // The device-pixel numbers that made the measured 2.000x horizontal / 1.095x vertical squish:
+    let panelPx = CGSize(width: o0.size.width * o0.scale, height: o0.size.height * o0.scale)
+    let worldPx = CGSize(width: 3840 * 2, height: 1183 * 2)
+    check(panelPx == CGSize(width: 3840, height: 2160), "squish: the correct primary drawable is 3840x2160 device px")
+    check(worldPx == CGSize(width: 7680, height: 2366), "squish: the world is 7680x2366 device px — what f48a980 wrongly used")
+    check(worldPx.width / panelPx.width == 2.0, "squish: the regression compressed the primary panel exactly 2x horizontally")
+    check(abs(worldPx.height / panelPx.height - 1.0953703703703703) < 1e-12, "squish: and ~1.095x vertically — hence blurry, not just narrow")
+    // A mixed-DPI pair: each panel keeps its own scale even though the recording is made at the finest (clamped at 2).
+    check(viewportOutput(panelSize: CGSize(width: 1440, height: 900), backing: 1).scale == 1, "squish: a 1x panel renders at 1x")
+    check(viewportOutput(panelSize: CGSize(width: 1920, height: 1080), backing: 3).scale == 2, "squish: a >2x panel is still clamped at 2")
+    // 🔴 the Laptop guard: one screen means output == world, so nothing about the single-screen path moves.
+    let lone = CGRect(x: 0, y: 0, width: 1728, height: 1117)
+    let lo = viewportOutput(panelSize: lone.size, backing: 2)
+    check(lo.size == lone.size && lo.scale == 2, "squish: with ONE screen the panel IS the world — Laptop unchanged")
+    check(!drawableStale(CGSize(width: 1728 * 2, height: 1117 * 2), w: Int(lone.width * 2), h: Int(lone.height * 2)),
+          "squish: the Laptop's own drawable is never considered stale")
 }
 
 print("\(passed) passed, \(failed) failed")

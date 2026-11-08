@@ -335,6 +335,24 @@ DB_FOOTER = """
 """
 
 
+# Both writers escape a pipe inside a cell as `\|` (save_db/save_launches `esc`), so both
+# readers must split on an UNescaped pipe and unescape after. Splitting on every `|` shifts
+# every later column of that row by one — a cell containing one pipe silently moved Command
+# into Added, Notes into Machine (found 2026-11-05 by a round-trip test; the owner's tables
+# happened to contain none yet). Sprites' app/projects.js already parsed it this way.
+_CELL_SPLIT_RE = re.compile(r"(?<!\\)\|")
+
+
+def split_cells(line: str) -> list[str]:
+    """The cells of a markdown table row, honouring `\\|` escapes."""
+    s = line.strip()
+    if s.startswith("|"):
+        s = s[1:]
+    if s.endswith("|") and not s.endswith("\\|"):
+        s = s[:-1]
+    return [c.strip().replace("\\|", "|") for c in _CELL_SPLIT_RE.split(s)]
+
+
 def load_db() -> list[Waypoint]:
     """Read and parse the Markdown database. Returns [] if it doesn't exist."""
     if not DB_PATH.exists():
@@ -352,7 +370,7 @@ def load_db() -> list[Waypoint]:
                 in_table = False
             continue
 
-        cells = [c.strip() for c in line.strip("|").split("|")]
+        cells = split_cells(line)
 
         # Detect the header row and the |---|---| separator row and skip them.
         lowered = [c.lower() for c in cells]
@@ -435,6 +453,63 @@ def parse_focus(cell: str) -> bool:
     return cell.strip().lower() in FOCUS_TRUE
 
 
+# --------------------------------------------------------------------------- #
+# The project colour inside a Command cell
+# --------------------------------------------------------------------------- #
+#
+# ONE colour per project (owner, 2026-11-05): the sprite, the iTerm2 text and the
+# SidePulse LED all read it, so it lives in exactly one place — the `]10;` escape
+# in the Command cell, `printf '\033]10;#RRGGBB\007'`.
+#
+# A Command cell is a shell command the owner runs dozens of times a day. Rewriting it
+# is anchored on the `]10;#` escape and touches SIX hex digits, nothing else: the
+# `claude …` invocation, its flags, `{NAME}`/`{DIR}`, quoting, a `/color` argument and
+# any `: led=#RRGGBB;` marker (a DELIBERATE separate choice) all survive byte-for-byte.
+# Never run a bare hex regex over the cell: `/color` arguments and notes contain hex-
+# looking text, and `led=` must not move with the text colour.
+COLOUR_ESCAPE_RE = re.compile(r"(\]10;#)([0-9A-Fa-f]{6})")
+HEX_RE = re.compile(r"^#?([0-9A-Fa-f]{6})$")
+
+
+def normalize_hex(value: str) -> str | None:
+    """'#5bcc00', '5BCC00' -> '#5BCC00'. None when it is not a 6-digit hex."""
+    m = HEX_RE.match((value or "").strip())
+    return "#" + m.group(1).upper() if m else None
+
+
+def command_colour(command: str) -> str | None:
+    """The text colour a Command cell sets, or None when it sets none."""
+    m = COLOUR_ESCAPE_RE.search(command or "")
+    return "#" + m.group(2).upper() if m else None
+
+
+def colour_prefix(hexval: str) -> str:
+    """The `printf` that sets the iTerm2 foreground, as every coloured row spells it."""
+    return "printf '\\033]10;%s\\007'; " % hexval
+
+
+def set_command_colour(command: str, hexval: str, template: str | None = None) -> str:
+    """Return `command` with its `]10;` text colour set to `hexval`.
+
+    Three cases, all of which keep the rest of the command intact:
+      * it already sets a colour  -> only those six hex digits change (the first escape;
+        a second `]10;` would be dead code anyway, and `: led=#…;` is never an `]10;`).
+      * it is a command with no colour -> the printf is PREFIXED, the command follows unchanged.
+      * it is BLANK (meaning "use the database's default template") -> the printf is
+        prefixed to that template spelled out, because a row whose only content is a
+        printf would run no session at all. That row then stops tracking later template
+        changes — the same trade every already-coloured row has made.
+
+    Rows gain a colour rather than being skipped: a picker that silently does nothing to
+    some projects is the failure the owner asked us to avoid.
+    """
+    hexval = normalize_hex(hexval) or hexval
+    if COLOUR_ESCAPE_RE.search(command or ""):
+        return COLOUR_ESCAPE_RE.sub(lambda m: m.group(1) + hexval[1:], command, count=1)
+    body = (command or "").strip() or (template or DEFAULT_LAUNCH_TEMPLATE)
+    return colour_prefix(hexval) + body
+
+
 LAUNCH_TEMPLATE_LABEL = "Default launch template:"
 
 LAUNCH_DB_HEADER_TMPL = """\
@@ -502,7 +577,7 @@ def load_launches() -> list[Launch]:
                 in_table = False
             continue
 
-        cells = [c.strip() for c in line.strip("|").split("|")]
+        cells = split_cells(line)
         lowered = [c.lower() for c in cells]
         if lowered[:2] == ["name", "waypoint"]:
             in_table = True
@@ -1413,6 +1488,35 @@ def cmd_launch_template(args) -> int:
         return 0
     save_launches(load_launches(), args.template)
     ok(f"Default launch template set to: {args.template}")
+    return cmd_sync(args)
+
+
+def cmd_launch_colour(args) -> int:
+    """Set (or print) a project's ONE colour: the `]10;` text hex in its Command cell.
+
+    Machine scope follows `focus add` exactly: with no global --machine, EVERY row for
+    that Name changes (Dialexis has a blank-Machine row and an mt-BBBBBB row, and one
+    project has one colour everywhere); with --machine, only that row.
+    """
+    launches = load_launches()
+    rows = _focus_rows(launches, args.name, args.machine)
+    scope = f" (machine: {args.machine.strip().lower() or 'universal'})" if args.machine is not None else ""
+    if not rows:
+        die(f"No launch alias named '{args.name}'{scope}. Create it first with "
+            f"`waypoint launch add {args.name} --waypoint WP`.")
+    if args.hex is None:
+        for l in rows:
+            print(f"{l.name} {l.machine or '*'} {command_colour(l.command) or '(none)'}")
+        return 0
+    hexval = normalize_hex(args.hex)
+    if hexval is None:
+        die(f"'{args.hex}' is not a 6-digit hex colour (e.g. #5BCC00).")
+    template = load_launch_template()
+    for l in rows:
+        l.command = set_command_colour(l.command, hexval, template)
+    save_launches(launches, template)
+    labels = ", ".join(l.machine or "universal" for l in rows)
+    ok(f"{rows[0].name} colour set to {hexval} ({labels}).")
     return cmd_sync(args)
 
 
@@ -2347,6 +2451,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     ll = lsub.add_parser("list", help="List launch aliases with resolved dir and command.")
     ll.set_defaults(func=cmd_launch_list)
+
+    lc = lsub.add_parser("colour", aliases=["color"],
+                         help="Show or set a project's ONE colour (the `]10;` text hex in its Command).")
+    lc.add_argument("name", help="Launch alias name.")
+    lc.add_argument("hex", nargs="?", default=None, help="#RRGGBB; omit to print the current colour.")
+    lc.set_defaults(func=cmd_launch_colour)
 
     lt = lsub.add_parser("template", help="Show or set the default command template.")
     lt.add_argument("template", nargs="?", default=None,

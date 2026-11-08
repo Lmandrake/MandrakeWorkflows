@@ -1,5 +1,11 @@
 # Version history
 
+## v0.3 (2026-11-06): the exam is set before Build and validated before it counts
+
+- `workers/BUILDER_JUDGE.md`: Setter writes the exam at the base sha; the pipeline VALIDATEs it (assertion reds only, no
+  existence-only behavioural checks, no deleting breaks, item-sentence maps, exam_hash over named files); hold-outs move
+  to the Marker at mark time. RimMandrake ships it in shadow (`relentless_exam.py`, WP-03 of the 2026-11-06 redesign).
+
 ## v0.2 (2026-11-03): pipeline and workers named apart
 
 - Owner, 2026-11-03: the system is the **Relentless Pipeline**; each worker in its places is a **Relentless-style

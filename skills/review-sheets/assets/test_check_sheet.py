@@ -56,6 +56,10 @@ CASES = [
                 .replace("</header>", "</div></header>", 1),
      "the filter bar is OUTSIDE the folding region"),
 
+    ("sheet is wider than a 1440x900 window",
+     lambda h: h.replace("</head>", "<style>body{min-width:2200px}</style></head>", 1),
+     "the sheet fits a 1440x900 window"),
+
     ("no copy button for the save path",
      lambda h: h.replace("data-copy=", "data-nocopy=").replace("clipboard.writeText", "noop"),
      "a copy button exists for the save path"),
@@ -208,6 +212,20 @@ def main() -> int:
         fails = [lab for sev, lab, _ in run(mutate(base)) if sev == check_sheet.FAIL]
         rows.append((not fails, f"no phantom FAIL: {name}",
                      f"spurious: {fails}" if fails else ""))
+
+    # --kind trial: strip the row data; row checks must vanish, fold checks must remain.
+    stripped = re.sub(r'<script id="(ITEMS|CONFIG)" type="application/json">.*?</script>', "", base, flags=re.S)
+    try:
+        with open(broken, "w", encoding="utf-8") as fh:
+            fh.write(stripped)
+        trial = check_sheet.check(broken, None, "trial")
+    finally:
+        if os.path.exists(broken):
+            os.unlink(broken)
+    tl = [lab for _, lab, _ in trial]
+    rows.append((not [l for s_, l, _ in trial if s_ == check_sheet.FAIL] and "the brief has a fold toggle" in tl
+                 and "rows" not in tl and "posture is stated in the page" not in tl,
+                 "kind=trial skips row checks, keeps fold checks", ""))
 
     print()
     for ok, name, detail in rows:

@@ -1,0 +1,21 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Arm C2 - vector edges</title></head>
+<body>
+<!-- ARM C, ROUND 2 of the symbol-resolution comparison (docs/SYMBOL_RESOLUTION.md). An EXPERIMENT PAGE:
+     never loaded by app/stage.html, never in its SPECIES list. Same piece as armC_vector.html, switched to
+     EDGE-ONLY drawing: each symbol is its outline (symbols_edge.js; Batman traced from the owner's
+     reference image), stroked as a crisp hairline the way Choir strokes its rings, with no fill. -->
+<script id="COLOPHON" type="application/json">[
+ "arm C2: the three symbols as stroked vector outlines only, resolving at device resolution",
+ "same data mapping as c6_night; the CPU sweep and strain light the outline, not a filled body"
+]</script>
+<script src="../../timelines.js"></script>
+<script src="../../scenarios.js"></script>
+<script src="symbols_edge.js"></script>
+<script>window.SPRITES_ARMC_EDGE = true;</script>
+<script src="../../visitors_runtime.js"></script>
+<script src="armC_vector.js"></script>
+<script>
+SpritesArmCVector(V, ["Batman", "Batman", "Batman", "Batman", "TARDIS", "TARDIS", "TARDIS", "Cog"]);
+</script>
+</body></html>

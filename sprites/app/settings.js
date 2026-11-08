@@ -24,6 +24,12 @@
     { id: "c3_sigils", name: "Living Sigils", blurb: "A pixel glyph that breathes and glints, its lights running the strokes." },
     { id: "c4_kaleido", name: "Kaleidoscope Seeds", blurb: "A turning mandala seed, folding light through its petals." },
     { id: "c5_fireflies", name: "Firefly Murmurations", blurb: "A murmuration of fireflies tracing one figure around a bright queen." },
+    { id: "c6_night", name: "Night Signals", blurb: "A signal lamp's emblem as a crisp outline: one pop-culture mark per session." },
+    { id: "c7_patches", name: "Mission Patches", blurb: "A mission patch's emblem as a crisp outline: one spaceflight mark per session." },
+    { id: "c8_instruments", name: "Instrument Marks", blurb: "A laboratory mark as a crisp outline: one science or computing emblem per session." },
+    { id: "c9_wild", name: "Wild Signs", blurb: "A natural-world sign as a crisp outline: one creature or element per session." },
+    { id: "c10_made", name: "Made Marks", blurb: "A built thing in fine hard dots: one tool or structure per session." },
+    { id: "c11_old", name: "Old Signs", blurb: "A heraldic charge as a crisp outline: one old emblem per session." },
   ];
   // Fallback only: the real names are read from each piece's window.VARIANT_NAMES.
   const NAMES = {
@@ -32,6 +38,12 @@
     c3_sigils: ["Lantern", "Trident", "Halo", "Star", "Invader", "Ascent", "Lattice", "Eye"],
     c4_kaleido: ["Lotus", "Trefoil", "Pentagram", "Snowflake", "Quatrefoil", "Spirograph", "Dandelion", "Honeycomb"],
     c5_fireflies: ["Galaxy", "Halo", "Infinity", "Coil", "Lissajous", "Trefoil", "Comet", "Braid"],
+    c6_night: ["Batman", "Bat Signal", "Delta", "Autobot", "TARDIS", "Fuji", "Starbird", "Cog"],
+    c7_patches: ["Voyager", "Golden Record", "DSN dish", "Juno", "ISS", "JWST mirror", "Mars rover", "Orbit with primary"],
+    c8_instruments: ["Bohr atom", "Chip", "Light bulb", "Water molecule", "Binary tree", "Bell curve", "Neural net", "Gear"],
+    c9_wild: ["Sun", "Mountain", "Tree", "Seed", "Water drop", "Antlers", "Butterfly", "Owl"],
+    c10_made: ["Arch", "Ladder", "Lighthouse", "Pyramid", "Target", "Balance", "Bell", "Hourglass"],
+    c11_old: ["Shield", "Sword", "Skull", "Wing pair", "Phoenix", "Ankh", "Heart", "Anchor"],
   };
   const DEMO = [["Orchard", "#CB50F0"], ["ProjectCert", "#3388EE"], ["ProjectDial", "#66BB22"], ["Lodestar", "#FFCA42"],
     ["Granite", "#22DDAA"], ["SidePulse", "#FF3355"]];
@@ -46,7 +58,7 @@
     const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn; if (!d) return 0;
     const x = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return Math.round((x * 60 + 360) % 360); }
   const url = (c, iv, hue, [w, h], live) => `${PROTO}${c}.html?tl=g_cast&w=${w}&h=${h}&chrome=0&bg=0&dim=0&hover=0` +
-    `&hue=${hue}&iv=${iv}` + (live ? "&autostart=1&loop=1" : "&autostart=0");
+    `&hue=${hue}&iv=${iv}` + (h < STAGE.hero[1] ? "&fit=1" : "") + (live ? "&autostart=1&loop=1" : "&autostart=0");   // fit: tiles size the craft to the cell
 
   const SP = window.SpritesProjects;
   // centry: the cast entry of a row (by key; an entry saved before #2 under the alias or registry Name still counts)
@@ -105,7 +117,7 @@
       document.querySelectorAll(".tile").forEach(t => live(t, false)); } else paintHero(true); });
 
   // ---------- model ----------
-  function defaults(i) { return { concept: SPECIES[i % 5].id, iv: (i * 3) % 8 }; }
+  function defaults(i) { return { concept: SPECIES[i % SPECIES.length].id, iv: (i * 3) % 8 }; }
   function cur() { if (!waypoint) return browse; const p = projects[sel]; if (!p) return browse;
     const c = centry(p); const d = defaults(sel);
     return { concept: SPECIES.some(s => s.id === c.concept) ? c.concept : d.concept,
@@ -138,14 +150,77 @@
   // the same table and rule as the stage's hover label (app/projects.js shortTable), without this window's overrides
   function autoShort(p) { try { return (SP ? SP.shortTable(table, null) : {})[p.key] || p.label; } catch (e) { return p.label; } }
   function shortOf(p) { const c = centry(p); return c.short ? String(c.short) : autoShort(p); }
-  function paintShort() { const row = $("shortRow"), inp = $("short"); row.classList.toggle("hidden", !waypoint); $("visRow").classList.toggle("hidden", !waypoint); if (!waypoint) return;
+  function paintShort() { const row = $("shortRow"), inp = $("short"); row.classList.toggle("hidden", !waypoint); $("visRow").classList.toggle("hidden", !waypoint);
+    $("clrRow").classList.toggle("hidden", !waypoint); $("focusRow").classList.toggle("hidden", !waypoint); if (!waypoint) return;
     const p = projects[sel]; if (!p) return; if (document.activeElement !== inp) inp.value = centry(p).short || "";
-    inp.placeholder = autoShort(p); paintVis(p); }
+    inp.placeholder = autoShort(p); paintVis(p); paintColour(p); paintFocus(p); }
   let shortT = 0;
   $("short").oninput = () => { const p = projects[sel]; if (!p) return; const v = $("short").value.trim().slice(0, 12), c = cur();
     const e = Object.assign({ concept: c.concept, iv: c.iv, hex: p.hex }, centry(p));
     if (v) e.short = v; else delete e.short; putCast(p, e);
     clearTimeout(shortT); shortT = setTimeout(save, 350); };
+  // ---------- project colour and focus (owner, 2026-11-05) ----------
+  // ONE colour per project, shared: the sprite, the iTerm2 text and the SidePulse LED all read it, so a new
+  // colour rewrites the project's canonical hex (Waypoint: the `]10;` escape in its launches.md Command cell)
+  // rather than a sprite-only field. The hue drives the SAME --hue / hexHue() path the species pickers use, so
+  // the hero, the stills and the label preview follow the moment it changes.
+  // Focus: the launches.md `Focus` column, through `waypoint focus add|remove`. A project with no launch alias
+  // on this machine cannot be focused (and, with Waypoint, has no Command cell to colour): the control is
+  // disabled and SAYS so rather than silently doing nothing.
+  // Without Waypoint both go to the host's local settings file (app/macos/Config.swift Paths.projects, beside
+  // cast.json and behaviors.json); in a plain browser, to localStorage.
+  let hasWaypoint = true, writeN = 0;
+  const pending = new Map();
+  const LOCAL_KEY = "sprites.projects";
+  function localProjects() { try { const o = JSON.parse(localStorage.getItem(LOCAL_KEY) || "null"); return (o && o.projects) || {}; } catch (e) { return {}; } }
+  function putLocalProject(p, patch) { const all = localProjects(); all[p.key] = Object.assign({}, all[p.key], patch);
+    try { localStorage.setItem(LOCAL_KEY, JSON.stringify({ projects: all })); return null; } catch (e) { return String(e.message || e); } }
+  /** Send one project write to the host; `revert` runs with the message if it fails. */
+  function writeProject(kind, p, patch, revert) {
+    const id = "w" + ++writeN, msg = {};
+    msg[kind] = Object.assign({ id: id, key: p.key, alias: p.alias || "" }, patch);
+    if (post(msg)) { pending.set(id, revert); return; }
+    const err = putLocalProject(p, patch);   // no host bridge: the browser's own store
+    if (err) revert(err); else flashSaved();
+  }
+  function writeResult(o) { o = o || {}; const revert = pending.get(o.id); if (!revert) return; pending.delete(o.id);
+    if (o.error) revert(String(o.error)); else flashSaved(); }
+  /** The one place that says why a control is unavailable (and clears it). */
+  function say(msg, bad) { const w = $("focusWhy"); w.textContent = msg || ""; w.classList.toggle("bad", !!msg && !!bad); }
+  /** With Waypoint a project needs a launch alias to have a colour or a focus marker at all. */
+  function needsAlias(p) { return hasWaypoint && !(p && p.alias); }
+  function paintColour(p) { const row = $("clrRow"); row.classList.toggle("hidden", !waypoint);
+    if (!waypoint || !p) return; const hex = /^#[0-9a-f]{6}$/i.test(p.hex || "") ? p.hex.toUpperCase() : "#8899AA";
+    $("clr").value = hex.toLowerCase(); $("clrHex").textContent = hex;
+    $("clr").disabled = needsAlias(p); $("clrWrap").title = needsAlias(p)
+      ? "No launch alias on this machine, so this project has no colour to set" : "This project's one colour: its sprite, its iTerm2 text and its SidePulse LED all use it"; }
+  function paintFocus(p) { const row = $("focusRow"); row.classList.toggle("hidden", !waypoint);
+    if (!waypoint || !p) return; const on = !!p.focus, no = needsAlias(p);
+    [...$("focusSeg").children].forEach(b => { b.setAttribute("aria-checked", (b.dataset.f === "1") === on ? "true" : "false"); b.disabled = no; });
+    say(no ? "No launch alias on this machine: a project with no launch row cannot be a focus project." : "", false); }
+  let clrT = 0;
+  // `input` fires continuously while the native picker is dragged: the preview follows every event, the write
+  // is debounced to the colour he settles on (as the short-name field and the sliders do).
+  $("clr").oninput = () => { const p = projects[sel]; if (!p || needsAlias(p)) return;
+    const hex = String($("clr").value || "").toUpperCase(); if (!/^#[0-9A-F]{6}$/.test(hex)) return;
+    const was = p.hex; if (hex === (was || "").toUpperCase()) return;
+    p.hex = hex; const t = table.find(e => e && e.key === p.key); if (t) t.hex = hex;
+    $("clrHex").textContent = hex; rowKey = varKey = ""; render();   // the hue path: hero, stills, label preview
+    clearTimeout(clrT); clrT = setTimeout(() => { $("clrRow").classList.add("busy");
+      // the cast mirrors the project's hex, and the stage prefers the cast's: move it too, or a stale cast
+      // entry would keep painting the old colour after the table changed.
+      castHex(p, hex);
+      writeProject("setProjectColour", p, { hex: hex }, err => { p.hex = was; if (t) t.hex = was; castHex(p, was);
+        rowKey = varKey = ""; $("clrRow").classList.remove("busy"); render(); say("Colour not saved: " + err, true); });
+      setTimeout(() => $("clrRow").classList.remove("busy"), 1200); }, 220); };
+  function castHex(p, hex) { const e = centry(p); if (!e || !Object.keys(e).length) return;   // nothing saved yet: nothing to correct
+    if (/^#[0-9A-F]{6}$/i.test(hex || "")) { putCast(p, Object.assign({}, e, { hex: hex })); save(); } }
+  [...$("focusSeg").children].forEach(b => b.onclick = () => { const p = projects[sel]; if (!p || needsAlias(p)) return;
+    const on = b.dataset.f === "1"; if (on === !!p.focus) return; p.focus = on;
+    const t = table.find(e => e && e.key === p.key); if (t) t.focus = on; paintFocus(p);
+    writeProject("setProjectFocus", p, { focus: on }, err => { p.focus = !on; if (t) t.focus = !on; paintFocus(p);
+      say((on ? "Could not add focus: " : "Could not remove focus: ") + err, true); }); });
+
   // ---------- on screen: Show / Hide / Hide @ Work (owner, 2026-11-04; ProjectCert "is an outside project") ----------
   // cast.projects[key].visibility "hide" | "hide_at_work" (absent = show); the stage drops the project's sprites and
   // ghost, for hide_at_work while Augur reads vpn.on_site true (at work).
@@ -175,7 +250,7 @@
   function render() { paintList(); paintInfo(); paintHero(); paintVariants(); paintSpecies(); }
 
   $("surprise").onclick = () => { const c = cur(); let s, v;
-    do { s = SPECIES[Math.floor(Math.random() * 5)].id; v = Math.floor(Math.random() * 8); } while (s === c.concept && v === c.iv);
+    do { s = SPECIES[Math.floor(Math.random() * SPECIES.length)].id; v = Math.floor(Math.random() * 8); } while (s === c.concept && v === c.iv);
     if (!waypoint) browse.hex = "#" + hsl2hex(Math.floor(Math.random() * 360));
     choose({ concept: s, iv: v }); };
   function hsl2hex(h) { const l = 0.6, a = 0.9 * Math.min(l, 1 - l), f = n => { const k = (n + h / 30) % 12;
@@ -273,13 +348,22 @@
   function init(o) { o = o || {}; cast = o.cast && typeof o.cast === "object" ? o.cast : { projects: {} };
     if (!cast.projects || typeof cast.projects !== "object") cast.projects = {};
     waypoint = o.waypoint !== false && Array.isArray(o.projects) && o.projects.length > 0;
+    // Real detection, by the host (app/macos/Config.swift waypointCLIPath: an EXECUTABLE CLI and a
+    // launches.md that parses into launch rows, not a path that merely exists). Absent: the colour and
+    // focus writes go to the host's local settings file instead, and the same `nowp=1` switch still
+    // drives whether this window shows the project list at all.
+    hasWaypoint = o.hasWaypoint !== false && o.waypoint !== false;
+    pending.clear(); say("", false);
     const rows = waypoint ? o.projects.filter(p => p && p.name && /^#[0-9a-f]{6}$/i.test(p.hex || "")) : [];
     // a full table (entries carry focus) lists its focus rows; a plain [{name, hex}] list is all rows, keyed by name
     const isTable = rows.some(p => "focus" in p);
     table = waypoint ? o.projects.filter(p => p && p.name).map(p => Object.assign({}, p)) : [];
     // a full table's row with key null (a launch dir that is no registry project, e.g. MandrakeVisualize) can match no
     // session: Augur keys sessions by registry project, so its cast would be read by nothing (R2-SPEC #3). Not listed.
-    projects = (isTable ? rows.filter(p => p.focus && p.key) : rows).map(p => Object.assign({}, p, { key: p.key || p.alias || p.name, label: p.alias || p.name }));
+    // Without Waypoint nothing is focused until he says so, so a focus-only filter would leave the list
+    // empty and there would be nothing to colour or focus: every keyed row is listed instead.
+    const listed = !isTable ? rows : hasWaypoint ? rows.filter(p => p.focus && p.key) : rows.filter(p => p.key);
+    projects = listed.map(p => Object.assign({}, p, { key: p.key || p.alias || p.name, label: p.alias || p.name }));
     if (!isTable) table = projects;
     if (!projects.length) waypoint = false;
     sel = 0; rowKey = varKey = heroKey = "";
@@ -376,9 +460,21 @@
   $("dimIcons").oninput = () => { const v = +$("dimIcons").value; behExtra.dimIcons = v; $("dimVal").textContent = v === 0 ? "off" : v + "%";
     clearTimeout(dimT); dimT = setTimeout(saveBeh, 200); };
   $("bdBoost").onchange = () => { bd.boost = $("bdBoost").checked; bdFrame(true); };
-  window.SpritesSettings = { init, get cast() { return cast; }, get labelStyle() { return labelStyle; }, showTab, setVisibility };
+  window.SpritesSettings = { init, get cast() { return cast; }, get labelStyle() { return labelStyle; }, showTab, setVisibility, writeResult };
   const q = new URLSearchParams(location.search);
   if (q.get("demo") === "1") { let saved = null, sb = null, sd = false; const rd = k => { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch (e) { return null; } };
     saved = rd("sprites.cast"); sb = rd("sprites.behaviors"); sd = !!rd("sprites.demo"); const sz = rd("sprites.size"), vh = !!rd("sprites.hidden"), vm = !!rd("sprites.meeting");
-    init(q.get("nowp") === "1" ? { cast: saved, waypoint: false, behaviors: sb, demo: sd, size: sz, hidden: vh, meeting: vm } : { cast: saved, projects: DEMO.map(([name, hex]) => ({ name, hex })), behaviors: sb, demo: sd, size: sz, hidden: vh, meeting: vm }); }
+    const base = { cast: saved, behaviors: sb, demo: sd, size: sz, hidden: vh, meeting: vm };
+    const nowp = q.get("nowp");
+    // nowp=1: nothing to list at all -> the browse-only gallery (unchanged).
+    // nowp=local: no Waypoint but projects exist -> the colour and focus controls write to the local store,
+    // which is the shape the host hands over when its waypointCLIPath() finds no CLI or no launch rows.
+    // local=true reads the browser's own store, as the host reads its local settings file.
+    const demoTable = (local, dflt) => DEMO.map(([name, hex]) => { const k = SP ? SP.keyOf(name) : name.toLowerCase();
+      const e = local ? (localProjects()[k] || {}) : {};
+      return { key: k, name: name, dir: "/x/" + name, alias: name, hex: e.hex || hex,
+        focus: typeof e.focus === "boolean" ? e.focus : dflt }; });
+    if (nowp === "1") init(Object.assign({ waypoint: false }, base));
+    else if (nowp === "local") init(Object.assign({ projects: demoTable(true, false), hasWaypoint: false }, base));
+    else init(Object.assign({ projects: demoTable(false, true) }, base)); }
 })();

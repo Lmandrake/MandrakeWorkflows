@@ -149,35 +149,35 @@ discipline (rule 1) actually pay off.
 | "that question isn't resolved, I'll leave it out" | An unrecorded open question becomes an invisible assumption. Register it so "defaulted" stays distinct from "decided". |
 | "the orchestrator can just do this check itself" | Then the rule lives in two places and drifts. The orchestrator invokes the specialist that owns the rule; it never copies it. |
 
-## Worked example: MandrakeVisualize's registry
+## Worked example: the visualize registry
 
-MandrakeVisualize is itself an instance of the pattern — a machine-readable principle registry with a
+The visualize tree is itself an instance of the pattern — a machine-readable principle registry with a
 force vocabulary and per-entry checks, a companion controlled vocabulary, a conflict ledger, a
 dated snapshot, a decision log with reversal conditions, a registered open-questions list, a
 routing failure taxonomy, and an orchestrator that delegates rather than duplicates.
 
-Read, in order (paths are in the companion MandrakeVisualize repository):
+Read, in order (paths are in the `visualize/` tree of MandrakeWorkflows):
 
-- `MandrakeVisualize/principles/principles.yaml` — the entry schema in the header comment
+- `MandrakeWorkflows/visualize/principles/principles.yaml` — the entry schema in the header comment
   (id / class / principle / force / evidence_tier / contexts / exceptions / sources / rationale /
   checks — note the rule-statement field is named `principle` here, the field `references/registry-schema.md`
   calls `statement` generically), the `force_semantics` table, and the `families` namespace. This
   is rules 1–3 made concrete.
-- `MandrakeVisualize/principles/glossary.md` — the shared vocabulary so each id means one
+- `MandrakeWorkflows/visualize/principles/glossary.md` — the shared vocabulary so each id means one
   thing across every consumer.
-- `MandrakeVisualize/principles/analytical_questions.yaml` — a second registry with its
+- `MandrakeWorkflows/visualize/principles/analytical_questions.yaml` — a second registry with its
   own stable ids, anchored to an external controlled vocabulary (the FT "Visual Vocabulary").
-- `MandrakeVisualize/principles/conflicts.md` — how two good entries that disagree are
+- `MandrakeWorkflows/visualize/principles/conflicts.md` — how two good entries that disagree are
   *adjudicated, not deleted*: record the tension, state the governing force, name the flip.
-- `MandrakeVisualize/synthesis/v0.1-summary.md` — the dated, versioned snapshot of what
+- `MandrakeWorkflows/visualize/synthesis/v0.1-summary.md` — the dated, versioned snapshot of what
   the registry held at v0.1 (rule 4).
-- `MandrakeVisualize/synthesis/DECISIONS.md` — each non-obvious call with its reasoning
+- `MandrakeWorkflows/visualize/synthesis/DECISIONS.md` — each non-obvious call with its reasoning
   and a "Reverses if" condition (rule 5).
-- `MandrakeVisualize/synthesis/OPEN_QUESTIONS.md` — uncertainties registered and tagged
+- `MandrakeWorkflows/visualize/synthesis/OPEN_QUESTIONS.md` — uncertainties registered and tagged
   rather than silently defaulted (rule 6).
-- `MandrakeVisualize/evaluation/FAILURE_TAXONOMY.md` — seven failure levels, each routed
+- `MandrakeWorkflows/visualize/evaluation/FAILURE_TAXONOMY.md` — seven failure levels, each routed
   to an owning skill and the ids that guard it (rule 7).
-- `MandrakeVisualize/skills/v0.1/visual-critic/SKILL.md` — the orchestrator that invokes
+- `MandrakeWorkflows/skills/visual-critic/SKILL.md` — the orchestrator that invokes
   the specialist skills and explicitly "does not duplicate their rules" (rule 8).
 
 The full field-by-field schema, id-namespace conventions, force-semantics table, a worked

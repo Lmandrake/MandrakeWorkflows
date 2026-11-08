@@ -69,6 +69,7 @@ line for an answer you did not think of.
 **Prose exceptions: exactly two, both announced as a question.** (1) The tool cannot
 render a write-in on a preview-free card. (2) More than four real options: the
 body-rendered card below. Neither is a shortcut for when a card feels heavy.
+- **Keep every option description short (under ~350 characters).** A 4-question card with ~600-character descriptions came back 'Denied by user' while the same card with shorter descriptions rendered and was answered (cause unproven).
 
 ## Mockups
 
@@ -122,6 +123,8 @@ redirect the work. Timing never justifies downgrading a card to prose.
 - [ ] Lead-in only what changes the answer; mockups above the card
 - [ ] Anything the user must look at was shown first, and the "ready for a question card?" pause was honoured
 - [ ] Checkbox cards: interactions surfaced as a named combination option
+- [ ] Every count on the card was re-measured just before asking, not copied from the item prose. Work moves same-day; the owner must never be asked to rule on a row count or a diagnosis that changed since the item was written.
+- **The question tool's hook refuses a question whose text does not END in `?` and any header over 12 characters.** A trailing parenthesis after the `?` also fails. Put any document path or context before the question and end the question text on the `?`; keep headers to 12 characters or fewer.
 
 ## Growing this skill
 

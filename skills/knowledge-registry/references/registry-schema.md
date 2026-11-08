@@ -4,7 +4,7 @@ The structural detail behind `knowledge-registry`. The SKILL.md is the decision 
 *when* and *why* to do each thing. This file is the *how*: the field-by-field schema, id
 conventions, force semantics, a worked entry, and a checklist for adding or versioning an
 entry. The pattern is general (any registry of admitted, citable knowledge). Examples are
-drawn from `MandrakeVisualize/principles/principles.yaml`, but nothing here is specific
+drawn from `MandrakeWorkflows/visualize/principles/principles.yaml`, but nothing here is specific
 to visualization.
 
 ## Contents
@@ -60,7 +60,7 @@ a statement but no force is an opinion.
 - **Compound citations.** If consumers write slash-lists (`QA-01/03`), make the audit lint
   expand them before matching, or a naive `\bID-\d{2}\b` scan will read only the first id and
   report a false dangling reference. (This exact false positive is logged in
-  `MandrakeVisualize/synthesis/DECISIONS.md`.)
+  `MandrakeWorkflows/visualize/synthesis/DECISIONS.md`.)
 
 ## 3. Force-semantics table
 

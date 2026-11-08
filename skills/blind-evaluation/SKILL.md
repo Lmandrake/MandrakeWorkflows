@@ -90,6 +90,7 @@ Name the alternative explanation you would find most embarrassing, then design o
 re-run that would distinguish it. If the tally survives the re-run *and* the pattern of
 individual results shifts, you have real evidence: the aggregate is not an artifact of
 the thing you controlled for.
+- **Save the exact framing prompt of every blind check next to its output** (for example `blind_prompt_<n>.md`). Without it a later pass has to be re-framed from scratch and the two passes cannot be compared like for like.
 
 ## Confounds worth expecting
 

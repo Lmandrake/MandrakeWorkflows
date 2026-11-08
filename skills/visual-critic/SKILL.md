@@ -114,5 +114,5 @@ levels per §9. Child-skill principles live in their own SKILL.md Source basis a
 in principles.yaml.
 
 ## Known open questions
-- Calibrating rubric weights against the MandrakeVisualize validation set (later track).
+- Calibrating rubric weights against the `visualize/` validation set (later track).
 - Whether critique-mode should output a machine-readable defect list for tooling.

@@ -9,6 +9,21 @@
 <script src="../prototype/timelines.js"></script>
 <script src="../prototype/scenarios.js"></script>
 <script src="../prototype/visitors_runtime.js"></script>
+<!-- 🔴 A glyph species' piece file is ONE line (SpritesSigilsEngine or SpritesVectorEngine (V, table)), and the stage runs only that
+     line: loadSrc() keeps a piece's LAST inline script and ignores its src-tags entirely. So the shared
+     renderers and every glyph table must be listed HERE as well as in the piece, or the species throws
+     "SpritesSigilsEngine is not defined" on stage while rendering perfectly as a standalone page.
+     Never write a script tag literally in a comment in this file: the loaders match script tags with one
+     regex over the raw HTML, so a mention in prose is parsed as a real tag and eats the next real one. -->
+<script src="../prototype/sigils/engine.js"></script>
+<script src="../prototype/sigils/glyphs_sigils.js"></script>
+<script src="../prototype/vector/engine.js"></script>
+<script src="../prototype/vector/glyphs_night_vector.js"></script>
+<script src="../prototype/vector/glyphs_mission_patches_vector.js"></script>
+<script src="../prototype/vector/glyphs_instrument_marks_vector.js"></script>
+<script src="../prototype/vector/glyphs_wild_signs_vector.js"></script>
+<script src="../prototype/vector/glyphs_made_marks_vector.js"></script>
+<script src="../prototype/vector/glyphs_old_signs_vector.js"></script>
 <script src="../prototype/labels/shortname.js" onerror="void 0"></script>
 <script src="projects.js"></script>
 <script src="../prototype/labels/labels.js" onerror="void 0"></script>
@@ -33,7 +48,9 @@
 (function () {
   "use strict";
   const q = new URLSearchParams(location.search);
-  const SPECIES = ["c1_choir", "c2_siphon", "c3_sigils", "c4_kaleido", "c5_fireflies"];
+  // c6_night (Night Signals) and c7..c11 (Mission Patches, Instrument Marks, Wild Signs, Made Marks, Old Signs) are glyph species: the vector renderer over its own outline table
+  // (prototype/vector/). Deleting a glyph species = delete its piece + table and drop it from this list.
+  const SPECIES = ["c1_choir", "c2_siphon", "c3_sigils", "c4_kaleido", "c5_fireflies", "c6_night", "c7_patches", "c8_instruments", "c9_wild", "c10_made", "c11_old"];
   const PROTO = "../prototype/";
   const IGNORE_STALE = q.get("stale") === "0";
   const DPR = parseFloat(q.get("dpr")) || Math.min(2, window.devicePixelRatio || 1);
@@ -62,7 +79,7 @@
   // cast's hex, else the project's Waypoint colour, else random.
   function castFor(key, seedKey, white, name) {
     const e = pindex.get(key), c = !white && SP && SP.castEntry(cast, key, e || { name }) || {}, h = hashStr(seedKey);
-    const concept = SPECIES.includes(c.concept) ? c.concept : SPECIES[h % 5];
+    const concept = SPECIES.includes(c.concept) ? c.concept : SPECIES[h % SPECIES.length];
     const iv = Number.isInteger(c.iv) ? ((c.iv % 8) + 8) % 8 : (h >>> 3) % 8;
     const hue = white ? 0 : (hexHue(c.hex) ?? hexHue(e && e.hex) ?? (h >>> 7) % 360);
     return { concept, iv, hue, hex: white ? undefined : (/^#[0-9a-f]{6}$/i.test(c.hex || "") ? c.hex : e && e.hex || undefined) };
@@ -173,7 +190,7 @@
     DEMO_P.forEach(([name, hue], i) => {
       const present = i < 5 || (i === 5 && u > 30 && u < 150) || (i === 6 && u > 90) || (i === 7 && u < 60);   // 7 or 8 with white + ghost (S9: 6-8)
       if (!present) return;
-      const id = "demo" + i, concept = SPECIES[i % 5], iv = (i * 3) % 8;
+      const id = "demo" + i, concept = SPECIES[i % SPECIES.length], iv = (i * 3) % 8;
       sessions.push({ id, pid: 0, project: name, key: name.toLowerCase(), name, label: name, white: false, ghost: false, concept, iv, hue, started: i });
       const ph = (u + i * 37) % 120;
       const state = i === 2 && u > 20 && u < 75 ? "needs" : ph < 70 ? "working" : "idle";
@@ -422,9 +439,15 @@
   setInterval(() => { const g = clickable(); if (paused || (!hitT && g === lastGate)) return; hitT = 0; lastGate = g;
     const hs = clickHits(), m = JSON.stringify(hs);
     if (m !== lastHitsMsg) { lastHitsMsg = m; const h = host(); if (h) h.postMessage({ hits: hs }); } }, 100);
+  // The owner's gesture is a DOUBLE-click (2026-11-05), so `count` (the event's clickCount) rides with the click and
+  // the host decides (Decide.swift clickGesture): the second click acts at once, a lone click acts once the
+  // double-click window passes. Nothing is decided here — a click over a sprite is always posted, so no click is eaten
+  // ("no behaviour may block a click", R3-SPEC #1, #2).
   addEventListener("mousedown", e => { const hs = clickHits(); let best = null, bd = 1e9;
     for (const h of hs) { const d = Math.hypot(h.x - e.clientX, h.y - e.clientY); if (d <= h.r && d < bd) { bd = d; best = h; } }
-    if (best) { const h = host(); if (h) h.postMessage({ click: { id: best.id, pid: best.pid, project: best.project, key: best.key, ghost: best.ghost } }); window.__lastClick = best; }
+    if (best) { const h = host(); const count = typeof e.detail === "number" && e.detail > 0 ? e.detail : 1;
+      if (h) h.postMessage({ click: { id: best.id, pid: best.pid, project: best.project, key: best.key, ghost: best.ghost, count } });
+      window.__lastClick = Object.assign({}, best, { count }); }
     e.preventDefault(); });
   // demo and play are time-driven: re-evaluate once a second (cheap; layers only hear about real changes)
   setInterval(() => { if (!paused && (demo || lostSince !== null || Object.keys(play).length || performance.now() - lastPush > 900)) push(false); }, 1000);

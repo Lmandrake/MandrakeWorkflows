@@ -303,6 +303,31 @@ func clickAction(id: String, pid: pid_t, project: String, ghost: Bool = false, k
     return .focus(idPid)
 }
 
+// MARK: the gesture (owner, 2026-11-05: "I really do want to be able to double-click on a Sprite and have it open the
+// relevant Claude session or switch Spaces/Focus to it")
+
+/// What a mouse-down with this clickCount should do.
+enum ClickGesture: Equatable {
+    case act              // the second click of a double-click: open or focus now
+    case waitForSecond    // one click so far: act only if no second click arrives within singleClickDelay
+    case alreadyActed     // a third or later click in the same gesture: the action already ran, do nothing
+}
+/// The owner's gesture is the DOUBLE-click, so two clicks act immediately. A single click must still never be eaten
+/// (R3-SPEC #1, #2: "no behaviour may block a click" — a sprite that swallows a click and does nothing is a defect),
+/// so one click acts too, once the double-click window has passed with no second click. Clicks past the second do
+/// nothing: one gesture, one action, so holding the button down does not open a window per click.
+func clickGesture(count: Int) -> ClickGesture {
+    if count >= 3 { return .alreadyActed }
+    return count == 2 ? .act : .waitForSecond
+}
+/// How long a single click waits for its partner: the user's OWN double-click interval
+/// (NSEvent.doubleClickInterval / "com.apple.mouse.doubleClickThreshold"), never a hardcoded guess. Absent (0) means
+/// 0.25 s; clamped to 0.15...1.0 so an absurd preference cannot make a sprite feel dead or fire twice.
+func singleClickDelay(doubleClickInterval: Double) -> Double {
+    guard doubleClickInterval > 0 else { return 0.25 }
+    return min(1.0, max(0.15, doubleClickInterval))
+}
+
 /// The terminal's AppleScript found no tab with the session's tty: never raise every window (log only).
 func activateAllAfterScript(_ result: String?) -> Bool { false }
 
@@ -406,4 +431,187 @@ func spaceSwitchPlan(displays: [[String: Any]], windowSpaces: [Int], hotkeys: [S
 func focusedWindow(_ reply: String?) -> Int? {
     guard let r = reply, r == "ok" || r.hasPrefix("ok ") else { return nil }
     return Int(r.dropFirst(2).trimmingCharacters(in: .whitespaces)) ?? 0
+}
+
+// MARK: one wandering area across every screen (SPRITES_UNIFY_MONITORS_AS_ONE)
+
+/// One screen's place in the shared world. Pure geometry: `Span.of` is the only thing that reads NSScreen (in
+/// Stage.swift), everything below is testable without AppKit.
+///
+/// WHY A WORLD RECT AND NOT ONE BIG WINDOW (measured 2026-11-05, this Desktop, macOS 26.7.1): a single NSPanel whose
+/// frame spans the union of both screens KEEPS that frame (AppKit does not clamp it) but renders on the MAIN DISPLAY
+/// ONLY — difference imaging of two `screencapture -D` frames showed 60 fully-covered rows on display 1 and 0 on
+/// display 2, with "Displays have separate Spaces" on. So the cast cannot live in one window. Instead every screen
+/// keeps its own panel and its own JS world sized to the UNION, and each is told, via setVisible, only the sub-rect
+/// IT shows. One simulation per panel still runs, but they share one coordinate system, so a creature's position means
+/// the same place on both — and `setVisible` keeps each panel's creatures inside the part of the world it can display.
+struct SpanLayout: Equatable {
+    /// The union of every screen frame, in Cocoa global coordinates (bottom-left origin).
+    let world: CGRect
+    /// Per screen, in the same order as the screens given: its rect in WORLD STAGE px (top-left origin of the world).
+    let rects: [CGRect]
+    /// Per screen, its visible frame (menu bar and Dock excluded) in world stage px.
+    let visible: [CGRect]
+    /// World size in stage px.
+    var size: CGSize { world.size }
+}
+
+/// Cocoa global rect (bottom-left origin) -> world stage px (top-left origin of `world`).
+/// The single conversion every span path uses, so a negative-origin secondary screen is handled in ONE place.
+/// Mirrors `visibleStageRect`'s flip, but against the world instead of one screen.
+func worldRect(_ r: CGRect, world: CGRect) -> CGRect {
+    CGRect(x: r.minX - world.minX, y: world.maxY - r.maxY, width: r.width, height: r.height)
+}
+
+/// Cocoa global point -> world stage px.
+func worldPoint(_ p: CGPoint, world: CGRect) -> CGPoint {
+    CGPoint(x: p.x - world.minX, y: world.maxY - p.y)
+}
+
+/// Build the shared world from each screen's (frame, visibleFrame), in Cocoa global coordinates.
+/// A single screen yields world == that frame and rect == (0, 0, w, h), i.e. EXACTLY today's numbers — the Laptop
+/// regression guard.
+func spanLayout(frames: [CGRect], visibleFrames: [CGRect]) -> SpanLayout {
+    var u = CGRect.null
+    for f in frames { u = u.union(f) }
+    let world = u.isNull ? .zero : u
+    return SpanLayout(world: world,
+                      rects: frames.map { worldRect($0, world: world) },
+                      visible: zip(frames, visibleFrames).map { f, v in
+                          // An empty or bogus visibleFrame falls back to the whole frame rather than to nothing.
+                          worldRect(v.isEmpty ? f : v, world: world) })
+}
+
+/// DEAD SPACE (the ticket's hazard 1). The union of two non-aligned screens contains regions no screen displays — on
+/// this Desktop, measured 2026-11-05, the screens are offset 103 px vertically, so 8.7 % of the union is dead. A
+/// creature that wandered there would be invisible AND unclickable.
+///
+/// The decision: the world is the union, but each panel's WALKABLE MASK is its own visible rect, pushed through
+/// `setVisible`. stage.html already bounds every layer's terrain to the visible rect it was given
+/// (visitors_runtime.js `buildGrid` walls off every cell outside `visRect`), so a creature on a panel simply never
+/// routes into a band its own screen cannot show. Dead space is therefore unreachable BY CONSTRUCTION, with no clamp
+/// and no new geometry in the pieces — it is the mechanism that already keeps them out of the Dock and menu bar.
+/// This function exists to MEASURE that claim, not to enforce it: it returns the part of the world no screen covers.
+func deadSpaceFraction(_ l: SpanLayout) -> Double {
+    let total = Double(l.world.width * l.world.height)
+    guard total > 0 else { return 0 }
+    // Screens never overlap in a non-mirrored arrangement, so covered area is the plain sum (asserted by the caller's
+    // tests with an overlap case, where this deliberately reads high rather than silently de-duplicating).
+    let covered = l.rects.reduce(0.0) { $0 + Double($1.width * $1.height) }
+    return max(0, (total - covered) / total)
+}
+
+/// Which screen index owns this world point (-1 = dead space or off-world). Clicks and the cursor resolve through
+/// this, so a world coordinate that crosses a panel boundary still lands on exactly one panel.
+func screenOf(worldPoint p: CGPoint, _ l: SpanLayout) -> Int {
+    for (i, r) in l.rects.enumerated() where r.contains(p) { return i }
+    return -1
+}
+
+/// PER-SCREEN SCALE (the ticket's hazard 3). Two monitors can differ; the world is one coordinate system in POINTS,
+/// so each panel renders the same world at its OWN backing scale and nothing in the world depends on either. This is
+/// the per-panel device scale, still clamped at 2 as before (a 4K TV reports 2.0 here, measured).
+func panelScale(_ backing: CGFloat) -> CGFloat { min(2, backing) }
+
+/// THE WALKABLE AREA (the ticket's hazard 1, the decision). One world spanning both monitors contains dead space no
+/// screen displays. stage.html bounds every layer's terrain to the ONE rect it is given through `setVisible`
+/// (visitors_runtime.js `buildGrid` walls off every cell outside it), and that single-rect shape is load-bearing all
+/// the way down into the pieces — so the walkable area must be expressible as one rectangle.
+///
+/// The choice: the largest axis-aligned rectangle inscribed in the union of the per-screen VISIBLE rects, PREFERRING
+/// a rectangle that touches more screens over a merely bigger one. Every point of it is on a real screen, below the
+/// menu bar and clear of the Dock, so no creature can reach dead space, go invisible, or become unclickable — no clamp
+/// needed anywhere.
+///
+/// 🔴 WHY SPANNING BEATS AREA, and it is a real trade (measured 2026-11-05): maximising area alone DEFEATS THE TICKET.
+/// With a 2560x1440 beside a 1440x900, the single big screen (3 686 400 px²) is larger than the band crossing both
+/// (4000x900 = 3 600 000 px²), so a pure-area rule would put the whole cast back on one monitor — exactly the
+/// complaint. So the rule is lexicographic: most screens touched first, then area. The cost is paid in usable area
+/// (here ~2 %); the benefit is that the cast actually spans, which is what was asked for.
+///
+/// On this Desktop's measured 103 px vertical offset the answer is the common horizontal band both screens show: the
+/// cast spans both monitors and simply does not use the 103 px lip at the top of one and the bottom of the other. On
+/// ONE screen it returns exactly that screen's visible rect, so the Laptop is bit-for-bit unchanged.
+///
+/// Exact for any axis-aligned arrangement: the screen edges cut the plane into a grid, each cell is wholly covered or
+/// wholly not, and the answer is a maximal all-covered block. A plain band sweep is NOT enough — it cannot union two
+/// stacked screens, and reported one screen for a vertical stack whose union is fully covered.
+func largestInscribedRect(_ rects: [CGRect]) -> CGRect {
+    let rs = rects.filter { $0.width > 0 && $0.height > 0 }
+    if rs.isEmpty { return .zero }
+    if rs.count == 1 { return rs[0] }
+    let xs = Array(Set(rs.flatMap { [$0.minX, $0.maxX] })).sorted()
+    let ys = Array(Set(rs.flatMap { [$0.minY, $0.maxY] })).sorted()
+    guard xs.count > 1, ys.count > 1 else { return .zero }
+    // cell (i, j) covered: its centre lies in some screen. Cells never straddle an edge, so a centre decides the cell.
+    let nx = xs.count - 1, ny = ys.count - 1
+    var cov = [Bool](repeating: false, count: nx * ny)
+    for j in 0..<ny {
+        for i in 0..<nx {
+            let c = CGPoint(x: (xs[i] + xs[i + 1]) / 2, y: (ys[j] + ys[j + 1]) / 2)
+            cov[j * nx + i] = rs.contains { $0.contains(c) }
+        }
+    }
+    // every all-covered block of cells; score = (screens it touches, area), lexicographic.
+    var best = CGRect.zero, bestScreens = -1, bestArea: CGFloat = 0
+    for j0 in 0..<ny {
+        for j1 in j0..<ny {
+            for i0 in 0..<nx {
+                var i1 = i0 - 1
+                // extend right while the whole column block stays covered
+                while i1 + 1 < nx, (j0...j1).allSatisfy({ cov[$0 * nx + i1 + 1] }) { i1 += 1 }
+                if i1 < i0 { continue }
+                let r = CGRect(x: xs[i0], y: ys[j0], width: xs[i1 + 1] - xs[i0], height: ys[j1 + 1] - ys[j0])
+                let touched = rs.reduce(0) { n, s in
+                    let o = s.intersection(r); return n + (o.isNull || o.width <= 0 || o.height <= 0 ? 0 : 1)
+                }
+                let area = r.width * r.height
+                if touched > bestScreens || (touched == bestScreens && area > bestArea) {
+                    bestScreens = touched; bestArea = area; best = r
+                }
+            }
+        }
+    }
+    return best
+}
+
+/// The one rect `SpritesStage.setVisible` gets for the whole world: the walkable area above.
+func spanVisibleRect(_ l: SpanLayout) -> CGRect { largestInscribedRect(l.visible) }
+
+/// CG global rect (top-left origin of the PRIMARY display, what CGWindowList reports) -> world stage px.
+/// `primaryMaxY` is NSScreen.screens.first!.frame.maxY. Windows and the focused rect come in this way.
+func worldRectFromCG(_ cg: CGRect, world: CGRect, primaryMaxY: CGFloat) -> CGRect {
+    // CG y is measured down from the primary's top; the world's top is primaryMaxY - world.maxY below it.
+    CGRect(x: cg.minX - world.minX, y: cg.minY - (primaryMaxY - world.maxY), width: cg.width, height: cg.height)
+}
+
+/// ONE SIMULATION, N VIEWPORTS (the heart of the fix). Giving each panel its own world-sized JS world would NOT fix
+/// the duplication: two independent simulations of the same world drift apart within seconds (own RNG, own timers), so
+/// the same creature would sit at different world positions in each and show up on both monitors anyway. There is
+/// therefore exactly ONE NativeHost for the whole world, and each panel is a VIEWPORT onto it — the same recorded
+/// frame encoded once per panel with that panel's world origin, so a creature exists once and is drawn by whichever
+/// panel happens to cover it.
+///
+/// Where a panel's viewport sits in the world, in world stage px (top-left origin): simply its rect's origin.
+func viewportOrigin(_ worldRect: CGRect) -> CGPoint { CGPoint(x: worldRect.minX, y: worldRect.minY) }
+
+/// Does this panel show any of the world at all? A screen whose rect is empty (disconnected mid-refit) is skipped
+/// rather than encoded with a degenerate viewport.
+func viewportDraws(_ worldRect: CGRect) -> Bool { worldRect.width >= 1 && worldRect.height >= 1 }
+
+/// 🔴 Must the CAMetalLayer's drawableSize be reset before encoding into it? (The "squish" regression, 2026-11-05.)
+/// It tested the WIDTH ALONE. With two 1920x1080 screens the widths are equal, so a layer carrying the other
+/// viewport's (or the union's) drawableSize was left alone, the drawable kept a stale size, and CAMetalLayer scaled the
+/// content into the layer's bounds — the owner's "squished horizontally, as though it kept something from one screen to
+/// another", and the resampling that made it blurry. BOTH dimensions decide.
+func drawableStale(_ current: CGSize, w: Int, h: Int) -> Bool {
+    current.width != CGFloat(w) || current.height != CGFloat(h)
+}
+
+/// 🔴 The size and scale a viewport's OUTPUT must have: its panel's own, never the world's. f48a980 built the primary
+/// `MetalStage` at WORLD size (`NativeHost(size: s.size, scale:)` with no output of its own), so on this Desktop the
+/// primary panel's drawable was 7680x2366 device px inside a 3840x2160 layer — a measured 2.000x horizontal and 1.095x
+/// vertical compression. A one-screen world returns exactly that screen, so the Laptop is unchanged.
+func viewportOutput(panelSize: CGSize, backing: CGFloat) -> (size: CGSize, scale: CGFloat) {
+    (panelSize, panelScale(backing))
 }

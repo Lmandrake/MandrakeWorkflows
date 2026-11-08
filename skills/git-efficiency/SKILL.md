@@ -42,6 +42,8 @@ $paths` passes ONE pathspec and fails. Use a real array (`"${paths[@]}"`) or
 all of it. **Read constants once** (`rev-parse HEAD`, `config`,
 `--show-toplevel`); don't re-shell them in a loop.
 
+More traps for this section: [references/traps.md](references/traps.md) § Batch.
+
 ## Trust the exit code for success, not for scope
 
 A `git add` / `commit` / `mv` that exits 0 did what you asked; don't re-run
@@ -127,6 +129,8 @@ index, so batching can't remove all contention; `git worktree add` gives each it
 own. Worktrees don't isolate brief wording, globs or import paths; see
 `parallel-agent-worktrees`.
 
+More traps for this section: [references/traps.md](references/traps.md) § Safety on a shared worktree.
+
 ## Filesystem operations beat git plumbing
 
 **Renames:** move with the filesystem (`os.replace`, `mv`), then one batched
@@ -139,6 +143,8 @@ should show `R` entries.
 commit), then copy the tree or reset it per case, instead of `init` + `config` +
 `add` + `commit` in every case.
 
+More traps for this section: [references/traps.md](references/traps.md) § Filesystem operations beat git plumbing.
+
 ## Auditing existing code
 
 - **Grep for `git` over-reports**: most hits are comments, help text and print
@@ -150,6 +156,8 @@ commit), then copy the tree or reset it per case, instead of `init` + `config` +
 - **Separate slowness from entanglement.** Per-case `git init` in a temp repo is
   only spawn cost; a per-row `git mv` in the shared repo is also a collision risk
   and outranks it even at smaller N.
+
+More traps for this section: [references/traps.md](references/traps.md) § Auditing existing code.
 
 ## Checklist
 

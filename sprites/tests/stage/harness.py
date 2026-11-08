@@ -7,7 +7,7 @@ import functools, http.server, json, socketserver, subprocess, sys, threading
 from pathlib import Path
 SPR = Path(__file__).resolve().parents[2]
 FIX = SPR / "tests/fixtures"
-SPECIES = ["c1_choir", "c2_siphon", "c3_sigils", "c4_kaleido", "c5_fireflies"]
+SPECIES = ["c1_choir", "c2_siphon", "c3_sigils", "c4_kaleido", "c5_fireflies", "c6_night", "c7_patches", "c8_instruments", "c9_wild", "c10_made", "c11_old"]
 _fails, _xfail = [], []
 
 def check(ok, msg, open_finding=None):

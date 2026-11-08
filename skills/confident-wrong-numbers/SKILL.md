@@ -41,6 +41,9 @@ Two asymmetries fall out of the table and are worth carrying separately:
 - **Agreement is not corroboration when the instruments share a premise.** Two
   passes that both count lines, or both read the same export, will agree on the
   same wrong number. Independence means a different *shape*, not a second run.
+- **Smoke-test a sweep on ONE subject before trusting it with N.** One subject run through a new sweep harness exposed five bugs, four of which produced confident wrong verdicts. Run the whole pipeline on a single known subject, read its raw rows, and only then fan out.
+- **A "no fit" that moves when the search is merely widened is a missing seed family, not too little depth.** If more radii or random restarts turn some "none" results into hits, look at the geometry of the moved cases and add the missing family of starting points, rather than widening again; a targeted seed set found in about 1 s what wide random restarts found only by luck. A second trap from the same kind of sweep: an obstacle or rule exemption keyed on a shared name exempts every object with that name (both reels of a mate), which silently breaks monotonicity (a longer lead is exempt where a shorter one is not); key exemptions on identity.
+- **A test that asserts `"RED" not in output` fails on every UNMEASURED row, because UNMEASURED contains RED.** Match the verdict field (`: RED` or `ROW  RED`), never the bare word; the same goes for any status token that is a substring of another.
 
 ## Before you report a number
 

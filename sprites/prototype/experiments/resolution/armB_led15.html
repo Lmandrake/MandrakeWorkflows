@@ -1,0 +1,35 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Arm B - tightened LED (15x15)</title></head>
+<body>
+<!-- ARM B of the symbol-resolution comparison (docs/SYMBOL_RESOLUTION.md). An EXPERIMENT PAGE, never
+     loaded by app/stage.html and never registered in its SPECIES list, so the live Sprites app is
+     untouched by anything here. It runs the SHIPPED renderer (prototype/sigils/engine.js) over a native
+     15x15 glyph table, with the engine's arm-B knobs set from the URL:
+       n=15      force the grid (the default would derive 9 from V.P.density)
+       blob=1.2  glow blob width in cell pitches (shipped is 3)
+       core=0.9  hard centre square as a fraction of pitch (shipped is 0.55)
+       floor=1   the core's minimum CSS px (shipped is 2; at pitch ~1.5 CSS px a floor of 2 re-blurs it)
+     Every other URL param is the runtime's own (live, w, h, dpr, size, top, bot). -->
+<script id="COLOPHON" type="application/json">[
+ "arm B: the shipped Living Sigils renderer at a 15x15 grid with a tightened glow blob and a harder core",
+ "identical data mapping to c6_night; only the grid and the per-cell light footprint change"
+]</script>
+<script src="../../timelines.js"></script>
+<script src="../../scenarios.js"></script>
+<script src="glyphs15_night.js"></script>
+<script>
+(function () {
+  var q = new URLSearchParams(location.search), n = function (k, d) { var v = parseFloat(q.get(k)); return isFinite(v) ? v : d; };
+  // Defaults are the TUNED arm-B values, chosen by sweeping blob 1.0-1.8 x core 0.7-1.0 at both the
+  // default and the maximum size slider and looking at the stills: blob 1.2 is the widest that still
+  // leaves a dark gap between adjacent lit cells (so the grid stays legible as a grid), and core 0.9
+  // fills the cell almost edge to edge, which is what makes a 1-cell stroke survive the glow.
+  window.SPRITES_SIGIL_TUNE = { N: n("n", 15), blob: n("blob", 1.2), core: n("core", 0.9), floor: n("floor", 1) };
+})();
+</script>
+<script src="../../visitors_runtime.js"></script>
+<script src="../../sigils/engine.js"></script>
+<script>
+SpritesSigilsEngine(V, SPRITES_GLYPHS15_NIGHT);
+</script>
+</body></html>

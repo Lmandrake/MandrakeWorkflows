@@ -57,7 +57,10 @@ const on = (k, fn) => { if (typeof fn === "function") (L[k] = L[k] || []).push(f
 const off = (k, fn) => { const a = L[k]; if (a) { const i = a.indexOf(fn); if (i >= 0) a.splice(i, 1); } };
 G.addEventListener = on; G.removeEventListener = off;
 G.__nativeEvent = (k, e) => { for (const fn of (L[k] || []).slice()) try { fn(e); } catch (err) { report(err); } };
-G.__nativeMouse = (x, y) => G.__nativeEvent("mousedown", { clientX: x, clientY: y, button: 0, preventDefault() {}, stopPropagation() {} });
+// `detail` is the window server's clickCount, as a DOM MouseEvent carries it: 1 for a single click, 2 for the second
+// click of a double-click. The stage passes it to the host, which decides the gesture (Decide.swift clickGesture).
+G.__nativeMouse = (x, y, detail) => G.__nativeEvent("mousedown", { clientX: x, clientY: y, button: 0,
+  detail: typeof detail === "number" && detail > 0 ? detail : 1, preventDefault() {}, stopPropagation() {} });
 
 // document: canvases are the recording canvases of canvas.js; anything else is an inert element
 function el(tag) { return { tagName: String(tag).toUpperCase(), style: {}, children: [], appendChild(c) { this.children.push(c); return c; },

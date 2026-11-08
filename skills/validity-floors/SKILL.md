@@ -21,8 +21,8 @@ the eligible options; return fewer than requested when necessary.
 
 ## Why this skill is one sentence
 
-The full-length version (in MandrakeVisualize's git history, where this skill began) was measured on 120 independent tasks
+The full-length version (in the pre-fold MandrakeVisualize git history, where this skill began) was measured on 120 independent tasks
 against no skill and against this sentence alone. It solved 111, against 113 for each of the
-others, at about 30% more cost per task (`evals/behavior/v2/CONFIRM_RESULTS.md` in MandrakeVisualize). The sentence is
+others, at about 30% more cost per task (`evals/behavior/v2/CONFIRM_RESULTS.md` in the pre-fold MandrakeVisualize history). The sentence is
 what the evidence supports. The one failure every arm shared, missing an input file that changed
 silently mid-task, is not addressed by this skill.

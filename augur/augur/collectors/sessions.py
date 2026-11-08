@@ -73,6 +73,17 @@ except ImportError:  # pragma: no cover
     from .base import Collector
 
 CLAUDE_MARK = "/claude/versions/"
+# Measured on the Work Desktop 2026-11-05: an npm-installed CLI has no versions/ directory at all,
+# its proc_pidpath is .../node_modules/@anthropic-ai/claude-code/bin/claude.exe, so CLAUDE_MARK alone
+# found zero roots and every session went missing (sessions: [], so Sprites drew nothing).
+CLAUDE_NPM_MARK = "/@anthropic-ai/claude-code/"
+
+
+def is_claude_path(pp):
+    """True when this executable path is a Claude CLI: either the versions/ layout or an npm install."""
+    return CLAUDE_MARK in pp or CLAUDE_NPM_MARK in pp
+
+
 SHELL_COMMS = ("zsh", "bash", "sh")
 SHELL_PREFIX = "/bin/zsh -c source "
 SHELL_MARK = "/.claude/shell-snapshots/"
@@ -629,7 +640,7 @@ class SessionsCollector(Collector):
                     if not pp:          # a transient failure is not "not Claude": retry next tick
                         procs[pid] = {"ppid": bi[0], "start": bi[2], "comm": bi[3], "root": False}
                         return False
-                    paths[key] = CLAUDE_MARK in pp
+                    paths[key] = is_claude_path(pp)
                 root = paths[key]
             procs[pid] = {"ppid": bi[0], "start": bi[2], "comm": bi[3], "root": root}
             return root
@@ -677,7 +688,7 @@ class SessionsCollector(Collector):
                 if not pp:
                     procs[pid] = {"ppid": bi[0], "start": bi[2], "comm": bi[3], "root": False}
                     continue
-                paths[key] = CLAUDE_MARK in pp
+                paths[key] = is_claude_path(pp)
             procs[pid] = {"ppid": bi[0], "start": bi[2], "comm": bi[3], "root": paths[key]}
         for k in [k for k in paths if k not in live]:
             del paths[k]

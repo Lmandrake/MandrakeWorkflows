@@ -40,4 +40,6 @@ changing its design for re-use in any way." The design serves RimMandrake; proje
 | [`CHANGELOG.md`](CHANGELOG.md) | Version history |
 | [`TRUST.md`](TRUST.md) | The numbers that say whether it can be trusted yet |
 
+The lessons from running it are in the `relentless-pipeline` skill (`../skills/relentless-pipeline/SKILL.md`).
+
 Rule for this folder: a claim about the pipeline or its workers carries its evidence, or says UNMEASURED.

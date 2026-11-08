@@ -111,6 +111,7 @@ below. And when you are the window RECEIVING such a relay, answer in three parts
 line each: you cannot toggle RC; the fix is `/remote-control` at the desk or a relaunch
 of the profile (which carries the flag); and the probable cause is a `/login` in some
 window — say so, because the owner will otherwise go hunting for a server fault.
+- **On Claude Code 2.1.308 a plugin can run `/clear` (`$.command.run({command:'clear'})`) and submit a prompt (`$.prompt.submit`),** so an agent window is not unable to clear itself. A relaunch through a profile that passes `--remote-control '<name>'` has RC again, but the phone shows a new entry; the RC docs say `/clear` keeps the session and resets devices. UNMEASURED locally: one desk test of `/clear` plus RC is owed before relying on it.
 
 ## Procedures
 
@@ -228,6 +229,8 @@ Note the CLI's login flow prints a URL and waits for a pasted code: if the brows
 not open (it did not, from WSL), hand the URL over and paste the code back — that part
 is genuinely the owner's, since it is another person's account and their browser session.
 The phone's Claude app has to be on the same account to see the machine.
+- **A saved account slot is a frozen copy that dies ~4 weeks after its last write.** The live account may have no slot at all, and a slot looks fine until its refresh token expires; check `rc account` for days left. When the config dir is exported as a symlink path, running sessions follow a `claude-account use` flip (the same RC drop as `/login`), and `ln -sfn` is not atomic: pin the real directory with `readlink -f` at launch and switch by rename. A login copied to a second place becomes a superseded grant at its first refresh (the refresh-token hash changed and `refreshTokenExpiresAt` moved 2 days; access tokens last 8 h), so never copy `.credentials.json` between users or dirs or restore one from a backup tar; move it.
+- **A credential manager that vaults only on its own switch loses an account the moment a user does `/login` in a window** (an un-vaulted grant was overwritten). Keep a current backup of whatever is live (auto-capture on every poll, on a timer and before mutations), mark the old copy 'may need re-login' on an email change because refresh tokens rotate, and never warm or move the backup of the live account. Count selftests from the run, not from a design doc.
 
 ## Configuration on this machine (Windows Desktop, WSL Ubuntu)
 
@@ -262,6 +265,8 @@ The exact profile lines and placements are in a private machine map, not publish
 - **"Queued" is not "delivered".** A `SendMessage` result of `success:true … queued
   there` means the peer will *see* it; the peer's decision arrives later as a
   `[Cross-session delivery notice]` or not at all.
+- **`tailscale serve` blocks forever when Serve is not enabled for the tailnet** (it prints an admin enable link and never exits): wrap it in `timeout`. Without Serve, a tailnet-only page can bind the node's 100.x IP and take the caller's identity from `tailscale whois --json <peer ip>` (works as non-root); ignore any `Tailscale-User-Login` header, which a direct client can forge. A machine whose Windows side is not on the tailnet (only its WSL is) cannot be reached from Windows browsers at its 100.x address.
+- **`claude auth login` run headless on a WSL box prints 'Opening browser to sign in' and may open a tab on that machine's Windows desktop.** Set `BROWSER=true` in its environment when the owner is meant to open the URL on his own device. `--email` is only a login hint: verify the logged-in email afterwards.
 
 ## Evidence
 

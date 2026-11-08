@@ -12,7 +12,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         app.run()
     }
 
-    var stages: [Stage] = []
+    /// ONE stage for the whole world (SPRITES_UNIFY_MONITORS_AS_ONE): one simulation, one panel per screen. It was one
+    /// independent Stage per NSScreen, which is why every sprite existed once per monitor.
+    var stage: Stage?
     var status: NSStatusItem!
     var settings: SettingsWindow?
     var stateWatch: FileWatch?
@@ -26,10 +28,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Demo mode: a random cast floats around; the state file is ignored. Remembered; a fresh
     /// install with no state file starts in it so something shows.
     var demo = false
-    var lastCursor: [String] = []
+    var lastCursor = ""
     var behaviorsWatch: FileWatch?
     var lastBehaviors = "{}"
-    var lastActivity = "", lastWindows: [String] = []
+    var lastActivity = "", lastWindows = ""
     var appOfSession: [pid_t: pid_t] = [:]   // session pid -> owning terminal app pid
     let dim = DimLayer()
     let backdrop = Backdrop()   // Backdrop.swift: behaviors.json backdrop/backdropSpeed
@@ -56,8 +58,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var qaSecond = false
     var instanceLock: InstanceLock?
     let ttyWindows = TTYWindowCache()
-    func pauseState(_ s: Stage) -> Bool { stagePaused(hidden: hidden, fsFaded: s.fsFaded, asleep: asleep, away: away, occluded: s.occluded) }
-    func pushPaused(_ s: Stage) { s.js("SpritesStage.setPaused(\(pauseState(s)))") }
+    /// SPAN: one simulation feeds every panel, so it may pause only when NO panel still needs frames — otherwise a
+    /// full-screen video on one monitor would freeze the sprites on the other.
+    func pauseState() -> Bool {
+        guard let st = stage, !st.screens.isEmpty else { return true }
+        return st.screens.allSatisfy { stagePaused(hidden: hidden, fsFaded: $0.fsFaded, asleep: asleep, away: away, occluded: $0.occluded) }
+    }
+    func pushPaused() { stage?.js("SpritesStage.setPaused(\(pauseState()))") }
 
     func applicationDidFinishLaunching(_ n: Notification) {
         _ = Paths.sprites   // fail loudly now, by name, if the folder is missing
@@ -124,7 +131,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // (the window list settles late after the switch animation).
         ws.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
             self?.pushFocus(); self?.pushWindows()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self?.lastFocus = []; self?.pushFocus(); self?.pushWindows() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self?.lastFocus = ""; self?.pushFocus(); self?.pushWindows() }
         }
         // R2_MACOS #8 (host half): display sleep and fast user switching pause the stages.
         for (n, f) in [(NSWorkspace.screensDidSleepNotification, { (d: AppDelegate) in d.asleep = true }),
@@ -132,21 +139,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                        (NSWorkspace.sessionDidResignActiveNotification, { (d: AppDelegate) in d.away = true }),
                        (NSWorkspace.sessionDidBecomeActiveNotification, { (d: AppDelegate) in d.away = false })] {
             ws.addObserver(forName: n, object: nil, queue: .main) { [weak self] _ in
-                guard let self else { return }; f(self); self.stages.forEach(self.pushPaused) }
+                guard let self else { return }; f(self); self.pushPaused() }
         }
         NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main) { [weak self] n in
-            guard let self, let w = n.object as? NSWindow, let s = self.stages.first(where: { $0.panel === w }) else { return }
+            guard let self, let st = self.stage, let w = n.object as? NSWindow,
+                  let i = st.screens.firstIndex(where: { $0.panel === w }) else { return }
             let occ = !w.occlusionState.contains(.visible)
-            if occ != s.occluded { s.occluded = occ; self.pushPaused(s) }
+            if occ != st.screens[i].occluded { st.setOccluded(i, occ); self.pushPaused() }
         }
 
         // Click-through except over a sprite: the cursor is polled (no TCC grant needed) by the shared tick above, and at
-        // 30 Hz while it is near a sprite so click-through flips in time (a mouse-moved monitor needs no grant either but
-        // fires on every move anywhere).
+        // 30 Hz while it is near a sprite so click-through flips in time.
         Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
             guard let self, self.mouseNear else { return }
             self.trackMouse()
         }.tolerance = 0.005
+        // CLICK-2 (measured 2026-11-05): polling alone armed capture TOO LATE. A click arriving in the same breath as
+        // the move found ignoresMouseEvents still true and fell through to the desktop — the click was posted at T and
+        // capture armed at T+24..81 ms, losing 4 of 5 move-then-click gestures. A global mouse-moved monitor needs no
+        // TCC grant and arms synchronously with the move, so the panel is already capturing when the click lands.
+        // It fires on every move anywhere, so the handler is deliberately cheap: hit geometry only (captureNeeded),
+        // reusing the blocker verdict the poll above maintains. No CGWindowList read here.
+        mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged]) { [weak self] _ in
+            self?.armCapture()
+        }
 
         ws.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { self?.pushFocus(); self?.pushWindows() }
@@ -195,21 +211,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func buildStages() {
-        builtFor = screenSigs()
-        stages.forEach { $0.close() }
-        lastCursor = []; lastWindows = []; lastFocus = []
-        stages = NSScreen.screens.map { scr in
-            let s = Stage(screen: scr)
-            s.onClick = { [weak self] hit, id, pid, project, key, ghost in
+        let sig = screenSigs()
+        let span = currentSpan()
+        // SPAN: an arrangement change that keeps the world size re-fits in place — no teardown, so nothing flashes and
+        // no creature is stranded mid-walk (the ticket's hot-plug requirement).
+        if let st = stage, !builtFor.isEmpty, st.refit(span: span, screens: NSScreen.screens) {
+            builtFor = sig
+            lastCursor = ""; lastWindows = ""; lastFocus = ""
+            applyVisibility(); pushFocus(); pushWindows()
+            return
+        }
+        builtFor = sig
+        stage?.close()
+        lastCursor = ""; lastWindows = ""; lastFocus = ""
+        stage = {
+            let s = Stage(span: span, screens: NSScreen.screens)
+            s.onClick = { [weak self] hit, id, pid, project, key, ghost, count in
                 let p = pid != 0 ? pid : (hit?.pid ?? 0)
-                // review R1 #8: stale snapshot = unclickable; the pid must still be the process the id names (pid@start).
-                // R2_MACOS #2: in demo every click is ignored (a demo ghost's key can name a real project).
-                switch clickAction(id: id, pid: p, project: project, ghost: ghost, key: key, validUntil: snapshotValidUntil(self?.lastState),
-                                   now: Date().timeIntervalSince1970, demo: hostDemoForClick(appDemo: self?.demo), startOf: processStart) {
-                case .ghost(let k): openGhost(key: k)
-                case .focus(let fp): activateSession(pid: fp, startedAt: Int(id.split(separator: "@").last ?? "") ?? 0)
-                case .ignore(let why): log("click \(project) \(id): \(why)")
+                // CLICK-3 (owner, 2026-11-05): the gesture is a double-click, so the second click acts at once; a lone
+                // click still acts after the user's double-click interval, so no click is ever eaten (R3-SPEC #1, #2).
+                if debugClicks { log("click received \(project) \(id) count=\(count) ghost=\(ghost)") }
+                switch clickGesture(count: count) {
+                case .alreadyActed: return
+                case .act: self?.pendingClick = nil
+                case .waitForSecond:
+                    let token = UUID()
+                    self?.pendingClick = token
+                    let delay = singleClickDelay(doubleClickInterval: NSEvent.doubleClickInterval)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                        guard let self, self.pendingClick == token else { return }   // a second click arrived and acted
+                        self.pendingClick = nil
+                        self.act(id: id, pid: p, project: project, key: key, ghost: ghost)
+                    }
+                    return
                 }
+                self?.act(id: id, pid: p, project: project, key: key, ghost: ghost)
             }
             s.js("SpritesStage.setProjects && SpritesStage.setProjects(\(ProjectTable.shared.current().1))")   // R1 #2: before the cast
             if let c = lastCast { s.js("SpritesStage.setCast(\(c))") }
@@ -219,22 +255,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if !demo, let st = lastState { s.js("SpritesStage.update(\(st))") }
             s.js("SpritesStage.setPaused(\(hidden))")
             return s
-        }
-        lastVisible = []
-        pushVisible()
+        }()
         applyVisibility()
         pushFocus()
     }
 
-    func broadcast(_ js: String) { stages.forEach { $0.js(js) } }
-    /// R1_SPEC S4: each screen's visible frame (below the menu bar, clear of the Dock on any side), in stage px.
-    var lastVisible: [String] = []
-    func pushVisible() {
-        let msgs = stages.map { visibleMessage(visibleStageRect(visible: $0.screen.visibleFrame, frame: $0.screen.frame)) }
-        if msgs == lastVisible { return }
-        lastVisible = msgs
-        for (s, m) in zip(stages, msgs) { s.js("SpritesStage.setVisible && SpritesStage.setVisible(\(m))") }
+    /// The pending single click (CLICK-3). Non-nil while a lone click waits out the double-click window; cleared by
+    /// the second click of a double-click, so one gesture runs one action.
+    var pendingClick: UUID?
+
+    /// Open or focus what this click names. review R1 #8: a stale snapshot is unclickable, and the pid must still be
+    /// the process the id names (pid@start). R2_MACOS #2: in demo every click is ignored (a demo ghost's key can name
+    /// a real project).
+    func act(id: String, pid: pid_t, project: String, key: String, ghost: Bool) {
+        switch clickAction(id: id, pid: pid, project: project, ghost: ghost, key: key, validUntil: snapshotValidUntil(lastState),
+                           now: Date().timeIntervalSince1970, demo: hostDemoForClick(appDemo: demo), startOf: processStart) {
+        case .ghost(let k): openGhost(key: k)
+        case .focus(let fp): activateSession(pid: fp, startedAt: Int(id.split(separator: "@").last ?? "") ?? 0)
+        case .ignore(let why): log("click \(project) \(id): \(why)")
+        }
     }
+
+    /// One world, one JS call (it reaches every panel because they share the simulation).
+    func broadcast(_ js: String) { stage?.js(js) }
+    /// R1_SPEC S4 + SPAN: the world's walkable area. Stage.pushVisible owns the geometry and the de-duplication.
+    func pushVisible() { stage?.pushVisible() }
     var lastProjects = ""
     func pushProjects() {
         let j = ProjectTable.shared.current().1
@@ -242,35 +287,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     var hostTick = 0, mouseNear = false
-    func trackMouse() {
-        guard !hidden else { return }
+    /// CLICK-2: the poll's verdict on "is a menu, sheet, banner or prompt holding the cursor" (R2_MACOS #1). The
+    /// mouse-moved monitor reuses it rather than reading the window list on every move.
+    var blockedByOverlay = false
+    var mouseMonitor: Any?
+
+    /// CLICK-2: arm or disarm each panel's mouse capture from the hit geometry alone — cheap enough to run on every
+    /// mouse-moved event, which is what makes the panel already capturing when a click lands after a move.
+    func armCapture() {
+        guard !hidden, !blockedByOverlay else { return }
+        guard let st = stage else { return }
         let p = NSEvent.mouseLocation
-        mouseNear = stages.contains { $0.near(p, margin: 160) }
-        var others: [(layer: Int, pid: pid_t, rect: CGRect, alpha: Double)]? = nil   // read only when over a sprite
-        for s in stages {
-            var over = !s.fsFaded && s.overSprite(p)
-            if over {   // R2_MACOS #1: a menu, sheet, banner or prompt (not ours, layer > 0) under the cursor keeps the click
-                if others == nil { others = allWindows() }
-                let primaryTop = NSScreen.screens.first?.frame.maxY ?? 0
-                over = captureAllowed(cursor: CGPoint(x: p.x, y: primaryTop - p.y), windows: others!, me: getpid(),
-                                      screens: NSScreen.screens.map(cgFrame))
-            }
-            if s.panel.ignoresMouseEvents == over { s.panel.ignoresMouseEvents = !over }
-        }
-        let cur = stages.map { s -> String in
-            guard s.screen.frame.contains(p) else { return "null" }
-            let q = stagePoint(p, on: s.screen)
-            return "{\"x\":\(Int(q.x)),\"y\":\(Int(q.y))}"
-        }
-        if cur != lastCursor {
-            for (i, s) in stages.enumerated() where i >= lastCursor.count || lastCursor[i] != cur[i] {
-                s.js("SpritesStage.setCursor(\(cur[i]))")
-            }
-            lastCursor = cur
+        // Only the panel under the cursor may capture; the others must stay click-through (R3-SPEC #1/#2).
+        let over = st.overSprite(p), i = st.screenIndex(p)
+        for (k, s) in st.screens.enumerated() {
+            let want = over && k == i
+            if s.panel.ignoresMouseEvents == want { s.panel.ignoresMouseEvents = !want }
         }
     }
 
-    var lastFocus: [String] = []
+    func trackMouse() {
+        guard !hidden, let st = stage else { return }
+        let p = NSEvent.mouseLocation
+        mouseNear = st.near(p, margin: 160)
+        var over = st.overSprite(p)
+        var blocked = false
+        if over {   // R2_MACOS #1: a menu, sheet, banner or prompt (not ours, layer > 0) under the cursor keeps the click
+            let primaryTop = NSScreen.screens.first?.frame.maxY ?? 0
+            over = captureAllowed(cursor: CGPoint(x: p.x, y: primaryTop - p.y), windows: allWindows(), me: getpid(),
+                                  screens: NSScreen.screens.map(cgFrame))
+            if !over { blocked = true }
+        }
+        let i = st.screenIndex(p)
+        for (k, s) in st.screens.enumerated() {
+            let want = over && k == i
+            if s.panel.ignoresMouseEvents == want {
+                s.panel.ignoresMouseEvents = !want
+                if debugClicks { log("capture \(want ? "ON" : "off") screen \(k) at (\(Int(p.x)),\(Int(p.y))) overSprite=\(st.overSprite(p)) blocked=\(blocked)") }
+            }
+        }
+        blockedByOverlay = blocked
+        // SPAN: one cursor in WORLD px (or null when it is off every screen), not one per panel.
+        let cur: String = i < 0 ? "null" : { let q = st.world(p); return "{\"x\":\(Int(q.x)),\"y\":\(Int(q.y))}" }()
+        if cur != lastCursor { lastCursor = cur; st.js("SpritesStage.setCursor(\(cur))") }
+    }
+
+    var lastFocus = ""
     var focusedID = 0, focusedRect: CGRect? = nil
     /// Handoff item 3: the 2 Hz tick reads the focused window alone; the shared full list only when it moved, or every
     /// 2 s as the safety net for other windows' moves (no move notification exists without an AX grant).
@@ -283,14 +345,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !hidden else { return }
         let f = focusedWindow(list: windowList())
         focusedID = f?.id ?? 0; focusedRect = f?.rect
-        let r = f?.rect
-        let msgs = stages.map { s -> String in
-            guard let r, let sr = stageRect(r, on: s.screen) else { return "null" }
-            return "{\"x\":\(Int(sr.minX)),\"y\":\(Int(sr.minY)),\"w\":\(Int(sr.width)),\"h\":\(Int(sr.height))}"
-        }
-        if msgs == lastFocus { return }
-        lastFocus = msgs
-        for (s, m) in zip(stages, msgs) { s.js("SpritesStage.setFocus(\(m))") }
+        guard let st = stage else { return }
+        // SPAN: the focused window in WORLD px, once — it may straddle the seam.
+        let msg: String = {
+            guard let r = f?.rect else { return "null" }
+            let wr = worldRectFromCG(r, world: st.span.world, primaryMaxY: NSScreen.screens.first?.frame.maxY ?? 0)
+            return "{\"x\":\(Int(wr.minX)),\"y\":\(Int(wr.minY)),\"w\":\(Int(wr.width)),\"h\":\(Int(wr.height))}"
+        }()
+        if msg == lastFocus { return }
+        lastFocus = msg
+        st.js("SpritesStage.setFocus(\(msg))")
     }
 
     /// typing = a key or scroll in the last 1.5 s; idleSec = seconds since any input. Both from
@@ -335,20 +399,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for p in itermSessions { if let t = processTTY(p) { ttys[p] = t } }
         let byWindow = sessionWindows(ttyOf: ttys, ttyWindow: ttyWindows.map)
         let fade = behaviorOn("fullScreenFade")
-        for (i, s) in stages.enumerated() {
-            let items = withID.compactMap { w -> String? in
-                guard let r = stageRect(w.rect, on: s.screen) else { return nil }
-                var j = "{\"x\":\(Int(r.minX)),\"y\":\(Int(r.minY)),\"w\":\(Int(r.width)),\"h\":\(Int(r.height)),\"pid\":\(w.pid)"
-                if let sp = byWindow[w.id] { j += ",\"sessionPid\":\(sp)" }
-                else if !iterm.contains(w.pid), let ss = sessionsByApp[w.pid], ss.count == 1, winsByApp[w.pid] == 1 { j += ",\"sessionPid\":\(ss[0])" }
-                if darkApp(w.pid) { j += ",\"dark\":true" }   // hover-label ground proxy (docs/HOVER_LABELS.md): terminals are dark
-                return j + "}"
-            }
-            let msg = "[" + items.joined(separator: ",") + "]"
-            if i >= lastWindows.count { lastWindows.append("") }
-            if msg != lastWindows[i] { lastWindows[i] = msg; s.js("SpritesStage.setWindows(\(msg))") }
-            setFade(s, fade && isFullScreen(s.screen, windows: wins))
+        guard let st = stage else { return }
+        // SPAN: every window once, in WORLD px (a window may straddle the seam, so it is no longer clipped per screen).
+        let primaryMaxY = NSScreen.screens.first?.frame.maxY ?? 0
+        let items = withID.compactMap { w -> String? in
+            let r = worldRectFromCG(w.rect, world: st.span.world, primaryMaxY: primaryMaxY)
+            guard r.width >= 1, r.height >= 1 else { return nil }
+            var j = "{\"x\":\(Int(r.minX)),\"y\":\(Int(r.minY)),\"w\":\(Int(r.width)),\"h\":\(Int(r.height)),\"pid\":\(w.pid)"
+            if let sp = byWindow[w.id] { j += ",\"sessionPid\":\(sp)" }
+            else if !iterm.contains(w.pid), let ss = sessionsByApp[w.pid], ss.count == 1, winsByApp[w.pid] == 1 { j += ",\"sessionPid\":\(ss[0])" }
+            if darkApp(w.pid) { j += ",\"dark\":true" }   // hover-label ground proxy (docs/HOVER_LABELS.md): terminals are dark
+            return j + "}"
         }
+        let msg = "[" + items.joined(separator: ",") + "]"
+        if msg != lastWindows { lastWindows = msg; st.js("SpritesStage.setWindows(\(msg))") }
+        // The fade stays PER PANEL: full-screen video on one monitor hides the sprites there and nowhere else.
+        for (i, sc) in st.screens.enumerated() { setFade(i, fade && isFullScreen(sc.screen, windows: wins)) }
     }
 
     /// Terminal apps draw dark grounds; every other window is assumed bright (hover-label halo, owner ruling 2026-11-01).
@@ -361,25 +427,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         darkApps[pid] = v; return v
     }
 
-    func setFade(_ s: Stage, _ on: Bool) {
-        guard s.fsFaded != on else { return }
-        s.fsFaded = on
-        if on { s.panel.ignoresMouseEvents = true }
+    /// Fade one PANEL (by screen index), not the world: only that monitor's sprites go.
+    func setFade(_ i: Int, _ on: Bool) {
+        guard let st = stage, i < st.screens.count, st.screens[i].fsFaded != on else { return }
+        st.setFaded(i, on)
+        let panel = st.screens[i].panel
+        if on { panel.ignoresMouseEvents = true }
         NSAnimationContext.runAnimationGroup({ c in
             c.duration = on ? 0.8 : 0.5
-            s.panel.animator().alphaValue = on ? 0 : 1
+            panel.animator().alphaValue = on ? 0 : 1
         })
-        pushPaused(s)
+        pushPaused()
     }
 
     func applyVisibility() {
         backdrop.hidden = qaSecond || visibilityPlan(userHidden: userHidden, meeting: meeting, locked: locked).backdropHidden   // review R1 #10
-        for s in stages {
+        for s in stage?.screens ?? [] {
             if hidden { s.panel.ignoresMouseEvents = true; s.panel.orderOut(nil) }
             else { s.panel.orderFrontRegardless() }
-            pushPaused(s)
         }
-        if !hidden { lastFocus = []; pushFocus() }
+        pushPaused()
+        if !hidden { lastFocus = ""; pushFocus() }
         showItem?.title = userHidden ? "Show Sprites" : "Hide Sprites"
         meetingItem?.state = meeting ? .on : .off
         demoItem?.state = demo ? .on : .off
@@ -435,6 +503,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             w.onSetSize = { [weak self] z in self?.setSize(z) }
             w.onSetHidden = { [weak self] h in self?.userHidden = h; self?.applyVisibility() }
             w.onSetMeeting = { [weak self] v in self?.meeting = v; self?.applyVisibility() }
+            w.onSetProjectColour = { key, alias, hex in setProjectColour(key: key, alias: alias, hex: hex) }
+            w.onSetProjectFocus = { key, alias, on in setProjectFocus(key: key, alias: alias, on: on) }
             settings = w
         }
         settings?.demo = demo; settings?.size = size

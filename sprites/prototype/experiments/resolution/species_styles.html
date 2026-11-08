@@ -1,0 +1,13 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Species style samples - vector edges vs fine dots</title>
+<style>html,body{margin:0;background:#0b0d12}canvas{display:block}</style></head>
+<body>
+<!-- EXPERIMENT PAGE for the species-style sample sheet (tools/build_species_style_samples.py). Never loaded by
+     app/stage.html, never in its SPECIES list. Draws ONE glyph from species_glyphs.js, idle, at extent E CSS px,
+     in one of two styles: s=vec (Choir idiom: additive hairline strokes of the outline, no fill) or s=dot (fine
+     hard-edged dots filling the silhouette, edge dots brighter, no halo). URL: ?g=<name>&s=vec|dot&E=23|64|256
+     [&hue=200]. Form carries no data. -->
+<canvas id="c"></canvas>
+<script src="species_glyphs.js"></script>
+<script src="species_styles.js"></script>
+</body></html>

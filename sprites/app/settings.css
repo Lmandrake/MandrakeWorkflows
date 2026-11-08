@@ -63,7 +63,7 @@ section#right{flex:1;min-width:0;display:flex;flex-direction:column}
 .spark{width:12px;height:12px;background:var(--hue);transition:background .8s;
   clip-path:polygon(50% 0,61% 39%,100% 50%,61% 61%,50% 100%,39% 61%,0 50%,39% 39%);filter:drop-shadow(0 0 4px var(--hue))}
 .row{display:grid;gap:8px;margin-bottom:16px}
-.species{grid-template-columns:repeat(5,1fr)}
+.species{grid-template-columns:repeat(6,1fr)}
 .variants{grid-template-columns:repeat(8,1fr);margin-bottom:0}
 .cell{cursor:pointer;min-width:0;text-align:center}
 .tile{position:relative;border-radius:13px;overflow:hidden;background:rgba(255,255,255,.022);
@@ -123,6 +123,21 @@ section#right{flex:1;min-width:0;display:flex;flex-direction:column}
 .seg button{border:0;cursor:pointer;font:inherit;font-size:11.5px;color:var(--ink3);background:transparent;padding:4px 9px;border-radius:6px}
 .seg button[aria-checked="true"]{color:var(--hue);background:color-mix(in srgb,var(--hue) 16%,transparent);text-shadow:0 0 10px color-mix(in srgb,var(--hue) 55%,transparent)}
 .short input:focus{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--hue) 55%,transparent),0 0 16px -4px var(--hue)}
+/* Project colour (owner, 2026-11-05: ONE colour per project — sprite, iTerm2 text and SidePulse LED).
+   The native picker is the swatch itself: the well is hidden and the glowing pill is the hit target. */
+.swatch{position:relative;display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 9px 4px 5px;border-radius:8px;
+  background:rgba(255,255,255,.04);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);transition:box-shadow .3s}
+.swatch:hover{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--hue) 55%,transparent),0 0 16px -4px var(--hue)}
+.swatch input[type=color]{-webkit-appearance:none;appearance:none;width:22px;height:18px;padding:0;border:0;border-radius:5px;
+  background:transparent;cursor:pointer;box-shadow:0 0 0 1px rgba(255,255,255,.22),0 0 12px -2px var(--hue)}
+.swatch input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+.swatch input[type=color]::-webkit-color-swatch{border:0;border-radius:5px}
+.swatch .hx{font:inherit;font-size:12px;letter-spacing:.06em;color:var(--hue);font-variant-numeric:tabular-nums;
+  text-shadow:0 0 10px color-mix(in srgb,var(--hue) 55%,transparent)}
+.clr.busy .swatch{opacity:.55}
+.why{font-size:10.5px;letter-spacing:0;color:var(--ink3);opacity:.85;max-width:210px;line-height:1.3}
+.why.bad{color:#ff8a8a}
+.seg button[disabled]{opacity:.4;cursor:default}
 /* Name label tab */
 #labView{padding:0 22px 16px 22px}
 .labWrap{flex:1;min-width:0;display:flex;flex-direction:column;gap:14px}

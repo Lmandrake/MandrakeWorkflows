@@ -1,0 +1,22 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Visitors c8_instruments Instrument Marks</title></head>
+<body>
+<script id="COLOPHON" type="application/json">[
+ "colour + glyph (one of the named marks, drawn as a crisp outline) = which session (fixed); glyph size (area) = memory",
+ "a twin light sweeping round the outline = CPU, faster = more cores (still = idle); orbiting dots = background tasks (one per task)",
+ "rippling rings, comes to the window edge and knocks = needs you; dim, slow breathing = idle",
+ "pale blue beads running rim to core = download; gold beads running core to rim = upload; more Mbit/s = more, brighter beads",
+ "beads stalling and piling up at the rim, the outline flickering = the link is too slow for the work",
+ "red ember glow behind, the outline turning ember, the glyph shearing and its parts slipping apart = machine strain (+thermal embers)",
+ "cold grey huddle, sweeping beam, small red blinking beacon = VPN lost; bloom = reconnected; two drifting together for one short twirl = play (no data)",
+ "which symbol it is means NOTHING about the session: the glyph is identity only, never state"
+]</script>
+<script src="timelines.js"></script>
+<script src="scenarios.js"></script>
+<script src="visitors_runtime.js"></script>
+<script src="vector/engine.js"></script>
+<script src="vector/glyphs_instrument_marks_vector.js"></script>
+<script>
+SpritesVectorEngine(V, SPRITES_GLYPHS_INSTRUMENT_MARKS_VECTOR);
+</script>
+</body></html>

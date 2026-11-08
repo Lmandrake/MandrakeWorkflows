@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PIECES = ROOT / "prototype"
 OUT = Path.home() / "agent-storage/sprites/gallery/v"
-ALL = ["c1_choir", "c2_siphon", "c3_sigils", "c4_kaleido", "c5_fireflies"]
+ALL = ["c1_choir", "c2_siphon", "c3_sigils", "c4_kaleido", "c5_fireflies", "c6_night", "c7_patches", "c8_instruments", "c9_wild", "c10_made", "c11_old"]
 
 
 def scenarios():

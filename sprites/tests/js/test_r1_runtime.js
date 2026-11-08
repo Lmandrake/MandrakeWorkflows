@@ -13,7 +13,7 @@ const upd = (st, snap) => st.ev(`SpritesStage.update(${JSON.stringify(snap)})`);
 const rep = (st, sp) => st.ev(`JSON.stringify(__stage.V("${sp}").__report().reports)`);
 const reports = (st, sp) => JSON.parse(rep(st, sp));
 const hits = st => JSON.parse(st.ev("JSON.stringify(__stage.allHits())"));
-const SPECIES = ["c1_choir", "c2_siphon", "c3_sigils", "c4_kaleido", "c5_fireflies"];
+const SPECIES = ["c1_choir", "c2_siphon", "c3_sigils", "c4_kaleido", "c5_fireflies", "c6_night", "c7_patches", "c8_instruments", "c9_wild", "c10_made", "c11_old"];
 
 // ---- 5: a creature faded out (nothing fits: full-screen focus) has no hit disc; a ghost (0.3) keeps its disc ----
 if (!only || only === "5") for (const sp of SPECIES) {

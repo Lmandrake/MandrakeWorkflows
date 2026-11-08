@@ -3,14 +3,25 @@
 # machine's one render through gate.py (nice 19, load < 8). Exit 0 = all pass; the summary names each failure.
 # Known-open review findings print XFAIL and do not fail the run.
 here=$(cd "$(dirname "$0")" && pwd)
+# 🔴 The gate lives under the agent storage root because the suites hard-code that path, but it was never committed:
+# when that tree was cleared this script refused to start and EVERY browser-rendered suite stopped running silently
+# (11 test files). The repo now owns the source (tests/tools/gate.py); install it if the derived copy is missing.
 gate="$HOME/agent-storage/sprites/live/native/tools/gate.py"
-[ -f "$gate" ] || { echo "missing $gate (the render gate)"; exit 2; }
+if [ ! -f "$gate" ]; then
+  if [ -f "$here/tools/gate.py" ]; then
+    mkdir -p "$(dirname "$gate")" && cp "$here/tools/gate.py" "$gate" && chmod +x "$gate"
+    echo "installed the render gate from $here/tools/gate.py -> $gate"
+  else
+    echo "missing $gate (the render gate) and no $here/tools/gate.py to install from"; exit 2
+  fi
+fi
 fails=""
 run() { name=$1; shift; echo "=== $name"; if "$@"; then echo "--- $name ok"; else fails="$fails $name"; echo "--- $name FAILED"; fi; }
 run swift sh "$here/swift/run.sh"
 run host_safety sh "$here/swift/host/run.sh"
 run qa_scripts sh "$here/test_qa_scripts.sh"
 run demo_feed python3 "$here/test_demo_feed.py"
+run sigil_glyphs python3 "$here/test_sigil_glyphs.py"
 run r1_runtime nice -n 19 node "$here/js/test_r1_runtime.js"
 run project_map python3 "$here/test_project_map.py"
 run project_keys node "$here/node/test_project_keys.js"
@@ -21,7 +32,7 @@ run native_label_quad python3 "$here/native/test_label_quad.py"
 run native_shim_visibility nice -n 19 node "$here/native/test_shim_visibility.js"
 run native_present_stall python3 "$here/native/test_present_stall.py"
 run native_qos_bench python3 "$here/native/test_qos_bench.py"
-for t in stage link visibility settings_visibility settings_keys idmaps huddle hover_follow move; do
+for t in stage link visibility settings_visibility settings_keys settings_colour_focus idmaps huddle hover_follow move; do
   run "$t" sh -c "cd '$here/stage' && python3 '$gate' python3 test_$t.py"
 done
 if [ -n "$fails" ]; then echo "FAILED:$fails"; exit 1; fi

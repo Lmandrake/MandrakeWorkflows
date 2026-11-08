@@ -14,7 +14,13 @@ ROOT = Path(__file__).resolve().parent.parent
 PIECES = ROOT / "prototype"
 G = Path.home() / "agent-storage/sprites/gallery"
 CONCEPTS = [("c1_choir", "Mothership Choir"), ("c2_siphon", "Siphonophores"), ("c3_sigils", "Living Sigils"),
-            ("c4_kaleido", "Kaleidoscope Seeds"), ("c5_fireflies", "Firefly Murmurations")]
+            ("c4_kaleido", "Kaleidoscope Seeds"), ("c5_fireflies", "Firefly Murmurations"),
+            ("c6_night", "Night Signals"),
+            ("c7_patches", "Mission Patches"),
+            ("c8_instruments", "Instrument Marks"),
+            ("c9_wild", "Wild Signs"),
+            ("c10_made", "Made Marks"),
+            ("c11_old", "Old Signs")]
 ROWS = ["g_variants", "g_projects", "g_idle", "g_cpu", "g_mem", "g_tasks", "g_needs", "g_strain", "g_net",
         "g_vpn", "g_play"]
 ROWNAME = {"g_variants": "Individualizer", "g_projects": "Your projects", "g_idle": "Idle", "g_cpu": "CPU",

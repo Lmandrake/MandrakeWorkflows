@@ -14,9 +14,30 @@ The full design follows GPT review. This file holds the contract that everything
 - **Judge:** a fresh instance with no access to Build's memory. It judges the result, not the effort.
 
 Same definition, never the same instance. Build requests Judge only when the item's own checks pass; the switch is
-gated by evidence, not by Build's confidence. Judge mode also sets the exam before Build starts, binding the tree to instruments and writing hold-outs, as the **Setter**; the instance that later marks is the **Marker**. The builder never sets, holds or marks the exam, and no item starts without a tree written by a non-builder.
+gated by evidence, not by Build's confidence. Judge mode also sets the exam before Build starts, as the **Setter**; the instance that later marks is the **Marker**, and the Marker writes the hold-outs at mark time, so none exists during the build. The builder never sets, holds or marks the exam.
 
 **Done means the contract was met, not that the contract was complete.**
+
+## The exam: set before Build, validated before it counts
+
+Owner, 2026-11-05: *"So how are we ever going to overcome this failure of our testing apparatus, weak evidence, poorly
+specified tests, etc?"* A builder that writes its own exam writes one that agrees with its own reading of the item, and
+both pass together. So (RimMandrake `RELENTLESS_BUILD_EXAM_BEFORE_BUILDER`, redesign of 2026-11-06, G3/G4):
+
+- **Setter** (Judge mode, fresh, never the builder) reads the item's words at its base sha and writes the exam: clauses,
+  each with a check (an argv), a declared assertion red (exit codes, marker) and a break. Every clause is mapped from a
+  sentence copied verbatim from the item; every done-when bullet is mapped. Outcomes only, never how.
+- **VALIDATE** (the pipeline, no agent) runs every check in the Marker's box: a `base_red` check must fail on the base
+  sha, a `patch` check must pass on the base and fail under the Setter's planted break. A red counts only as an
+  assertion failure; an ImportError, a missing file or tool, a SyntaxError or a timeout is not a red. A behavioural
+  clause may not be checked by existence or grep alone; `artifact` only where the item asks for one. A break that
+  deletes the file the check names is refused. A refused exam gets one resumed Setter turn; a second refusal goes to an
+  arbiter, which classes it setter, environment or bar: never an automatic bar.
+- `exam_hash` covers the clauses, the item text and every file a check names, so changing a named test moves it.
+- **Build** sees the exam and may not edit it. **Marker** checks the done-when mapping and adds its hold-outs.
+- In RimMandrake it runs in **shadow** first: the exam is set and validated beside the old flow, never gating a close,
+  and run at every candidate a Marker returned to count the returns it would have caught. Shadow ends at 30 items with
+  a Marker verdict, a sample count, not a date.
 
 ## Memory between generations
 
@@ -83,12 +104,23 @@ limit as a fact; it may not explain them.
    rejection says what broke the contract, and it is not a verdict on the work. A contaminated packet returns to Build
    and spends a fresh Judge instance, because the first one has read it.
 2. **Plan before reading Build's route.** Write its own check plan from the tree alone, then read `how to check`.
-3. **Rerun the checks itself.** A claim counts only as Judge reproduces it.
+3. **Rerun the checks itself, at the exact sha.** A claim counts only as Judge reproduces it, in an isolated checkout of
+   the commit under judgment, never Build's working tree. Evidence is whatever Judge can produce there: the paths and
+   commands Build cites are a starting point, not a boundary, and a gap they do not mention is still a gap.
 4. **Hunt Build's known weaknesses.** Read `DEFECTS.md` and `STRENGTHS.md` for the classes of failure these workers have
    shown, and look for those on purpose.
-5. **Rule:** accept, or reject with reasons Build can act on, without suggesting the fix's design.
+5. **Rule:** accept, or reject with reasons Build can act on, without suggesting the fix's design. Each reason names
+   its cause class, because each goes to a different fixer: **module** (the work is wrong: back to Build), **check**
+   (the test or instrument is wrong, the work may be fine: to whoever owns the proof), **environment** (machine, host,
+   account, game load: to operations, no new code), **bar** (the contract or proof of done is wrong or incomplete: to
+   the Setter). A reason Judge cannot class is unknown and goes to diagnosis, never to Build.
+
+Judge never sees token, account or resource figures, the item's cost so far, or why it was picked: none of them bears on
+whether the contract was met, and each pulls toward passing work that was expensive or urgent.
 
 ## Known limit of this separation
 
 A fresh copy of the same model shares the same blind spots, so Judge mode is not fully independent. Its catch rate is
-measured with seeded defects (`TRUST.md`), and important items also get a second model.
+measured with seeded defects (`TRUST.md`), and important items also get a second model. Seeds measure misses; they do
+not measure false accepts on real work. So a sample of accepted items is re-judged by a fresh instance from the same
+sha, and the rate at which a re-check rejects a pass is the Judge's false-accept rate, kept beside the catch rate.

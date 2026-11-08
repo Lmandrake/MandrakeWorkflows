@@ -6,10 +6,13 @@ encode real load: memory as size, CPU as internal tempo, background tasks as sat
 pulses inside the shape, machine strain as a red glow and geometric disalignment, a lost VPN as a
 huddled, searching flock. Hover a sprite to slow it and see its project; click to jump to that session.
 
-Five concepts are in development side by side, each with 8 colour-independent variants:
-Mothership Choir, Siphonophores, Living Sigils, Kaleidoscope Seeds, Firefly Murmurations.
+Six species are in development side by side, each with 8 colour-independent variants:
+Mothership Choir, Siphonophores, Living Sigils, Kaleidoscope Seeds, Firefly Murmurations, Night Signals.
+Night Signals is the first of six **glyph species** (`docs/SYMBOL_SPECIES.md`): the Living Sigils renderer
+over its own table of eight 9x9 LED bitmaps, one file per species.
 
     prototype/    HTML canvas prototypes (one file per concept) on a shared runtime; data from scripted timelines
+    prototype/sigils/  the shared Living Sigils renderer + one glyph table per glyph species
     tools/        make_scenarios.py (gallery timelines), render_gallery.py (videos), build_gallery.py + serve_gallery.sh (review sheet)
     docs/         GRAMMAR_V2.md (the spec every concept follows), design notes, research, feedback rounds
     feedback/     the owner's gallery decisions (written by the review sheet)

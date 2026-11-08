@@ -1,0 +1,61 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Arm B2 - edge-only LED at high density</title></head>
+<body>
+<!-- ARM B, ROUND 2 of the symbol-resolution comparison (docs/SYMBOL_RESOLUTION.md). An EXPERIMENT PAGE,
+     never loaded by app/stage.html and never in its SPECIES list, so the live app is untouched.
+     Owner, 2026-11-07: draw the symbols as EDGES ONLY, the way Choir draws its circles, and use far more
+     pixels. So this page runs the SHIPPED renderer (prototype/sigils/engine.js) over glyph tables that are
+     generated here, at load, from the traced outlines in symbols_edge.js: every cell whose centre lies
+     within `stroke` cells of an outline is lit, nothing else is. URL knobs (all optional):
+       n=49        the grid (odd, so the pilot light is the true centre); the engine's forced-N cap is 97
+       stroke=0.5  outline half-width in cells (0.5 = a 1-cell line; 1.0 = 2 cells)
+       blob=1.0    glow blob width in pitches (shipped 3): at 1.0 a cell's light stays in its own cell
+       core=0.9    hard centre square as a fraction of pitch
+       floor=0.5   the core's minimum CSS px (1 device px at dpr 2)
+       led=0.35    alpha of each cell's own glow blob (shipped 1); halo=0 drops the soft body wash
+     Every other URL param is the runtime's own (live, w, h, dpr, size, top, bot). -->
+<script id="COLOPHON" type="application/json">[
+ "arm B2: the shipped Living Sigils renderer at a high-density grid, each symbol lit along its edges only",
+ "identical data mapping to c6_night; only the grid, the glyph tables and the per-cell light footprint change"
+]</script>
+<script src="../../timelines.js"></script>
+<script src="../../scenarios.js"></script>
+<script src="symbols_edge.js"></script>
+<script>
+(function () {
+  var q = new URLSearchParams(location.search), n = function (k, d) { var v = parseFloat(q.get(k)); return isFinite(v) ? v : d; };
+  var N = n("n", 49) | 0, HW = n("stroke", 0.5);
+  window.SPRITES_SIGIL_TUNE = { N: N, blob: n("blob", 1.0), core: n("core", 0.9), floor: n("floor", 0.5),
+                                led: n("led", 0.35), halo: n("halo", 0) };
+  var c = (N - 1) / 2, M = 0.97;   // the unit box spans the grid less a 1.5% margin, so a stroke on x=+-1 stays inside
+  function dseg(px, py, ax, ay, bx, by) {
+    var dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy, t = L ? ((px - ax) * dx + (py - ay) * dy) / L : 0;
+    t = t < 0 ? 0 : t > 1 ? 1 : t; var ex = ax + t * dx - px, ey = ay + t * dy - py; return Math.sqrt(ex * ex + ey * ey); }
+  function table(sym) {
+    var segs = [];
+    sym.loops.forEach(function (p) { for (var k = 0; k < p.length; k++) segs.push([p[k], p[(k + 1) % p.length]]); });
+    (sym.open || []).forEach(function (p) { for (var k = 0; k + 1 < p.length; k++) segs.push([p[k], p[k + 1]]); });
+    var rows = [];
+    for (var j = 0; j < N; j++) { var r = "";
+      for (var i = 0; i < N; i++) {
+        // cell centre in unit-box coords; distance measured in CELLS so the stroke width is a cell count
+        var ux = (i - c) / c / M, uy = (j - c) / c / M, best = 1e9;
+        for (var s = 0; s < segs.length; s++) { var a = segs[s][0], b = segs[s][1];
+          var d = dseg(ux, uy, a[0], a[1], b[0], b[1]); if (d < best) best = d; }
+        r += best * c * M <= HW ? "#" : "."; }
+      rows.push(r); }
+    // the renderer force-mirrors every row; make the table already mirrored so that is a no-op
+    return rows.map(function (r) { var o = r.split(""); for (var i = 0; i < N; i++) if (o[N - 1 - i] === "#") o[i] = "#"; return o.join(""); });
+  }
+  var E = window.SPRITES_SYMBOLS_EDGE, B = table(E.Batman), T = table(E.TARDIS), C = table(E.Cog);
+  // the renderer indexes 8 variants by iv; only 0 (Batman), 4 (TARDIS) and 7 (Cog) are ever rendered
+  window.SPRITES_GLYPHS_EDGE = [["Batman", B], ["Batman", B], ["Batman", B], ["Batman", B],
+                                ["TARDIS", T], ["TARDIS", T], ["TARDIS", T], ["Cog", C]];
+})();
+</script>
+<script src="../../visitors_runtime.js"></script>
+<script src="../../sigils/engine.js"></script>
+<script>
+SpritesSigilsEngine(V, SPRITES_GLYPHS_EDGE);
+</script>
+</body></html>

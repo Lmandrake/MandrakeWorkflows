@@ -1086,3 +1086,16 @@ def test_rb_m7_first_read_is_spread_under_a_byte_budget(tmp_path, monkeypatch):
         got.append(_tasks_once(w, c, {}, T0 + i, float(i)).get("subagents", "warming_up"))
         assert sum(scanned[n0:]) <= 3 * 1024 * 1024
     assert got == ["warming_up"] * 4 + [0, 0]
+
+
+def test_is_claude_path_accepts_both_install_layouts():
+    """Measured on the Work Desktop 2026-11-05: an npm-installed CLI lives at
+    .../node_modules/@anthropic-ai/claude-code/bin/claude.exe with no versions/ directory anywhere,
+    so matching only "/claude/versions/" found zero roots and every session vanished from the
+    snapshot (sessions: [], and Sprites drew nothing)."""
+    npm = ("/Users/u/.local/node-v24.19.0-darwin-arm64/lib/node_modules/"
+           "@anthropic-ai/claude-code/bin/claude.exe")
+    assert S.is_claude_path(npm)
+    assert S.is_claude_path("/opt/x/.local/share/claude/versions/2.1.292")
+    assert not S.is_claude_path("/bin/zsh")
+    assert not S.is_claude_path("/Users/u/agent-storage/python/py")

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Hover follow (owner, 2026-11-01 ~07:10; was ~/agent-storage/sprites/live/verify/hover_follow_test.py): the cursor parked
 on a creature -> within 6 px of the cursor at 1.5 s and 4 px at 5 s; dragged into the focused window, the creature
-stays outside it. One headless Chromium. Args: species (default all five). Exit 0 = pass."""
+stays outside it. One headless Chromium. Args: species (default: all of harness.SPECIES). Exit 0 = pass."""
 import json, math, sys
 from playwright.sync_api import sync_playwright
 from harness import check, done, url, one_session, SPECIES

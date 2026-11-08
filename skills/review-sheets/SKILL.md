@@ -75,6 +75,8 @@ never omitted.
 A project may layer a stricter `<domain>-review-sheets` overlay on this skill; where stricter, it
 wins.
 
+More traps for this section: [references/traps.md](references/traps.md) § 1. Generate. Do not hand-roll the page..
+
 ## 2. Validate
 
 ⛔ **`check_sheet.py` must exit 0 before handover.** Zero FAILs, not "warnings I judged fine";
@@ -109,6 +111,8 @@ recognisable as what it is, contradicts itself or the brief, repeats something a
 what was caught. If their first comment is something you could have seen, the sheet was not ready. (A project may
 enforce this with a record its serve tool checks — for example a `prereview.py` record.)
 
+More traps for this section: [references/traps.md](references/traps.md) § 2. Validate.
+
 ## 3. Serve. Serving IS the delivery.
 
 🔴 **Run `assets/serve_sheet.py` every time; it is the standing default.** It opens the human's browser on
@@ -137,12 +141,16 @@ It refuses an empty dump, duplicate rowIds and a frozen file.
 state ("drafted", with a way to open it) or says where the result landed. A persisted request with
 an invisible result looks lost.
 
+More traps for this section: [references/traps.md](references/traps.md) § 3. Serve. Serving IS the delivery..
+
 ## 4. Review: prove the sheet actually wrote
 
 ⚠️ **"They said they finished" is not evidence the file changed.** Before consuming a decisions file:
 
 ```bash
 python3 assets/serve_sheet.py --decisions decisions.json --status
+
+More traps for this section: [references/traps.md](references/traps.md) § 4. Review: prove the sheet actually wrote.
 # "touchedBySheet": false  ->  still the pre-fill. Nothing landed.
 ```
 
@@ -213,6 +221,8 @@ When the human says they are done:
 - ⭐ **Separate the two generators.** Regenerating the SHEET stays safe (it renders from the
   decisions file); only the DECISION generator is locked.
 - ⚠️ Name what freezing costs: under whitelist posture, undecided rows are stripped.
+
+More traps for this section: [references/traps.md](references/traps.md) § 6. Freeze, and make the freeze real.
 
 ## What to ask the human
 

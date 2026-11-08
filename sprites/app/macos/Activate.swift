@@ -75,25 +75,50 @@ private let clickQueue = DispatchQueue(label: "sprites.click", qos: .userInitiat
 /// The AppleScript that brings the iTerm2 session on this tty forward. A minimised window is un-minimised first
 /// (`select w` alone leaves it in the Dock; review R1_MACOS #17). The window id is read BEFORE `select`: `w` is an index
 /// reference, and selecting reorders the windows, so `id of w` afterwards names another window (measured 2026-11-04).
+///
+/// 🔴 EVERY REFERENCE IS AN INDEX REFERENCE, NOT JUST `w` (measured 2026-11-05, from the owner's live log):
+/// `sprites: AppleScript: 317:323: execution error: iTerm got an error: Can't get item 2 of every tab of item 3 of
+/// every window. Invalid index. (-1719)` — offsets 317:323 are exactly `tell t to select` on line 9, the statement
+/// AFTER `select w`. `t` and `s` are `item N of every tab of item M of every window`: once `select w` has reordered
+/// the windows, item M is a DIFFERENT window and item N may not exist, so the whole script aborts and the click
+/// focuses nothing. Same tab in the same window succeeded moments later in that log, so it was never a mis-indexed
+/// tab list — it was a reference invalidated mid-script by our own side effect.
+///
+/// The fix resolves EVERYTHING FIRST, by id, and only then mutates: tab index and window id are read while the
+/// references are still valid, the window is selected BY ID, and the tab BY INDEX within it. A session whose tty has
+/// no tab still returns "none" and the caller logs and does nothing (`activateAllAfterScript` is false by design —
+/// never raise every window).
 func itermFocusScript(tty: String) -> String {
     """
     tell application id "com.googlecode.iterm2"
+      set wid to missing value
+      set ti to 0
+      set si to 0
       repeat with w in windows
+        set ti to 0
         repeat with t in tabs of w
+          set ti to ti + 1
+          set si to 0
           repeat with s in sessions of t
+            set si to si + 1
             if tty of s is \(appleQuoted(tty)) then
               set wid to id of w
-              if miniaturized of w then set miniaturized of w to false
-              select w
-              tell t to select
-              tell s to select
-              activate
-              return "ok " & wid
+              exit repeat
             end if
           end repeat
+          if wid is not missing value then exit repeat
         end repeat
+        if wid is not missing value then exit repeat
       end repeat
-      return "none"
+      if wid is missing value then return "none"
+      set tw to first window whose id is wid
+      if miniaturized of tw then set miniaturized of tw to false
+      select tw
+      set tt to item ti of tabs of (first window whose id is wid)
+      tell tt to select
+      tell (item si of sessions of tt) to select
+      activate
+      return "ok " & wid
     end tell
     """
 }

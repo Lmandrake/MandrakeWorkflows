@@ -155,6 +155,15 @@ waypoint launch template "claude -n {NAME}"        # change it, then re-sync
   SidePulse follows it as `: led=#RRGGBB;` — a shell no-op, so the rendered
   `launch` arm is unchanged in behaviour. No `led=` means the LED uses the text
   hex.
+- **One colour per project** (owner, 2026-11-05): the sprite, the iTerm2 text and
+  the SidePulse LED all read the text hex, so it lives in exactly one place.
+  `launch colour NAME '#RRGGBB'` rewrites only the six digits inside the `]10;`
+  escape — the `claude` invocation, its flags, `{NAME}`/`{DIR}`, quoting, any
+  `/color` argument and any `: led=` marker are preserved byte for byte, and a
+  hex-looking string elsewhere in the cell (a note, a `/color #ABCDEF`) is never
+  touched. A row that sets no colour yet GAINS the `printf` ahead of its existing
+  command; a blank Command (meaning "use the default template") has the template
+  spelled out, since a row holding only a `printf` would start no session.
 
 Both blocks share one lifecycle: `sync` rewrites both, `doctor` checks both,
 `install`/`uninstall`/`import` operate on both.
@@ -205,6 +214,7 @@ Paths are single-quoted, so roots containing spaces or parentheses are handled c
 | `launch add NAME (--waypoint WP \| --path DIR) [--cmd ...] [--note ...]` | Add or update a launch alias, then sync. `--waypoint` is preferred; `--cmd` overrides the default template (`{NAME}`/`{DIR}` tokens). |
 | `launch remove NAME` | Remove a launch alias, then sync. Honours the global `--machine` to drop just one machine's row. |
 | `launch list` | Show launch aliases with resolved directory, effective command, and machine scope. |
+| `launch colour NAME ['#RRGGBB']` | Print or set the project's ONE colour — the `]10;` text hex in its Command cell. Scope follows `focus add`: with no global `--machine`, every machine row for that Name (one project, one colour); with `--machine`, only that row. Spelled `color` too. |
 | `launch template ["..."]` | Print the default command template, or set it (then sync). |
 | `focus add NAME` / `focus remove NAME` | Set or clear the `Focus` marker on a launch alias (all its machine rows, or only the global `--machine` row). No effect on Lodestar sync. |
 | `focus list` | Show focus launches and where each resolves on this machine. |

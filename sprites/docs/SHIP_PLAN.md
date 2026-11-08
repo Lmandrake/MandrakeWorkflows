@@ -180,6 +180,29 @@ tty is the session pid's tty, and activates it (Terminal likewise). Ghost: `open
 `launch <Name>` (Waypoint alias matched case-insensitively; Lodestar ghost -> `launch Lodestar`), else `cd ~/dev/<project> &&
 claude`; one window per project per 3 s (double-click debounce). Ghosts are now in the hit list.
 
+### The gesture is a DOUBLE-click (owner, 2026-11-05)
+"I really do want to be able to double-click on a Sprite and have it open the relevant Claude session or switch
+Spaces/Focus to it." The second click acts at once (`Decide.swift clickGesture`); a lone click still acts after the
+user's own double-click interval (`singleClickDelay`, from `NSEvent.doubleClickInterval`), because no behaviour may
+block a click (R3-SPEC #1, #2) — a sprite that swallows a click and does nothing is a defect. A third or later click
+in one gesture does nothing: one gesture, one window. `clickCount` rides from `NativeView.mouseDown` through the
+shim's `__nativeMouse` as the event's `detail`, to the host.
+
+### Two silent click-killers, fixed 2026-11-05 (CLICK-1, CLICK-2; LESSONS.md)
+- **CLICK-1:** the mouse pointer is itself a window at `kCGCursorWindowLevel`, always under the cursor, so
+  `captureAllowed`'s "a menu is holding the cursor" guard refused ~7% of clicks. That level is now exempt.
+- **CLICK-2:** capture armed only on the cursor poll, 24-81 ms *after* a click that followed a move, losing 4 of 5
+  natural gestures. A global mouse-moved monitor (no TCC grant) now arms it synchronously; the poll still owns the
+  expensive window-list check, whose verdict the monitor reuses (`blockedByOverlay`).
+- **Diagnosing a dead click: `SPRITES_DEBUG_CLICKS=1`** logs sprite positions, every capture arm/disarm with its
+  reason, and each click with its count — every line timestamped, so a race shows up by subtraction.
+
+### Space switching needs the Mission Control shortcuts ON
+`spaceSwitchPlan` posts "Switch to Desktop N", so that shortcut must be enabled in System Settings > Keyboard >
+Shortcuts > Mission Control. Measured on the Desktop (mt-BBBBBB) 2026-11-05: ids 118+ are **absent** from
+`com.apple.symbolichotkeys`, so a cross-Space click would log "shortcut is off" and stay put. Both displays also
+had exactly one Space, so the branch could not be exercised live; focus and ghost launch were.
+
 ## Desktop icon dimming (owner, 2026-11-01)
 Design: ~/dev/Machinist/knowledge/desktop-icon-dimming.md option 7. Built in app/macos/Stage.swift `DimLayer`,
 driven from App.swift: one borderless black window per screen, `ignoresMouseEvents`, `canJoinAllSpaces, stationary,

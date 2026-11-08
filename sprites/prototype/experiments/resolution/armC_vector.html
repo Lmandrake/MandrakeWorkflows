@@ -1,0 +1,19 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Arm C - vector paths</title></head>
+<body>
+<!-- ARM C of the symbol-resolution comparison (docs/SYMBOL_RESOLUTION.md). An EXPERIMENT PAGE: never
+     loaded by app/stage.html, never in its SPECIES list, so the live Sprites app is untouched. It runs
+     its OWN piece (armC_vector.js) on the shared runtime, drawing the same three symbols as true
+     geometry. The glyph a session gets still comes from its iv, as everywhere else. -->
+<script id="COLOPHON" type="application/json">[
+ "arm C: the same three symbols as true vector geometry (arc / lineTo / bezier), resolving at device resolution",
+ "same data mapping as c6_night; the LED-panel character is gone -- that is the arm's cost, not a bug"
+]</script>
+<script src="../../timelines.js"></script>
+<script src="../../scenarios.js"></script>
+<script src="../../visitors_runtime.js"></script>
+<script src="armC_vector.js"></script>
+<script>
+SpritesArmCVector(V, ["Batman", "Batman", "Batman", "Batman", "TARDIS", "TARDIS", "TARDIS", "Cog"]);
+</script>
+</body></html>
