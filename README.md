@@ -1,6 +1,6 @@
 # MandrakeWorkflows
 
-A working collection for people who build with AI agents: 38 Claude Code skills (methods an agent
+A working collection for people who build with AI agents: 39 Claude Code skills (methods an agent
 loads and follows), three tools that those methods lean on (two of them also ship a skill), and four
 larger agent-system projects.
 It is for anyone running Claude Code or a similar agent on real work who wants practices that
@@ -48,6 +48,7 @@ where it has them, references, scripts, evals and tests.
 | [`designer/`](designer/README.md) | **The Designer** (name provisional): a Socratic agent that argues a design into shape with its owner before anything is built, then writes what must be true so a builder and a judge cannot misread it. Definition, defects, version history. |
 | [`relentless/`](relentless/README.md) | **Relentless Pipeline**: a fire-and-forget pipeline for modest goals, and the **Relentless-style Builder/Judge** workers that fill its places ([`relentless/workers/`](relentless/workers/README.md)): definition, blindness contract, known defects, version history. |
 | [`artisan/`](artisan/README.md) | **Artisan** (experimental): one agent takes one whole piece of work to something it would show its owner. It is given the experience in the owner's words, told to be creative, and sent back when he looks and says no. Findings, policies, templates and field records, agnostic to any project. |
+| [`whittle/`](whittle/README.md) | **Whittle** (untested): Artisan's finish line in one interactive session, for work of about a person-day. A frozen statement, evidence per line, a fresh judge and a broaden call, enforced by a Stop hook instead of a shell loop. |
 | [`augur/`](augur/DESIGN.md) | **Augur**: one small macOS background producer that measures the machine once (load, network, VPN, agent sessions, projects) and writes one versioned snapshot file that several consumers read instead of each measuring on its own. Design, JSON schema, LaunchAgent plists, tests. |
 | [`sprites/`](sprites/README.md) | **Sprites**: luminous desktop creatures, one per Claude Code session, that encode session and machine load. Prototypes, gallery, spec. |
 
@@ -78,6 +79,7 @@ where it has them, references, scripts, evals and tests.
 | [`parallel-agent-worktrees`](skills/parallel-agent-worktrees/SKILL.md) | Run several coding agents against one repository without cross-contamination. |
 | [`git-efficiency`](skills/git-efficiency/SKILL.md) | Use git from scripts and agents cheaply and safely: batched calls, no whole-index sweeps, lock-aware. |
 | [`artisan`](skills/artisan/SKILL.md) | Set up, guide, watch and judge a shell-loop agent on one whole piece of work the owner can look at. Early: no acceptances yet. |
+| [`whittle`](skills/whittle/SKILL.md) | Size a job (too small, Whittle, or Artisan) and set up one interactive session that may not stop until evidence per line, a fresh judge and a broaden call say it's done. Untested. |
 | [`resumable-batch-jobs`](skills/resumable-batch-jobs/SKILL.md) | Make long batch jobs safe to resume, so a retry never silently skips failed items or duplicates done ones. |
 | [`claude-remote-control`](skills/claude-remote-control/SKILL.md) | Keep a multi-window Claude Code fleet reachable from the phone (Remote Control): why windows drop off, why a peer relay cannot fix it, and recovery without losing work. |
 

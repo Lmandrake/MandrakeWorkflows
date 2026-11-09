@@ -113,7 +113,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         backdrop.aetherSprites = { [weak self] in   // the stage's hit circles, world stage px -> CG global points
             guard let st = self?.stage else { return [] }
             let w = st.span.world, top = NSScreen.screens.first?.frame.maxY ?? 0
-            return st.hits.map { (CGPoint(x: $0.x + w.minX, y: $0.y - w.maxY + top), $0.r, $0.id) }
+            return st.hits.map { AetherHit(pos: CGPoint(x: $0.x + w.minX, y: $0.y - w.maxY + top), r: $0.r, id: $0.id, species: $0.concept, key: $0.key) }
+        }
+        backdrop.aetherDrift = { [weak self] d in self?.settings?.mirrorAetherDrift(d) }
+        backdrop.aetherCurrents = { [weak self] k, cur in   // wake reader: each sprite's leftover current, to the stage
+            var m: [String: [Double]] = [:]
+            for (id, v) in cur { m[id] = [(v.0 * 100).rounded() / 100, (v.1 * 100).rounded() / 100] }
+            self?.broadcast("SpritesStage.setCurrents(\(k),\(jsonString(m)))")
         }
         behaviorsWatch = FileWatch(Paths.behaviors, every: 2.0) { [weak self] d in
             guard let self else { return }
@@ -201,6 +207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func pushState(_ text: String?) {
         if text == lastState { return }
         lastState = text
+        settings?.mirrorSnapshot(text)
         if demo { return }
         broadcast("SpritesStage.update(\(text ?? "null"))")
     }
@@ -511,7 +518,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             w.onSetHidden = { [weak self] h in self?.userHidden = h; self?.applyVisibility() }
             w.onSetMeeting = { [weak self] v in self?.meeting = v; self?.applyVisibility() }
             w.onSetProjectColour = { key, alias, hex in setProjectColour(key: key, alias: alias, hex: hex) }
-            w.onSetProjectFocus = { key, alias, on in setProjectFocus(key: key, alias: alias, on: on) }
+            w.onSetProjectFocus = { key, alias, on, name, dir in setProjectFocus(key: key, alias: alias, on: on, name: name, dir: dir) }
             settings = w
         }
         settings?.demo = demo; settings?.size = size

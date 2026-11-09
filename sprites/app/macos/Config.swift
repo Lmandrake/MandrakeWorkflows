@@ -178,9 +178,10 @@ func runWaypoint(_ args: [String]) -> String? {
     return line
 }
 
-/// The local store used ONLY when Waypoint is absent: {"projects": {"<key>": {"hex", "focus"}}}.
-/// Beside cast.json and behaviors.json (Paths.projects), because these are the owner's settings for
-/// the same projects those files describe, not agent scratch.
+/// The local store: {"projects": {"<key>": {"hex", "focus", "name"?, "dir"?}}}. Used when Waypoint is absent, and with
+/// Waypoint for a project it cannot hold: one with no launch alias (no launch row, or an active sprite in a directory the
+/// registry does not know; owner, 2026-11-08). Beside cast.json and behaviors.json (Paths.projects, never a git tree),
+/// because these are the owner's settings for the same projects those files describe, not agent scratch.
 func loadLocalProjects() -> [String: [String: Any]] {
     guard let d = FileManager.default.contents(atPath: Paths.projects),
           let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
@@ -189,12 +190,14 @@ func loadLocalProjects() -> [String: [String: Any]] {
 }
 
 /// Merge one project's `hex` / `focus` into the local store. Returns nil on success, else a message.
-func saveLocalProject(key: String, hex: String?, focus: Bool?) -> String? {
+func saveLocalProject(key: String, hex: String?, focus: Bool?, name: String? = nil, dir: String? = nil) -> String? {
     guard !key.isEmpty else { return "no project key" }
     var all = loadLocalProjects()
     var entry = all[key] ?? [:]
     if let h = hex { entry["hex"] = h }
     if let f = focus { entry["focus"] = f }
+    if let n = name, !n.isEmpty { entry["name"] = n }
+    if let d = dir, !d.isEmpty { entry["dir"] = d }
     all[key] = entry
     guard let d = try? JSONSerialization.data(withJSONObject: ["projects": all],
                                               options: [.prettyPrinted, .sortedKeys]) else { return "not JSON" }
@@ -208,20 +211,18 @@ func saveLocalProject(key: String, hex: String?, focus: Bool?) -> String? {
 func setProjectColour(key: String, alias: String, hex: String) -> String? {
     guard hex.range(of: "^#[0-9A-Fa-f]{6}$", options: .regularExpression) != nil else { return "not a #RRGGBB colour" }
     if waypointCLIPath() != nil {
-        guard !alias.isEmpty else { return "this project has no launch alias to colour" }
+        if alias.isEmpty { return saveLocalProject(key: key, hex: hex, focus: nil) }   // no launch row: the local file
         return runWaypoint(["launch", "colour", alias, hex])
     }
     return saveLocalProject(key: key, hex: hex, focus: nil)
 }
 
 /// Mark or unmark a project as a focus item. Waypoint present: the `Focus` column, through
-/// `waypoint focus add|remove <alias>`; a project with no launch alias CANNOT be focused and says so.
-func setProjectFocus(key: String, alias: String, on: Bool) -> String? {
-    if waypointCLIPath() != nil {
-        guard !alias.isEmpty else { return "this project has no launch alias, so it cannot be a focus project" }
-        return runWaypoint(["focus", on ? "add" : "remove", alias])
-    }
-    return saveLocalProject(key: key, hex: nil, focus: on)
+/// `waypoint focus add|remove <alias>`. A project with no launch alias (Waypoint cannot focus it) and every project
+/// without Waypoint: the local file, by key, with its name and dir so a project the table does not know stays listed.
+func setProjectFocus(key: String, alias: String, on: Bool, name: String = "", dir: String = "") -> String? {
+    if waypointCLIPath() != nil, !alias.isEmpty { return runWaypoint(["focus", on ? "add" : "remove", alias]) }
+    return saveLocalProject(key: key, hex: nil, focus: on, name: name, dir: dir)
 }
 
 // MARK: single instance (review R1_MACOS #3)

@@ -15,7 +15,8 @@ import Foundation
 ///     A window that APPEARS on top of points (no motion: it cannot push) sends them dormant; any other point that
 ///     ends inside a window is pushed out to the nearest free side; dormant only if no free side exists.
 ///  2. Three clocks: geometry (`AetherClocks.geometryInterval`), simulation (fixed `tuning.dt`, bounded substeps and
-///     catch-up, `advance`), presentation (`frameInterval`, from the 90th-percentile speed, capped).
+///     catch-up, `advance`), presentation (`frameInterval`, from the 90th-percentile speed, capped at 30 fps calm and
+///     60 only while pushed: owner card 2026-11-08 ~18:35 PST, "30 calm, 60 when pushed").
 ///  3. Strict speed ceiling, with one exception: windows PUSH (owner ruling, 2026-11-08, "Push, replace wipe"). A face
 ///     faster than the ceiling carries the point on it at the face's normal speed (no 2w bounce), tangential speed
 ///     kept; a pressed point may exceed the ceiling only while pressed, and its excess bleeds off in `pushReleaseTau`
@@ -23,147 +24,28 @@ import Foundation
 ///     nearer corner in proportion to local crowding, so a pile spills round the window; the crowding cap spares
 ///     them. The old absorb-above-ceiling rule (the "wipe") is gone.
 ///  4. Revealed-space reserve: exposed desktop is reseeded gently from the dormant pool at the gas's temperature.
-///  5. Thermostat is an artistic control: an Ornstein-Uhlenbeck relaxation of velocity relative to the LOCAL flow
-///     (a drifting cloud is not "hot"), a separate flow damping, a fast damping for hot trapped pockets, and thermal
-///     screen edges as the heat bath.
+///  5. Temperature VARIES (owner ruling 7, 2026-11-08: "Let's not relax particles to the 'correct' temperature. Let
+///     it vary more."). "Temperature variation" (0-1, default 0.85) scales the old per-point Ornstein-Uhlenbeck
+///     relaxation (velocity relative to the LOCAL flow, toward the target) to τ/(1-v)², off at 1; 0 is the old uniform
+///     gas. Above 0, energy leaves through Cooling (drag: flow damping, and the settle paths as pure damping, no kick)
+///     and comes in from windows, sprite stirring, the tray Stir and the screen edges, which are a weak, slow source
+///     (a hit re-emits at the Temperature with probability 1-v+v x edgeAccommodationFree, else reflects). The
+///     Temperature is the start, the edge emission and the floor's partner; the floor is a global uniform rescale of
+///     the mean; hot pockets (hotFactor x target) are only damped down to that ceiling (hotTau), never kicked; the
+///     rewarm after typing rescales uniformly back to the pre-typing energy, so a hot/cold pattern survives typing.
 ///  6. Density is defined once, per million logical square points; population = density x screen area; points under
 ///     windows are dormant, so a covered region's share is what the reserve gives back.
-///  9. Chains of 2-5 (release 1, owner ruling 5): straightening constraint, temperature-dependent stochastic lifetime
-///     with a hard cap, momentum conserved at bonding, bounded momentum-free release at breakup, a capped count and a
-///     formation opportunity every 20-60 s (rare).
-
-// MARK: - Settings (behaviors.json "aether": {...})
-
-enum AetherMotion: String { case living, settleWhileTyping = "settle-typing", stirAndSettle = "stir-settle" }
-enum AetherBoundary: String { case thermal, reflect, reservoir }
-enum AetherChains: String {
-    case never, rare, sometimes, often
-    var maxAlive: Int { self == .never ? 0 : (self == .often ? 3 : 2) }
-    /// Seconds between chances for a NEW chain (uniform in the range).
-    var formationWindow: (Double, Double) {
-        switch self { case .never: return (.infinity, .infinity); case .rare: return (20, 60)
-                      case .sometimes: return (10, 30); case .often: return (5, 15) }
-    }
-}
-
-struct AetherSettings: Equatable {
-    /// Owner ruling 1: all three ship; default "living, settles while typing" until he has seen it.
-    var motion: AetherMotion = .settleWhileTyping
-    /// Owner ruling 2: thermal walls.
-    var boundary: AetherBoundary = .thermal
-    /// Entry temperature as an RMS speed, pt/s: frozen 0.5 / cool 3 / mild 8 / warm 16 / hot 28. Default 27.5, the
-    /// owner's own setting (2026-11-08: Cool was "way too slow"; "it reads much better now" after he raised it).
-    var rmsSpeed = 27.5
-    /// Points per million logical pt²: sparse 100 (~150 on a 14" laptop) / medium 270 (~400) / dense 1000 (~1 500).
-    var densityPerMpt2 = 100.0
-    /// Drawn core DIAMETER, pt (preset follows density: 2.5 / 2 / 1.5). Rendering only.
-    var particleDiameter = 2.5
-    /// Collision diameter, pt, separate from the drawn core (merge correction 7: 3-4 pt).
-    var collisionDiameter = 3.5
-    var chains: AetherChains = .rare
-    /// Sprite field strength: off 0 / subtle 0.5 / vivid 1 (0-2).
-    var fieldStrength = 0.5
-    /// "Sprite stirring": a moving sprite drags nearby gas along its path and pushes it out of its body, leaving a wake
-    /// that settles under Cooling (owner, 2026-11-08: sprites should "stir it with their passing"). off 0 / subtle 0.5 /
-    /// strong 1.2 (0-2); default between subtle and moderate.
-    var stirring = 0.7
-    /// "Cooling (drag)": seconds for a disturbance to settle (about 3 time constants). Drives stir-and-settle's
-    /// relaxation and the flow damping (wakes glide). Owner, 2026-11-08: "some drag but quite slow". 5-120.
-    var coolingSeconds = 45.0
-    /// "Minimum temperature": RMS speed, pt/s, below which no settle path cools the gas (owner, 2026-11-08: frozen
-    /// "looks almost like something's wrong"). Typing still calms it, to here. 0 = may freeze (the old behaviour).
-    var minRmsSpeed = 1.5
-    var colour = "green"            // green | amber | white, or "#rrggbb" from the colour picker (rendering)
-    var brightness = 2              // 1-3 (rendering)
-
-    static let temperatures: [String: Double] = ["frozen": 0.5, "cool": 3, "mild": 8, "warm": 16, "hot": 28]
-    static let densities: [String: (Double, Double)] = ["sparse": (100, 2.5), "medium": (270, 2.0), "dense": (1000, 1.5)]
-    static let strengths: [String: Double] = ["off": 0, "subtle": 0.5, "vivid": 1]
-    static let stirrings: [String: Double] = ["off": 0, "subtle": 0.5, "moderate": 0.8, "strong": 1.2]
-
-    /// The "aether" object of a behaviors.json dictionary; anything missing, unknown or of the wrong type is the default.
-    static func from(_ top: [String: Any]?) -> AetherSettings {
-        var s = AetherSettings()
-        guard let o = top?["aether"] as? [String: Any] else { return s }
-        func clamp(_ v: Double, _ lo: Double, _ hi: Double) -> Double { min(hi, max(lo, v)) }
-        if let v = (o["motion"] as? String).flatMap(AetherMotion.init(rawValue:)) { s.motion = v }
-        if let v = (o["boundary"] as? String).flatMap(AetherBoundary.init(rawValue:)) { s.boundary = v }
-        if let v = (o["chains"] as? String).flatMap(AetherChains.init(rawValue:)) { s.chains = v }
-        if let n = jsonNumber(o["temperature"]) { s.rmsSpeed = clamp(n, 0, 40) }
-        else if let k = o["temperature"] as? String, let v = temperatures[k] { s.rmsSpeed = v }
-        var preset: Double? = nil
-        if let n = jsonNumber(o["density"]) { s.densityPerMpt2 = clamp(n, 0, 2000); preset = 2.0 }
-        else if let k = o["density"] as? String, let v = densities[k] { s.densityPerMpt2 = v.0; preset = v.1 }
-        if let n = jsonNumber(o["particleSize"]) { s.particleDiameter = clamp(n, 0.5, 6) }
-        else if let p = preset { s.particleDiameter = p }
-        if let n = jsonNumber(o["collisionSize"]) { s.collisionDiameter = clamp(n, 2, 8) }
-        if let n = jsonNumber(o["stirring"]) { s.stirring = clamp(n, 0, 2) }
-        else if let k = o["stirring"] as? String, let v = stirrings[k] { s.stirring = v }
-        if let n = jsonNumber(o["cooling"]) { s.coolingSeconds = clamp(n, 5, 120) }
-        if let n = jsonNumber(o["minTemperature"]) { s.minRmsSpeed = clamp(n, 0, 10) }
-        if let n = jsonNumber(o["fieldStrength"]) { s.fieldStrength = clamp(n, 0, 2) }
-        else if let k = o["fieldStrength"] as? String, let v = strengths[k] { s.fieldStrength = v }
-        if let c = o["colour"] as? String, ["green", "amber", "white"].contains(c) || aetherHex(c) != nil { s.colour = c.lowercased() }
-        if let n = jsonNumber(o["brightness"]) { s.brightness = Int(clamp(n.rounded(), 1, 3)) }
-        return s
-    }
-
-    /// The colour as linear-ish RGB 0-1 (presets are the phosphor tones; a hex is taken as given).
-    var rgb: SIMD3<Double> {
-        switch colour {
-        case "amber": return SIMD3(1.0, 0.68, 0.18)
-        case "white": return SIMD3(0.82, 0.88, 0.92)
-        case "green": return SIMD3(0.28, 1.0, 0.45)   // phosphor green
-        default: return aetherHex(colour) ?? SIMD3(0.28, 1.0, 0.45)
-        }
-    }
-
-    static func parse(behaviorsJSON: String) -> AetherSettings {
-        guard let d = behaviorsJSON.data(using: .utf8),
-              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return AetherSettings() }
-        return from(o)
-    }
-}
-
-/// "#rrggbb" (case-insensitive) as RGB 0-1, else nil.
-func aetherHex(_ s: String) -> SIMD3<Double>? {
-    let h = Array(s.utf8)
-    guard h.count == 7, h[0] == UInt8(ascii: "#"), let v = UInt32(String(s.dropFirst()), radix: 16) else { return nil }
-    return SIMD3(Double((v >> 16) & 0xff), Double((v >> 8) & 0xff), Double(v & 0xff)) / 255
-}
-
-/// The Aether is on: the Settings tab's switch, behaviors.json "aether": {"enabled": true}, or "backdrop": "aether".
-/// While on it replaces the moving backdrops (the chosen backdrop comes back when it is switched off).
-func aetherSelected(behaviorsJSON: String) -> Bool {
-    guard let d = behaviorsJSON.data(using: .utf8),
-          let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return false }
-    // A JSON true only: JSONSerialization's 1 also casts to Bool; only the CFBoolean singletons are Booleans.
-    guard (o["backdrop"] as? String) != "aether" else { return true }
-    guard let n = (o["aether"] as? [String: Any])?["enabled"] as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() else { return false }
-    return n.boolValue
-}
-
-// MARK: - Quiet behaviour and the geometry clock (pure decisions for the host)
-
-enum AetherQuiet: Equatable { case off, still, draw(fpsCap: Double) }
-
-/// Merge "quiet behaviour": hidden, meeting mode, locked and covered draw nothing; Reduce Motion, Low Power, battery
-/// under 20 % and thermal Serious/Critical hold a still frame. thermal: ProcessInfo.ThermalState.rawValue (0-3).
-func aetherQuietPlan(hidden: Bool, meeting: Bool, locked: Bool, covered: Bool, reduceMotion: Bool, lowPower: Bool,
-                     batteryBelow20: Bool, thermal: Int) -> AetherQuiet {
-    if hidden || meeting || locked || covered { return .off }
-    if reduceMotion || lowPower || batteryBelow20 || thermal >= 2 { return .still }
-    return .draw(fpsCap: thermal == 1 ? 30 : 60)
-}
-
-enum AetherClocks {
-    static let calmGeometry = 0.5, dragGeometry = 1.0 / 12
-    /// Seconds until the next window-geometry read: 2 Hz calm, 12 Hz while the drag monitor sees a drag, at once on app
-    /// activation or a Space change (`reconcile`).
-    static func geometryInterval(dragging: Bool, reconcile: Bool) -> Double {
-        reconcile ? 0 : (dragging ? dragGeometry : calmGeometry)
-    }
-}
+///  9. Bonding is FORCES, not constraints (owner ruling 8, 2026-11-08: "a short-range attraction and a long range
+///     repulsion... reproduce the bonding through actual forces rather than constraints. Relax those constraints.").
+///     Short range: a pair well in pair() (hard core at the collision diameter, depth Attraction x the Temperature's
+///     σ², smooth taper to 0 at Attraction range x diameter; the grid cell is sized for the widest range, so the
+///     neighbour search stays one ring), with a well friction on the pair's normal relative velocity, set by Cooling,
+///     so a passing pair can be captured (two bodies cannot bind without losing energy). Long range: particle-in-cell
+///     on the coarse grid (cloud-in-cell deposit, binomial smoothing over Repulsion range cells, central-difference
+///     gradient, the same weights back: no self-force), O(N + cells). Needles: "Chain forming" mixes in a dipole term,
+///     each point carrying an orientation that turns toward its neighbours' dipole field (overdamped, with rotational
+///     noise from the local temperature): head-to-tail attracts, side-by-side repels, so chains form and break
+///     thermally, with no lifetimes, caps or rest lengths. A work counter (`work`) bounds the cost without a benchmark.
 
 // MARK: - Geometry
 
@@ -218,13 +100,17 @@ func aetherSubtract(_ rs: [AetherRect], _ cut: [AetherRect]) -> [AetherRect] {
 struct AetherObstacle: Equatable { var id: Int; var rect: AetherRect }
 /// A sprite's hit circle. `id` (the stage's hit id) lets the sim track it between updates and estimate its velocity;
 /// an empty id is a stationary body.
+/// species (the stage's concept, e.g. "c2_siphon") and key (the project key) are identity only: they shape the wake
+/// and its handedness, never anything about the sprite's work or status (owner card 2026-11-08 18:30 PST).
 struct AetherSprite {
-    var pos: SIMD2<Double>; var radius: Double; var id = ""
-    init(pos: SIMD2<Double>, radius: Double, id: String = "") { self.pos = pos; self.radius = radius; self.id = id }
+    var pos: SIMD2<Double>; var radius: Double; var id = ""; var species = ""; var key = ""
+    init(pos: SIMD2<Double>, radius: Double, id: String = "", species: String = "", key: String = "") {
+        self.pos = pos; self.radius = radius; self.id = id; self.species = species; self.key = key
+    }
 }
 
-@inline(__always) private func dot2(_ a: SIMD2<Double>, _ b: SIMD2<Double>) -> Double { a.x * b.x + a.y * b.y }
-@inline(__always) private func len2(_ a: SIMD2<Double>) -> Double { (a.x * a.x + a.y * a.y).squareRoot() }
+@inline(__always) func dot2(_ a: SIMD2<Double>, _ b: SIMD2<Double>) -> Double { a.x * b.x + a.y * b.y }
+@inline(__always) func len2(_ a: SIMD2<Double>) -> Double { (a.x * a.x + a.y * a.y).squareRoot() }
 
 /// SplitMix64: seeded, deterministic, cheap.
 struct AetherRNG {
@@ -257,6 +143,8 @@ struct AetherTuning {
     var thermostatTau: Double? = nil
     var flowTau: Double? = nil             // damping of bulk flow; nil = from settings.coolingSeconds / 3
     var hotFactor = 4.0, hotTau = 1.5      // trapped/forced pockets hotter than hotFactor x target relax fast
+    var edgeAccommodationFree = 0.1        // thermal-edge re-emission probability at variation 1 (1 at variation 0)
+    var spriteGrid = true                  // sprites read only the grid cells under their reach (false: every point)
     var settleTau = 0.4                    // "settles fully while typing"
     var stirSettleTau: Double? = nil       // stir-and-settle relaxation; nil = from settings.coolingSeconds / 3
     var rewarmTau = 3.0                    // after typing stops
@@ -280,15 +168,11 @@ struct AetherTuning {
     /// Presentation while anything moves: never below presentMinFps (owner, 2026-11-08: 2-24 fps read as discrete
     /// jumps), up to the cap as the 90th-percentile displacement passes ptPerFrame. Frames interpolate between sim steps.
     var presentCapFps = 60.0, presentMinFps = 30.0, fadeFps = 30.0
+    /// Owner card 2026-11-08 ~18:35 PST, "30 calm, 60 when pushed": a calm, drifting gas presents at calmFps; only
+    /// while a window face pushes the gas or a moving sprite stirs it (and pushHold s after) may it go up to the cap.
+    var calmFps = 30.0, pushHold = 1.0
     var ptPerFrame = 0.25
     var stillSpeed = 0.05                  // nothing faster than this: no frames at all
-    // chains
-    var chainMaxLength = 5, chainSpan = 60.0, bondLengthFactor = 1.15
-    var bondSpeedFraction = 0.6            // bond only below 0.6 x the entry RMS speed (relative)
-    var growProbability = 0.5
-    var chainCap = 20.0, chainTau0 = 8.0, chainTauMin = 4.0, chainTauMax = 12.0
-    var straighten = 0.1, constraintIterations = 3
-    var releaseFraction = 0.3, releaseMaxFraction = 0.5
     // sprite stirring: entrainment along the sprite's motion within stirReach x radius, plus its body as a moving wall
     var stirReach = 3.0                    // x sprite radius
     var stirRate = 6.0                     // 1/s at the body's edge at stirring 1: how fast nearby gas picks up its speed
@@ -296,6 +180,24 @@ struct AetherTuning {
     // sprite field (one family: a magnetic-style sideways deflection that does no work)
     var fieldOmegaMax = 1.5                // rad/s at a sprite's centre at strength 1
     var fieldReach = 4.0                   // x sprite radius
+    // forces (ruling 8)
+    var wellFriction = 45.0                // well friction rate = this / coolingTau (1/s; 3/s at the default cooling)
+    var maxPairAccel = 600.0               // pt/s²: no pair force above this (nothing explodes)
+    var maxRepelAccel = 120.0              // pt/s²: the particle-in-cell push is capped here
+    var orientRate = 8.0                   // 1/s: how fast a dipole turns toward its neighbours' field at strength 1
+    // knots (owner card 2026-11-08 18:30 PST): a coarse cell two different sprites' wakes reached within wakeLife s of
+    // each other is a crossing; with probability `knots` it is a knot for knotLife s: capture threshold and well friction x knotGain
+    var wakeLife = 6.0, knotLife = 5.0, knotGain = 4.0
+    // window dew: a band dewBand x collision diameter outside a still window's face; slow dots there are pulled to the
+    // face at dewPull x σ0² / band x dew and their motion damped at dewFriction x dew (1/s); a move kicks them off at dewShake x σ0
+    var dewBand = 2.0, dewPull = 2.0, dewFriction = 3.0, dewShake = 0.8
+    // at most (1 + dewCap x dew) x the band's even share (and at least one bead per dewSpacing pt of edge) are held, so
+    // beads never close into an outline of the window
+    var dewCap = 6.0, dewSpacing = 60.0
+    // handedness: the curl's rate at the body's edge, rad/s at handedness 1 and a sprite speed of curlSpeed pt/s
+    var curlRate = 1.2, curlSpeed = 60.0
+    // wake reader: a wake counts as leftover between these ages, s
+    var readerMinAge = 3.0, readerMaxAge = 30.0
 }
 
 enum AetherPhase: UInt8 { case dormant, active, fading }
@@ -306,70 +208,101 @@ final class AetherSim {
     let bounds: AetherRect
     var settings: AetherSettings          // density and boundary changes need a new sim (population is set at init)
     var tuning: AetherTuning
-    private var rng: AetherRNG
-    private(set) var time = 0.0
+    var rng: AetherRNG
+    var time = 0.0
 
     // Point state, struct-of-arrays. Dormant slots are the reserve.
-    private(set) var pos: [SIMD2<Double>]
+    var pos: [SIMD2<Double>]
     /// Positions at the start of the last step: frames draw lerp(prevPos, pos, interpolation) so the fixed 30 Hz
     /// step never shows. A point placed out of nowhere (seeded, injected) gets prevPos = pos.
-    private(set) var prevPos: [SIMD2<Double>]
-    private(set) var vel: [SIMD2<Double>]
-    private(set) var alpha: [Double]
-    private(set) var phase: [AetherPhase]
-    private(set) var charge: [Double]
-    private(set) var chainOf: [Int]
+    var prevPos: [SIMD2<Double>]
+    var vel: [SIMD2<Double>]
+    var alpha: [Double]
+    var phase: [AetherPhase]
+    var charge: [Double]
+    /// Per point: the dipole orientation (unit vector) and its neighbours' field, integrated over the step.
+    var orient: [SIMD2<Double>]
+    var dipoleField: [SIMD2<Double>]
+    /// Deterministic cost counters, cumulative (tests bound them; no clock involved).
+    struct Work { var steps = 0, pointSteps = 0, pairChecks = 0, cellsTouched = 0, forceEvals = 0, globalScans = 0 }
+    var work = Work()
+    var subH = 0.0
+    var frozen = false             // a settle to rest (floor 0): forces hold off so the gas can stop
+    var rho: [Double], rhoTmp: [Double]
     /// Per point: the speed allowed above the ceiling (0 = none; set by a push, bleeds off) and the last press time.
-    private(set) var boost: [Double]
-    private var pressedAt: [Double]
+    var boost: [Double]
+    var pressedAt: [Double]
     let population: Int
     /// Designed density, points per pt² (density is defined once: settings.densityPerMpt2 / 1e6).
     let designDensity: Double
 
-    struct Chain { var members: [Int]; var born: Double }
-    private(set) var chains: [Chain?] = []
-    var nextFormation: Double
-
     /// covered: dormant because a window appeared on top; trapped: dormant because no free side existed; pushedOut:
     /// placed outside a window it ended up inside; pressed: contacts with a face faster than the press speed.
-    struct Stats { var covered = 0, trapped = 0, pushedOut = 0, pressed = 0, seeded = 0, injected = 0, removed = 0, crowded = 0
-                   var bonds = 0, breaks = 0; var lifetimes: [Double] = [] }
-    private(set) var stats = Stats()
-    private(set) var heldTime = 0.0
+    struct Stats { var covered = 0, trapped = 0, pushedOut = 0, pressed = 0, seeded = 0, injected = 0, removed = 0, crowded = 0 }
+    var stats = Stats()
+    var heldTime = 0.0
+    /// Weather fronts (aetherFronts): per coarse cell local constants, or nil (the settings everywhere).
+    var fronts: AetherFronts? = nil
+    func setFronts(_ f: AetherFronts?) { fronts = (f.map { $0.attraction.count == cw * ch } ?? false) ? f : nil }
 
-    private struct Wall {
+    struct Wall {
         var id: Int; var from: AetherRect; var to: AetherRect; var t0: Double; var dur: Double
         var born = 0.0                    // when this id first appeared: in that substep it covers, it cannot push
+        var still = 0.0                   // when its rect last changed (window dew forms after settings.dewAfterSeconds)
         func rect(_ t: Double) -> AetherRect {
             (dur <= 0 || t >= t0 + dur) ? to : AetherRect.lerp(from, to, max(0, (t - t0) / dur))
         }
     }
-    private var walls: [Wall] = []
-    private var sprites: [AetherSprite] = []
+    var walls: [Wall] = []
+    var sprites: [AetherSprite] = []
     /// Per sprite id: last seen position, when it last changed, and a smoothed velocity (hits arrive at ~10 Hz).
-    private struct Track { var pos: SIMD2<Double>; var changed: Double; var vel: SIMD2<Double> }
-    private var tracks: [String: Track] = [:]
-    private var spriteVel: [SIMD2<Double>] = []
-    private struct Region { var rect: AetherRect; var density: Double; var expires: Double; var carry: Double }
-    private var regions: [Region] = []
-    private var lastTyping = -Double.infinity
-    private var accumulator = 0.0
-    private var nextCrowdCheck = 0.0
-    private var edgeCarry = [Double](repeating: 0, count: 4)
-    private var dormantCursor = 0
+    struct Track { var pos: SIMD2<Double>; var changed: Double; var vel: SIMD2<Double> }
+    var tracks: [String: Track] = [:]
+    var spriteVel: [SIMD2<Double>] = []
+    struct Region { var rect: AetherRect; var density: Double; var expires: Double; var carry: Double }
+    var regions: [Region] = []
+    var lastTyping = -Double.infinity
+    var accumulator = 0.0
+    var nextCrowdCheck = 0.0
+    var edgeCarry = [Double](repeating: 0, count: 4)
+    var dormantCursor = 0
 
     // Collision grid (cell >= collision diameter) and coarse grid.
-    private let cell: Double, gw: Int, gh: Int
-    private var cellStart: [Int], cellItems: [Int], cellOfPoint: [Int]
-    private var gridBuilt = false
-    private let cc: Double, cw: Int, ch: Int
-    private var cCount: [Double], cSum: [SIMD2<Double>], cSum2: [Double]
+    let cell: Double, gw: Int, gh: Int
+    var cellStart: [Int], cellItems: [Int], cellOfPoint: [Int]
+    var gridBuilt = false
+    /// True from buildGrid until positions next change outside it (the sprite passes read it at substep start).
+    var gridFresh = false
+    var nearSeen: [Int], nearStamp = 0, nearBuf: [Int] = [], nearMoved: [Int] = []
+    enum Thermo { case relax, rewarm, settle }
+    var lastThermo = Thermo.relax
+    var restSigma2 = Double.nan     // mean σ² when the last typing settle began (the rewarm's goal)
+    let cc: Double, cw: Int, ch: Int
+    var cCount: [Double], cSum: [SIMD2<Double>], cSum2: [Double]
+    /// Knots: per coarse cell, the last sprite whose wake reached it (an id hash), when, and when two wakes last crossed.
+    var wakeBy: [UInt64], wakeAt: [Double], crossAt: [Double], wakeCross: [Double]
+    /// Crossings so far, and how many became knots (tests and QA).
+    var crossings = 0, knotsFormed = 0
+    /// One line of QA state for the host's debug log (SPRITES_DEBUG_AETHER=1): the effects a screenshot cannot show.
+    var debugLine: String {
+        let cells = fronts.map { f in String(format: "fronts att %.2f-%.2f", f.attraction.min() ?? 0, f.attraction.max() ?? 0) } ?? "fronts none"
+        // Not `let dewy`: a local of that name shadows dewy(_:) inside its own initializer and the file stops compiling.
+        let dewyCount = walls.filter { dewy($0) }.count
+        return "t \(Int(time)) active \(activeCount()) pushed \(pushed) fps \(frameInterval().map { Int((1 / $0).rounded()) } ?? 0) \(cells) " +
+               "dewy windows \(dewyCount) dew held \(dewHeld) shaken \(dewShaken) crossings \(crossings) knots \(knotsFormed) sprites \(sprites.count) " +
+               "currents \(leftoverCurrents().count)"
+    }
+    /// Coarse cells where two wakes crossed in the last knotLife seconds (tests and QA).
+    var knotCells: Int { crossAt.filter { time - $0 < tuning.knotLife }.count }
+    /// Coarse cells that are crossings now (knotted or not).
+    var crossCells: Int { wakeCross.filter { time - $0 < tuning.knotLife }.count }
+    var coarseCellCount: Int { cw * ch }
 
     var radius: Double { settings.collisionDiameter / 2 }
     var ceiling: Double { tuning.ceilingOverride ?? max(tuning.ceilingFloor, tuning.ceilingPerRms * settings.rmsSpeed) }
-    private var sigma0Squared: Double { settings.rmsSpeed * settings.rmsSpeed / 2 }
+    var sigma0Squared: Double { settings.rmsSpeed * settings.rmsSpeed / 2 }
     /// The floor every settle path stops at (never above the entry temperature).
-    private var floorSigma2: Double { let f = min(settings.minRmsSpeed, settings.rmsSpeed); return f * f / 2 }
+    var floorSigma2: Double { let f = min(settings.minRmsSpeed, settings.rmsSpeed); return f * f / 2 }
     /// The cooling time constant: settle time / 3.
     var coolingTau: Double { max(0.1, settings.coolingSeconds / 3) }
     var isTyping: Bool { time - lastTyping < tuning.typingHold }
@@ -385,25 +318,31 @@ final class AetherSim {
         pos = Array(repeating: .zero, count: cap); vel = pos; prevPos = pos
         alpha = Array(repeating: 0, count: cap); phase = Array(repeating: .dormant, count: cap)
         charge = (0..<cap).map { $0 % 2 == 0 ? 1 : -1 }
-        chainOf = Array(repeating: -1, count: cap)
+        dipoleField = Array(repeating: .zero, count: cap)
         boost = Array(repeating: 0, count: cap); pressedAt = Array(repeating: -.infinity, count: cap)
-        cell = max(2 * settings.collisionDiameter, 12)
+        cell = max(2 * settings.collisionDiameter, 12, AetherSettings.maxAttractionRange * settings.collisionDiameter)
         gw = max(1, Int((bounds.width / cell).rounded(.up))); gh = max(1, Int((bounds.height / cell).rounded(.up)))
         cellStart = Array(repeating: 0, count: gw * gh + 1); cellItems = Array(repeating: 0, count: cap)
-        cellOfPoint = Array(repeating: 0, count: cap)
+        cellOfPoint = Array(repeating: 0, count: cap); nearSeen = Array(repeating: 0, count: cap)
         cc = tuning.coarseCell
         cw = max(1, Int((bounds.width / cc).rounded(.up))); ch = max(1, Int((bounds.height / cc).rounded(.up)))
         cCount = Array(repeating: 0, count: cw * ch); cSum = Array(repeating: .zero, count: cw * ch)
         cSum2 = Array(repeating: 0, count: cw * ch)
-        nextFormation = 0
+        rho = Array(repeating: 0, count: cw * ch); rhoTmp = rho
+        wakeBy = Array(repeating: 0, count: cw * ch); wakeAt = Array(repeating: -.infinity, count: cw * ch); crossAt = wakeAt; wakeCross = wakeAt
         walls = obstacles.map { Wall(id: $0.id, from: $0.rect, to: $0.rect, t0: 0, dur: 0) }
-        nextFormation = drawFormationTime()
+        var orng = AetherRNG(seed: seed ^ 0xD1B5_4A32_D192_ED03)
+        orient = (0..<cap).map { _ in let a = 2 * Double.pi * orng.uniform(); return SIMD2(cos(a), sin(a)) }
         let r = radius, s = sigma0Squared.squareRoot()
         let expanded = walls.map { $0.to.expanded(by: r) }
+        let capSpeed = max(tuning.ceilingOverride ?? 0, max(tuning.ceilingFloor, tuning.ceilingPerRms * settings.rmsSpeed))
         for i in 0..<pop {
             let p = SIMD2(bounds.minX + r + rng.uniform() * (bounds.width - 2 * r),
                           bounds.minY + r + rng.uniform() * (bounds.height - 2 * r))
-            pos[i] = p; vel[i] = SIMD2(rng.gaussian(), rng.gaussian()) * s
+            var v = SIMD2(rng.gaussian(), rng.gaussian()) * s
+            let l = len2(v)
+            if l > capSpeed { v *= capSpeed / l }
+            pos[i] = p; vel[i] = v
             if !expanded.contains(where: { $0.contains(p) }) { phase[i] = .active; alpha[i] = 1 }
         }
         prevPos = pos
@@ -427,12 +366,15 @@ final class AetherSim {
                 func pick(_ a: Double, _ b: Double) -> Double { abs(a - b) <= limit ? a : b }   // a teleported face snaps
                 let from = AetherRect(minX: pick(c.minX, n.minX), minY: pick(c.minY, n.minY),
                                       maxX: pick(c.maxX, n.maxX), maxY: pick(c.maxY, n.maxY))
+                let moved = c != n
+                if moved && dewy(w) { shakeDew(c) }   // the window moves: its dew shakes off into the gas
+                let still = moved ? now : w.still
                 if from != n && from.maxX > from.minX && from.maxY > from.minY {
-                    next.append(Wall(id: o.id, from: from, to: n, t0: now, dur: dur, born: w.born)); continue
+                    next.append(Wall(id: o.id, from: from, to: n, t0: now, dur: dur, born: w.born, still: still)); continue
                 }
-                next.append(Wall(id: o.id, from: n, to: n, t0: now, dur: 0, born: w.born)); continue
+                next.append(Wall(id: o.id, from: n, to: n, t0: now, dur: 0, born: w.born, still: still)); continue
             }
-            next.append(Wall(id: o.id, from: o.rect, to: o.rect, t0: now, dur: 0, born: now))
+            next.append(Wall(id: o.id, from: o.rect, to: o.rect, t0: now, dur: 0, born: now, still: now))
         }
         walls = next
         guard tuning.reserveEnabled else { return }
@@ -493,8 +435,14 @@ final class AetherSim {
         let a = interpolation; return prevPos[i] + (pos[i] - prevPos[i]) * a
     }
 
+    /// Last time a window face pushed a dot (a contact faster than the press speed) or a moving sprite stirred the gas.
+    var lastPush = -Double.infinity
+    /// True while the gas is being pushed, or was within pushHold s (owner card 2026-11-08 ~18:35 PST).
+    var pushed: Bool { time - lastPush < tuning.pushHold }
+
     /// The presentation clock: seconds to the next frame, or nil when nothing moves (hold the last frame). Follows the
-    /// 90th-percentile speed (one fast outlier cannot raise it), clamped to [presentMinFps, cap].
+    /// 90th-percentile speed (one fast outlier cannot raise it), clamped to [presentMinFps, cap]; the cap is calmFps
+    /// unless the gas is pushed (owner card 2026-11-08 ~18:35 PST: "30 calm, 60 when pushed").
     func frameInterval(capFps: Double? = nil) -> Double? {
         var speeds: [Double] = []; speeds.reserveCapacity(population)
         var fading = false, vmax = 0.0
@@ -510,7 +458,8 @@ final class AetherSim {
         let v90 = speeds.isEmpty ? 0 : speeds[min(speeds.count - 1, Int(0.9 * Double(speeds.count)))]
         var fps = v90 / tuning.ptPerFrame
         if fading { fps = max(fps, tuning.fadeFps) }
-        fps = min(capFps ?? tuning.presentCapFps, max(tuning.presentMinFps, fps))
+        let cap = min(capFps ?? tuning.presentCapFps, pushed ? tuning.presentCapFps : tuning.calmFps)
+        fps = min(cap, max(min(tuning.presentMinFps, cap), fps))
         return 1 / fps
     }
 
@@ -519,21 +468,11 @@ final class AetherSim {
     /// Activate a dormant slot at p with velocity v (QA: "leave one fast point alive").
     @discardableResult func injectPoint(at p: SIMD2<Double>, velocity v: SIMD2<Double>) -> Int? {
         guard let i = dormantSlot() else { return nil }
-        pos[i] = p; prevPos[i] = p; vel[i] = v; phase[i] = .active; alpha[i] = 1; chainOf[i] = -1
+        pos[i] = p; prevPos[i] = p; vel[i] = v; phase[i] = .active; alpha[i] = 1
         boost[i] = 0; pressedAt[i] = -.infinity
         return i
     }
 
-    /// Bond these active, free points into one chain (tests: rules after formation).
-    @discardableResult func formChain(_ members: [Int]) -> Bool {
-        guard (2...tuning.chainMaxLength).contains(members.count),
-              members.allSatisfy({ phase[$0] == .active && chainOf[$0] < 0 }) else { return false }
-        newChain(members); return true
-    }
-
-    func breakChainForTest(_ c: Int) { if chains.indices.contains(c), chains[c] != nil { breakChain(c, release: true) } }
-
-    var aliveChains: Int { chains.reduce(0) { $0 + ($1 == nil ? 0 : 1) } }
     var currentWallRects: [AetherRect] { walls.map { $0.rect(time) } }
     func activeCount(in r: AetherRect? = nil) -> Int {
         var n = 0
@@ -542,6 +481,7 @@ final class AetherSim {
     }
     /// Mean per-component velocity variance of active points (in a rect, if given), not flow-relative.
     func meanSigma2(in r: AetherRect? = nil) -> Double {
+        work.globalScans += 1
         var s = 0.0, n = 0.0
         for i in pos.indices where phase[i] == .active && (r?.contains(pos[i]) ?? true) { s += dot2(vel[i], vel[i]) / 2; n += 1 }
         return n > 0 ? s / n : 0
@@ -551,604 +491,182 @@ final class AetherSim {
         let r = radius
         return phase[i] == .active && walls.contains { $0.rect(time).expanded(by: r).contains(pos[i]) }
     }
-    /// The bond rest length.
-    var bondLength: Double { tuning.bondLengthFactor * settings.collisionDiameter }
+    /// The attraction cutoff, pt, and the well depth, pt²/s².
+    var attractionCutoff: Double { settings.attractionRange * settings.collisionDiameter }
+    var wellDepth: Double { settings.attraction * max(sigma0Squared, 0.5) }
 
-    // MARK: the step
-
-    func step(typing: Bool = false) {
-        let dt = tuning.dt
-        if typing { lastTyping = time }
-        prevPos = pos
-        let (target, tau) = motionTarget()
-        var vmax = 0.0
-        for i in pos.indices where phase[i] == .active { vmax = max(vmax, dot2(vel[i], vel[i])) }
-        vmax = vmax.squareRoot()
-        let k = min(tuning.maxSubsteps, max(1, Int((vmax * dt / (0.5 * settings.collisionDiameter)).rounded(.up))))
-        let h = dt / Double(k)
-        for _ in 0..<k { substep(h, edgeSigma2: target); time += h }
-        thermostat(dt, sigma2: target, tau: tau)
-        releaseBoost(dt)
-        fades(dt)
-        seedRegions(dt)
-        if settings.boundary == .reservoir { injectEdges(dt, sigma2: target) }
-        crowding()
-        chainLifetimes(dt)
+    /// Bonds as the forces make them (tests and QA): pairs closer than the well's midpoint. Mean bonded neighbours per
+    /// point; chains = components joined by head-to-tail bonds (pair dipole factor (3ab - m_i.m_j)/2 above 0.5:
+    /// 1 is head-to-tail, -0.5 side-by-side), their mean size (components of 2+); cluster centroids = components of 3+ joined by any bond.
+    func bondStats() -> (neighbours: Double, chainLength: Double, chains: Int, clusters: [SIMD2<Double>]) {
+        buildGrid()
+        let D = settings.collisionDiameter, lim = D + 0.5 * (attractionCutoff - D), lim2 = lim * lim
+        var any = Array(0..<pos.count), head = any
+        func find(_ u: inout [Int], _ x: Int) -> Int { var r = x; while u[r] != r { r = u[r] }; var y = x; while u[y] != r { let n = u[y]; u[y] = r; y = n }; return r }
+        var nb = 0, n = 0
+        for i in pos.indices where phase[i] == .active {
+            n += 1
+            let c = cellIndex(pos[i]), cx = c % gw, cy = c / gw
+            for oy in -1...1 { for ox in -1...1 {
+                let nx = cx + ox, ny = cy + oy
+                guard nx >= 0, nx < gw, ny >= 0, ny < gh else { continue }
+                let m = ny * gw + nx
+                for b in cellStart[m]..<cellStart[m + 1] {
+                    let j = cellItems[b]; guard j != i else { continue }
+                    let dv = pos[j] - pos[i], d2 = dot2(dv, dv); guard d2 < lim2 else { continue }
+                    nb += 1
+                    guard j > i else { continue }
+                    let ra = find(&any, i), rb = find(&any, j); if ra != rb { any[ra] = rb }
+                    let rh = dv / max(d2.squareRoot(), 1e-9), a = dot2(orient[i], rh), bb = dot2(orient[j], rh)
+                    if (3 * a * bb - dot2(orient[i], orient[j])) / 2 > 0.5 { let ha = find(&head, i), hb = find(&head, j); if ha != hb { head[ha] = hb } }
+                }
+            } }
+        }
+        var hs: [Int: Int] = [:], cs: [Int: (Int, SIMD2<Double>)] = [:]
+        for i in pos.indices where phase[i] == .active {
+            hs[find(&head, i), default: 0] += 1
+            let r = find(&any, i), e = cs[r] ?? (0, .zero); cs[r] = (e.0 + 1, e.1 + pos[i])
+        }
+        let ch = hs.values.filter { $0 >= 2 }
+        let cl = cs.values.filter { $0.0 >= 3 }.map { $0.1 / Double($0.0) }
+        return (n > 0 ? Double(nb) / Double(n) : 0, ch.isEmpty ? 0 : Double(ch.reduce(0, +)) / Double(ch.count), ch.count, cl)
     }
 
-    /// (target σ², relaxation τ) for the motion style. Settling targets the floor, never below it.
-    private func motionTarget() -> (Double, Double) {
-        let s2 = sigma0Squared, lo = floorSigma2
-        let modeTau = tuning.thermostatTau ?? (settings.boundary == .reflect ? 60 : 20)
-        switch settings.motion {
-        case .living: return (s2, modeTau)
-        case .settleWhileTyping:
-            let since = time - lastTyping
-            if since < tuning.typingHold { return (lo, tuning.settleTau) }
-            if since < tuning.typingHold + 3 * tuning.rewarmTau { return (s2, min(modeTau, tuning.rewarmTau)) }
-            return (s2, modeTau)
-        case .stirAndSettle: return (lo, tuning.stirSettleTau ?? coolingTau)
+    // MARK: window dew (owner card 2026-11-08 18:30 PST)
+
+    /// A real window (not the menu-bar or Dock band) that has stood still long enough for dew.
+    func dewy(_ w: Wall) -> Bool { settings.dew > 0 && w.id >= 0 && time >= w.t0 + w.dur && time - w.still >= settings.dewAfterSeconds }
+    /// Dots held by dew in the last step (tests and QA readout).
+    var dewHeld = 0, dewShaken = 0
+
+    /// Distance from p to the outside of R (0 inside), and the outward normal of the nearest face.
+    @inline(__always) static func outside(_ p: SIMD2<Double>, _ R: AetherRect) -> (Double, SIMD2<Double>) {
+        let dx = max(R.minX - p.x, 0, p.x - R.maxX), dy = max(R.minY - p.y, 0, p.y - R.maxY)
+        if dx > 0 && dy > 0 { let d = (dx * dx + dy * dy).squareRoot(); return (d, SIMD2(p.x < R.minX ? -dx : dx, p.y < R.minY ? -dy : dy) / d) }
+        if dx > 0 { return (dx, SIMD2(p.x < R.minX ? -1 : 1, 0)) }
+        if dy > 0 { return (dy, SIMD2(0, p.y < R.minY ? -1 : 1)) }
+        return (0, .zero)
+    }
+
+    /// Dew: a slow dot in the band outside a still window's face is pulled onto the face and its motion damped, as a
+    /// weak adhesion (only a dot whose speed is under the band's capture speed is held, so the fast gas passes by).
+    /// O(N x still windows) once per step, nothing while no window is still long enough.
+    func dewStep(_ dt: Double) {
+        dewHeld = 0
+        let still = walls.filter { dewy($0) }
+        guard !still.isEmpty else { return }
+        let r = radius, band = tuning.dewBand * settings.collisionDiameter, s2 = max(sigma0Squared, 0.5)
+        let pull = tuning.dewPull * settings.dew * s2 / band, capture2 = 2 * settings.dew * s2
+        let damp = exp(-tuning.dewFriction * settings.dew * dt)
+        let rects = still.map { $0.to.expanded(by: r) }
+        // The band's occupancy first: a band already holding its share is full, and holds nothing more this step (the
+        // attraction keeps a cold bead gathering partners, so a per-dot cap alone let the edge fill into an outline).
+        var count = [Double](repeating: 0, count: rects.count), inBand = [Int](repeating: -1, count: 0)
+        inBand.reserveCapacity(64)
+        for i in pos.indices where phase[i] == .active {
+            for (w, R) in rects.enumerated() {
+                let (d, _) = AetherSim.outside(pos[i], R)
+                if d > 0 && d < band { count[w] += 1; inBand.append(i); break }
+            }
+        }
+        let full = rects.indices.map { w -> Bool in
+            let edge = 2 * (rects[w].width + rects[w].height)
+            return count[w] >= (1 + tuning.dewCap * settings.dew) * max(edge * band * designDensity, edge / tuning.dewSpacing)
+        }
+        for i in inBand {
+            for (w, R) in rects.enumerated() {
+                let (d, n) = AetherSim.outside(pos[i], R)
+                guard d > 0, d < band else { continue }
+                let u = vel[i], un = dot2(u, n)
+                guard dot2(u, u) < capture2, !full[w] else { break }   // a fast dot is not held; a full edge holds none
+                vel[i] = (u - n * un) * damp + n * (min(un, 0) * damp) - n * (pull * (1 - d / band) * dt)
+                dewHeld += 1; work.forceEvals += 1
+                break
+            }
         }
     }
 
-    private func substep(_ h: Double, edgeSigma2: Double) {
-        let r = radius
-        let A = walls.map { $0.rect(time).expanded(by: r) }
-        let B = walls.map { $0.rect(time + h).expanded(by: r) }
-        if settings.fieldStrength > 0 && !sprites.isEmpty { applyField(h) }
-        if settings.stirring > 0 && !sprites.isEmpty { applyStirring(h) }
-        for i in pos.indices where phase[i] == .active { sweepMove(i, h, A, B) }
-        for i in pos.indices where phase[i] == .active { screenEdge(i, edgeSigma2) }
-        buildGrid()
-        collide()
-        constrainChains()
-        validate(h, A, B)
+    /// A dewy window moved (seen at a geometry read): the dots beaded on its old edges shake off into the gas.
+    func shakeDew(_ old: AetherRect) {
+        let r = radius, band = tuning.dewBand * settings.collisionDiameter, R = old.expanded(by: r)
+        let kick = tuning.dewShake * max(sigma0Squared, 0.5).squareRoot()
+        for i in pos.indices where phase[i] == .active {
+            let (d, n) = AetherSim.outside(pos[i], R)
+            guard d > 0, d < band else { continue }
+            vel[i] += n * (kick * rng.rayleigh()) + SIMD2(-n.y, n.x) * (kick * rng.gaussian())
+            dewShaken += 1
+        }
         enforceCeiling()
     }
 
-    /// Outward normal of face k (0 minX, 1 maxX, 2 minY, 3 maxY) and that face's outward speed over the substep.
-    @inline(__always) private func face(_ k: Int, _ a: AetherRect, _ b: AetherRect, _ h: Double) -> (SIMD2<Double>, Double) {
-        switch k {
-        case 0: return (SIMD2(-1, 0), -(b.minX - a.minX) / h)
-        case 1: return (SIMD2(1, 0), (b.maxX - a.maxX) / h)
-        case 2: return (SIMD2(0, -1), -(b.minY - a.minY) / h)
-        default: return (SIMD2(0, 1), (b.maxY - a.maxY) / h)
-        }
+    /// "Wake reader" (owner card 2026-11-08 18:30 PST): the leftover current near p that ANOTHER sprite left, pt/s:
+    /// the mean flow of the coarse cells within `radius` whose last wake was not this sprite's and is between
+    /// readerMinAge and readerMaxAge seconds old (left behind, so its maker has moved on), weighted by their dots. nil
+    /// when there is none. The stage nudges an idle sprite a little along it, rarely. O(cells in the patch).
+    func leftoverCurrent(at p: SIMD2<Double>, radius: Double = 80, excluding id: String) -> SIMD2<Double>? {
+        buildCoarse(); return leftover(p, radius, id)
     }
-
-    /// Earliest entry time τ in [0, 1] of a point into a rect whose faces move linearly, or nil. c: signed distances
-    /// inside each face at τ = 0; g: their change over the interval. Inside = all four positive.
-    @inline(__always) private static func entry(_ c: SIMD4<Double>, _ g: SIMD4<Double>) -> (Double, Int)? {
-        var tin = 0.0, tout = 1.0, k = -1
-        for f in 0..<4 {
-            let cf = c[f], gf = g[f]
-            if cf > 0 { if gf < 0 { tout = min(tout, -cf / gf) } }
-            else { if gf <= 0 { return nil }; let t = -cf / gf; if k < 0 || t > tin { tin = max(tin, t); k = f } }
-        }
-        return (k >= 0 && tin < tout && tin <= 1) ? (tin, k) : nil
-    }
-
-    /// Move one point through the substep against the swept walls (merge correction 1). A face at or below the ceiling
-    /// reflects in its own frame, u_n' = 2 w_n - u_n, bounded by the ceiling (never below w_n); a faster face carries
-    /// the point on it at w_n (owner ruling 2026-11-08: windows push, never wipe).
-    private func sweepMove(_ i: Int, _ h: Double, _ A: [AetherRect], _ B: [AetherRect]) {
-        var p = pos[i], u = vel[i]
-        var f = 0.0, bounces = 0
-        let cap = ceiling
-        while bounces < 4 {
-            let rem = 1 - f
-            if rem <= 1e-12 { break }
-            let dx = u.x * h * rem, dy = u.y * h * rem
-            var best = Double.infinity, bw = -1, bk = -1
-            for w in A.indices {
-                let a0 = AetherRect.lerp(A[w], B[w], f), a1 = B[w]
-                let c = SIMD4(p.x - a0.minX, a0.maxX - p.x, p.y - a0.minY, a0.maxY - p.y)
-                if c[0] > 0 && c[1] > 0 && c[2] > 0 && c[3] > 0 { continue }   // started inside: validate() decides
-                let g = SIMD4(dx - (a1.minX - a0.minX), (a1.maxX - a0.maxX) - dx,
-                              dy - (a1.minY - a0.minY), (a1.maxY - a0.maxY) - dy)
-                if let (t, k) = AetherSim.entry(c, g), t < best { best = t; bw = w; bk = k }
-            }
-            if bw < 0 { p += u * h * rem; f = 1; break }
-            p += u * h * rem * best
-            f += rem * best
-            let (n, wn) = face(bk, A[bw], B[bw], h)
-            let un = dot2(u, n)
-            u = faceContact(i, u, p, B[bw], bk, n, wn, normal: wn > cap ? wn : max(wn, min(2 * wn - un, cap)))
-            p += n * 1e-7
-            bounces += 1
-        }
-        pos[i] = p; vel[i] = u
-    }
-
-    /// A face's contact: the normal speed becomes `normal`; a face faster than the press speed marks the point pressed,
-    /// spills it toward the face's nearer corner by local crowding and lets it exceed the ceiling while pressed.
-    private func faceContact(_ i: Int, _ u: SIMD2<Double>, _ p: SIMD2<Double>, _ R: AetherRect, _ k: Int,
-                             _ n: SIMD2<Double>, _ wn: Double, normal un2: Double) -> SIMD2<Double> {
-        let cap = ceiling
-        var t = u - n * dot2(u, n)
-        var lim = cap
-        if wn > max(settings.rmsSpeed, 1) {
-            pressedAt[i] = time; stats.pressed += 1
-            let ax = k < 2 ? 1 : 0
-            let lo = ax == 0 ? R.minX : R.minY, hi = ax == 0 ? R.maxX : R.maxY
-            let dir: Double = (p[ax] - lo) < (hi - p[ax]) ? -1 : 1
-            let c = coarseIndex(p), base = max(2, 1.5 * designDensity * cc * cc)
-            let crowd = min(1, max(0, (cCount[c] - base) / max(3, 2 * base)))
-            let target = tuning.spillGain * wn * crowd
-            if dir * t[ax] < target { t[ax] = dir * target }
-            if wn > cap { lim = (un2 * un2 + max(cap, target) * max(cap, target)).squareRoot() }
-        }
-        let tmax = max(0, lim * lim - un2 * un2).squareRoot(), tl = len2(t)
-        if tl > tmax { t *= tmax / tl }
-        let out = t + n * un2, sp = len2(out)
-        if sp > cap { boost[i] = max(boost[i], sp) }
+    /// Every sprite's leftover current (one coarse build for all), by sprite id; sprites with none are left out.
+    func leftoverCurrents(radius: Double = 80) -> [String: SIMD2<Double>] {
+        buildCoarse()
+        var out: [String: SIMD2<Double>] = [:]
+        for s in sprites where !s.id.isEmpty { if let v = leftover(s.pos, radius, s.id) { out[s.id] = v } }
         return out
     }
-
-    /// Screen edges: reflect (specular), thermal (diffuse re-emission at the target temperature), reservoir (leave).
-    private func screenEdge(_ i: Int, _ sigma2: Double) {
-        let r = radius
-        var p = pos[i], u = vel[i]
-        let lo = SIMD2(bounds.minX + r, bounds.minY + r), hi = SIMD2(bounds.maxX - r, bounds.maxY - r)
-        for ax in 0..<2 where p[ax] < lo[ax] || p[ax] > hi[ax] {
-            if settings.boundary == .reservoir { retire(i, .dormant); stats.removed += 1; return }
-            let low = p[ax] < lo[ax]
-            p[ax] = min(hi[ax], max(lo[ax], low ? 2 * lo[ax] - p[ax] : 2 * hi[ax] - p[ax]))
-            let inward = low ? 1.0 : -1.0
-            if settings.boundary == .thermal && sigma2 > 0 {
-                let s = sigma2.squareRoot()
-                u[ax] = inward * s * rng.rayleigh(); u[1 - ax] = s * rng.gaussian()
-            } else { u[ax] = inward * abs(u[ax]) }
-        }
-        pos[i] = p; vel[i] = u
-    }
-
-    @inline(__always) private func cellIndex(_ p: SIMD2<Double>) -> Int {
-        let x = min(gw - 1, max(0, Int((p.x - bounds.minX) / cell))), y = min(gh - 1, max(0, Int((p.y - bounds.minY) / cell)))
-        return y * gw + x
-    }
-
-    private func buildGrid() {
-        for c in cellStart.indices { cellStart[c] = 0 }
-        for i in pos.indices where phase[i] == .active { let c = cellIndex(pos[i]); cellOfPoint[i] = c; cellStart[c + 1] += 1 }
-        for c in 0..<(gw * gh) { cellStart[c + 1] += cellStart[c] }
-        var fill = cellStart
-        for i in pos.indices where phase[i] == .active { let c = cellOfPoint[i]; cellItems[fill[c]] = i; fill[c] += 1 }
-        gridBuilt = true
-    }
-
-    private func collide() {
-        let offsets = [(0, 0), (1, 0), (-1, 1), (0, 1), (1, 1)]
-        for cy in 0..<gh { for cx in 0..<gw {
-            let c = cy * gw + cx
-            for a in cellStart[c]..<cellStart[c + 1] {
-                let i = cellItems[a]
-                for (ox, oy) in offsets {
-                    let nx = cx + ox, ny = cy + oy
-                    guard nx >= 0, nx < gw, ny < gh else { continue }
-                    let n = ny * gw + nx
-                    let from = (ox == 0 && oy == 0) ? a + 1 : cellStart[n]
-                    var b = from
-                    while b < cellStart[n + 1] { pair(i, cellItems[b]); b += 1 }
-                }
-            }
+    func leftover(_ p: SIMD2<Double>, _ radius: Double, _ id: String) -> SIMD2<Double>? {
+        guard p.x.isFinite, p.y.isFinite else { return nil }
+        let me = id.utf8.reduce(0xCBF2_9CE4_8422_2325 as UInt64) { ($0 ^ UInt64($1)) &* 0x100_0000_01B3 }
+        func cl(_ v: Double, _ n: Int) -> Int { Int(min(Double(n - 1), max(0, v))) }
+        let x0 = cl((p.x - radius - bounds.minX) / cc, cw), x1 = cl((p.x + radius - bounds.minX) / cc, cw)
+        let y0 = cl((p.y - radius - bounds.minY) / cc, ch), y1 = cl((p.y + radius - bounds.minY) / cc, ch)
+        var v = SIMD2<Double>.zero, n = 0.0
+        for y in y0...y1 { for x in x0...x1 {
+            let c = y * cw + x, age = time - wakeAt[c]
+            guard wakeBy[c] != me, age >= tuning.readerMinAge, age <= tuning.readerMaxAge, cCount[c] > 0 else { continue }
+            v += cSum[c]; n += cCount[c]
         } }
+        return n >= 2 ? v / n : nil
     }
 
-    private func pair(_ i: Int, _ j: Int) {
-        if chainOf[i] >= 0 && chainOf[i] == chainOf[j] { return }
-        let d = settings.collisionDiameter
-        let dv = pos[j] - pos[i], dist2 = dot2(dv, dv)
-        guard dist2 < d * d, dist2 > 1e-18 else { return }
-        let dist = dist2.squareRoot(), n = dv / dist
-        let rel = vel[j] - vel[i], vn = dot2(rel, n)
-        if vn < 0 && !tryBond(i, j, rel) {
-            let pa = max(pressedAt[i], pressedAt[j])
-            if time - pa < tuning.pressHold {
-                // A pressed pile moves as one: inelastic along the normal, momentum conserved; the press and its
-                // allowance above the ceiling pass to the partner (the press time is the face's, so it cannot renew).
-                vel[i] += n * (vn / 2); vel[j] -= n * (vn / 2)
-                pressedAt[i] = pa; pressedAt[j] = pa
-                let b = max(boost[i], boost[j]); boost[i] = b; boost[j] = b
-            } else { vel[i] += n * vn; vel[j] -= n * vn }
-        }
-        let half = (d - dist) / 2
-        pos[i] -= n * half; pos[j] += n * half
-    }
-
-    // MARK: chains
-
-    private func drawFormationTime() -> Double {
-        let (lo, hi) = settings.chains.formationWindow
-        return lo.isFinite ? time + lo + rng.uniform() * (hi - lo) : .infinity
-    }
-
-    private func tryBond(_ i: Int, _ j: Int, _ rel: SIMD2<Double>) -> Bool {
-        guard settings.chains != .never, !isTyping, alpha[i] >= 0.9, alpha[j] >= 0.9,
-              len2(rel) < tuning.bondSpeedFraction * settings.rmsSpeed else { return false }
-        let ci = chainOf[i], cj = chainOf[j]
-        if ci < 0 && cj < 0 {
-            guard time >= nextFormation, aliveChains < settings.chains.maxAlive else { return false }
-            newChain([i, j]); nextFormation = drawFormationTime()
-        } else if (ci < 0) != (cj < 0) {
-            let (free, c, end) = ci < 0 ? (i, cj, j) : (j, ci, i)
-            guard var ch = chains[c], ch.members.count < tuning.chainMaxLength,
-                  Double(ch.members.count) * bondLength <= tuning.chainSpan else { return false }
-            let atHead = ch.members.first == end, atTail = ch.members.last == end
-            guard atHead || atTail, rng.uniform() < tuning.growProbability else { return false }
-            if atTail { ch.members.append(free) } else { ch.members.insert(free, at: 0) }
-            chains[c] = ch; chainOf[free] = c
-        } else { return false }
-        let m = (vel[i] + vel[j]) / 2         // perfectly inelastic: momentum conserved
-        vel[i] = m; vel[j] = m
-        stats.bonds += 1
-        return true
-    }
-
-    private func newChain(_ members: [Int]) {
-        let c = chains.firstIndex(where: { $0 == nil }) ?? { chains.append(nil); return chains.count - 1 }()
-        chains[c] = Chain(members: members, born: time)
-        for m in members { chainOf[m] = c }
-    }
-
-    private func breakChain(_ c: Int, release: Bool) {
-        guard let ch = chains[c] else { return }
-        chains[c] = nil
-        stats.breaks += 1; stats.lifetimes.append(time - ch.born)
-        for m in ch.members { chainOf[m] = -1 }
-        guard release else { return }
-        let live = ch.members.filter { phase[$0] == .active }
-        guard live.count >= 2 else { return }
-        let s = tuning.releaseFraction * settings.rmsSpeed / 2.0.squareRoot()
-        var kicks = live.map { _ in SIMD2(rng.gaussian(), rng.gaussian()) * s }
-        let mean = kicks.reduce(SIMD2<Double>.zero, +) / Double(kicks.count)
-        kicks = kicks.map { $0 - mean }                 // momentum-free
-        let bound = tuning.releaseMaxFraction * settings.rmsSpeed
-        let worst = kicks.map(len2).max() ?? 0
-        if worst > bound && worst > 0 { kicks = kicks.map { $0 * (bound / worst) } }   // bounded, still momentum-free
-        for (k, m) in live.enumerated() { vel[m] += kicks[k] }
-    }
-
-    /// Distance constraints at the bond length plus a straightening pull on interior members (positions only), then
-    /// rigid bonds: each bond's relative velocity along it is removed. Every correction is symmetric, so momentum is
-    /// conserved. Position corrections are NOT fed back into velocity: at a fresh bond that kick is ~15 pt/s.
-    private func constrainChains() {
-        let L = bondLength
-        for c in chains.indices {
-            guard let ch = chains[c] else { continue }
-            let m = ch.members
-            for _ in 0..<tuning.constraintIterations {
-                for k in 0..<(m.count - 1) {
-                    let a = m[k], b = m[k + 1], dv = pos[b] - pos[a], dist = len2(dv)
-                    guard dist > 1e-9 else { continue }
-                    let corr = dv * ((dist - L) / (2 * dist))
-                    pos[a] += corr; pos[b] -= corr
-                }
-                if m.count >= 3 {
-                    for k in 1..<(m.count - 1) {
-                        let delta = ((pos[m[k - 1]] + pos[m[k + 1]]) / 2 - pos[m[k]]) * tuning.straighten
-                        pos[m[k]] += delta * (2.0 / 3); pos[m[k - 1]] -= delta / 3; pos[m[k + 1]] -= delta / 3
-                    }
-                }
+    /// Knots: the coarse cells under a moving sprite's stir reach remember it; a cell another sprite's wake reached
+    /// less than wakeLife s ago becomes a crossing. O(cells under the reach) per moving sprite per substep.
+    func markWake(_ s: AetherSprite, _ R: Double) {
+        let id = s.id.utf8.reduce(0xCBF2_9CE4_8422_2325 as UInt64) { ($0 ^ UInt64($1)) &* 0x100_0000_01B3 }
+        func cl(_ v: Double, _ n: Int) -> Int { Int(min(Double(n - 1), max(0, v))) }
+        let x0 = cl((s.pos.x - R - bounds.minX) / cc, cw), x1 = cl((s.pos.x + R - bounds.minX) / cc, cw)
+        let y0 = cl((s.pos.y - R - bounds.minY) / cc, ch), y1 = cl((s.pos.y + R - bounds.minY) / cc, ch)
+        guard s.pos.x.isFinite, s.pos.y.isFinite else { return }
+        for y in y0...y1 { for x in x0...x1 {
+            let c = y * cw + x
+            if settings.knots > 0 && wakeBy[c] != id && time - wakeAt[c] < tuning.wakeLife && time - wakeCross[c] >= tuning.knotLife {
+                // a new crossing here: a knot with probability `knots`, rolled from the cell and the moment (seeded,
+                // and it leaves the main random stream alone)
+                crossings += 1; wakeCross[c] = time
+                var r = AetherRNG(seed: UInt64(c) &* 0x9E37_79B9_7F4A_7C15 ^ UInt64(bitPattern: Int64((time * 30).rounded())))
+                if r.uniform() < settings.knots { crossAt[c] = time; knotsFormed += 1 }
             }
-            for k in 0..<(m.count - 1) {
-                let a = m[k], b = m[k + 1], dv = pos[b] - pos[a], dist = len2(dv)
-                guard dist > 1e-9 else { continue }
-                let n = dv / dist, rel = dot2(vel[b] - vel[a], n)
-                vel[a] += n * (rel / 2); vel[b] -= n * (rel / 2)
-            }
-        }
-    }
-
-    private func chainLifetimes(_ dt: Double) {
-        let s0 = sigma0Squared
-        for c in chains.indices {
-            guard let ch = chains[c] else { continue }
-            if time - ch.born >= tuning.chainCap { breakChain(c, release: true); continue }
-            let com = ch.members.reduce(SIMD2<Double>.zero) { $0 + pos[$1] } / Double(ch.members.count)
-            let ratio = s0 > 0 ? localSigma2(com) / s0 : 1
-            let tau = min(tuning.chainTauMax, max(tuning.chainTauMin, tuning.chainTau0 / max(ratio, 1e-4).squareRoot()))
-            if rng.uniform() < dt / tau { breakChain(c, release: true) }
-        }
-    }
-
-    // MARK: recovery, thermostat, reserve
-
-    private func retire(_ i: Int, _ to: AetherPhase) {
-        if chainOf[i] >= 0 { breakChain(chainOf[i], release: false) }
-        phase[i] = to
-        if to == .dormant { alpha[i] = 0 }
-        vel[i] = .zero; boost[i] = 0; pressedAt[i] = -.infinity
-    }
-
-    private func freeSpot(_ q: SIMD2<Double>, _ rects: [AetherRect]) -> Bool {
-        let r = radius
-        guard q.x >= bounds.minX + r, q.x <= bounds.maxX - r, q.y >= bounds.minY + r, q.y <= bounds.maxY - r else { return false }
-        return !rects.contains { $0.contains(q) }
-    }
-
-    /// After all moves: an active point inside a wall is pushed out to the nearest free side (two levels deep, so a
-    /// point squeezed between windows or against a screen edge goes round), taking that face's motion. Only a window
-    /// that appeared this substep covers points without pushing (dormant: nobody saw it move), and a point with no free
-    /// side anywhere near goes dormant. Nothing fades here (owner ruling 2026-11-08: push, never wipe).
-    private func validate(_ h: Double, _ A: [AetherRect], _ B: [AetherRect]) {
-        let r = radius
-        for i in pos.indices where phase[i] == .active {
-            let p = pos[i]
-            guard let w = B.firstIndex(where: { $0.contains(p) }) else { continue }
-            let R = B[w]
-            let pen = min(p.x - R.minX, R.maxX - p.x, p.y - R.minY, R.maxY - p.y)
-            if pen > r + 1e-9 && walls[w].born >= time - 1e-12 { retire(i, .dormant); stats.covered += 1; continue }
-            guard let (q, ww, k) = pushOut(p, B) else { retire(i, .dormant); stats.trapped += 1; continue }
-            pos[i] = q
-            if pen > r + 1e-9 { stats.pushedOut += 1; pressedAt[i] = time }   // a pushed-out pile is spared the cap
-            let (n, wn) = face(k, A[ww], B[ww], h)
-            let un = dot2(vel[i], n)
-            if un < wn { vel[i] = faceContact(i, vel[i], q, B[ww], k, n, wn, normal: wn) }
-            else { vel[i] = faceContact(i, vel[i], q, B[ww], k, n, 0, normal: un) }
-        }
-    }
-
-    /// The nearest free spot just outside the walls containing p, and the (wall, face) it was pushed out of.
-    private func pushOut(_ p: SIMD2<Double>, _ B: [AetherRect]) -> (SIMD2<Double>, Int, Int)? {
-        func spots(_ q: SIMD2<Double>, _ R: AetherRect) -> [(SIMD2<Double>, Int, Double)] {
-            [(SIMD2(R.minX - 1e-7, q.y), 0, q.x - R.minX), (SIMD2(R.maxX + 1e-7, q.y), 1, R.maxX - q.x),
-             (SIMD2(q.x, R.minY - 1e-7), 2, q.y - R.minY), (SIMD2(q.x, R.maxY + 1e-7), 3, R.maxY - q.y)]
-        }
-        var best: (Double, SIMD2<Double>, Int, Int)? = nil
-        for w in B.indices where B[w].contains(p) {
-            for (q1, k1, d1) in spots(p, B[w]) {
-                if let b = best, d1 >= b.0 { continue }
-                if freeSpot(q1, B) { best = (d1, q1, w, k1); continue }
-                for w2 in B.indices where B[w2].contains(q1) {
-                    for (q2, k2, d2) in spots(q1, B[w2]) where best.map({ d1 + d2 < $0.0 }) ?? true && freeSpot(q2, B) {
-                        best = (d1 + d2, q2, w2, k2)
-                    }
-                }
-            }
-        }
-        return best.map { ($0.1, $0.2, $0.3) }
-    }
-
-    /// A released pushed point's allowance above the ceiling bleeds off with pushReleaseTau (it holds while pressed).
-    private func releaseBoost(_ dt: Double) {
-        let cap = ceiling, k = exp(-dt / tuning.pushReleaseTau)
-        for i in pos.indices where boost[i] > 0 {
-            if phase[i] != .active { boost[i] = 0; continue }
-            if time - pressedAt[i] < tuning.dt { continue }
-            boost[i] = cap + (boost[i] - cap) * k
-            if boost[i] - cap < 0.5 { boost[i] = 0 }
-        }
-        enforceCeiling()
-    }
-
-    private func enforceCeiling() {
-        let cap = ceiling
-        for i in pos.indices where phase[i] == .active {
-            let lim = max(cap, boost[i]), v2 = dot2(vel[i], vel[i])
-            if v2 > lim * lim { vel[i] *= lim / v2.squareRoot() }
-        }
-    }
-
-    @inline(__always) private func coarseIndex(_ p: SIMD2<Double>) -> Int {
-        let x = min(cw - 1, max(0, Int((p.x - bounds.minX) / cc))), y = min(ch - 1, max(0, Int((p.y - bounds.minY) / cc)))
-        return y * cw + x
-    }
-
-    private func buildCoarse() {
-        for c in cCount.indices { cCount[c] = 0; cSum[c] = .zero; cSum2[c] = 0 }
-        for i in pos.indices where phase[i] == .active {
-            let c = coarseIndex(pos[i]); cCount[c] += 1; cSum[c] += vel[i]; cSum2[c] += dot2(vel[i], vel[i])
-        }
-    }
-
-    /// Flow-relative per-component variance in the coarse cell at p (the gas's local temperature).
-    private func localSigma2(_ p: SIMD2<Double>) -> Double {
-        let c = coarseIndex(p), n = cCount[c]
-        guard n >= 2 else { return meanSigma2() }
-        let m = cSum[c] / n
-        return max(0, (cSum2[c] / n - dot2(m, m)) / 2)
-    }
-
-    /// Ornstein-Uhlenbeck relaxation of each point's velocity relative to its cell's (shrunk) mean flow, toward σ²
-    /// with time constant τ; the flow itself decays with flowTau; pockets hotter than hotFactor x target relax with hotTau.
-    private func thermostat(_ dt: Double, sigma2: Double, tau: Double) {
-        buildCoarse()
-        guard tau.isFinite, tau > 0 else { return }
-        let flowTau = tuning.flowTau ?? coolingTau
-        let fdecay = exp(-dt / (sigma2 == 0 ? min(flowTau, tau) : flowTau))   // a frozen settle stops flow too
-        let hotLimit = tuning.hotFactor * max(sigma2, sigma0Squared, 0.5)
-        for i in pos.indices where phase[i] == .active {
-            let c = coarseIndex(pos[i]), n = cCount[c]
-            let ubar = cSum[c] / (n + 3)
-            let m = n > 0 ? cSum[c] / n : SIMD2<Double>.zero
-            let local = n >= 2 ? max(0, (cSum2[c] / n - dot2(m, m)) / 2) : dot2(vel[i] - ubar, vel[i] - ubar) / 2
-            let t = local > hotLimit ? min(tau, tuning.hotTau) : tau
-            let decay = exp(-dt / t), kick = (sigma2 * (1 - decay * decay)).squareRoot()
-            var v = ubar * fdecay + (vel[i] - ubar) * decay
-            if kick > 0 { v += SIMD2(rng.gaussian(), rng.gaussian()) * kick }
-            if sigma2 == 0 && dot2(v, v) < tuning.snapSpeed * tuning.snapSpeed { v = .zero }
-            vel[i] = v
-        }
-        // The floor is a guarantee, not just a target: a settling gas whose mean flow-relative energy sits below it
-        // is scaled back up to it (a uniform rescale: shapes and wakes are kept, nothing is snapped to rest).
-        let lo = floorSigma2
-        if lo > 0 && sigma2 <= lo + 1e-12 {
-            let now = meanSigma2()
-            if now > 1e-12 && now < lo { let k = (lo / now).squareRoot(); for i in pos.indices where phase[i] == .active { vel[i] *= k } }
-        }
-        enforceCeiling()
-    }
-
-    private func fades(_ dt: Double) {
-        for i in pos.indices {
-            switch phase[i] {
-            case .active where alpha[i] < 1: alpha[i] = min(1, alpha[i] + dt / tuning.fadeIn)
-            case .fading:
-                alpha[i] -= dt / tuning.fadeOut
-                if alpha[i] <= 0 { alpha[i] = 0; phase[i] = .dormant }
-            default: break
-            }
-        }
-    }
-
-    private func dormantSlot() -> Int? {
-        let n = pos.count
-        for k in 0..<n {
-            let i = (dormantCursor + k) % n
-            if phase[i] == .dormant { dormantCursor = (i + 1) % n; return i }
-        }
-        return nil
-    }
-
-    private func overlapsPoint(_ q: SIMD2<Double>) -> Bool {
-        guard gridBuilt else { return false }
-        let d2 = settings.collisionDiameter * settings.collisionDiameter
-        let c = cellIndex(q), cx = c % gw, cy = c / gw
-        for oy in -1...1 { for ox in -1...1 {
-            let nx = cx + ox, ny = cy + oy
-            guard nx >= 0, nx < gw, ny >= 0, ny < gh else { continue }
-            let n = ny * gw + nx
-            for b in cellStart[n]..<cellStart[n + 1] {
-                let j = cellItems[b]
-                if phase[j] == .active { let dv = pos[j] - q; if dot2(dv, dv) < d2 { return true } }
-            }
+            wakeBy[c] = id; wakeAt[c] = time
+            work.cellsTouched += 1
         } }
-        return false
-    }
-
-    private func activate(_ i: Int, _ q: SIMD2<Double>, sigma: Double) {
-        pos[i] = q; prevPos[i] = q; vel[i] = SIMD2(rng.gaussian(), rng.gaussian()) * sigma
-        let v = len2(vel[i]), cap = ceiling
-        if v > cap { vel[i] *= cap / v }   // a Gaussian tail must not enter above the ceiling
-        phase[i] = .active; alpha[i] = 0; chainOf[i] = -1; boost[i] = 0; pressedAt[i] = -.infinity
-    }
-
-    /// Revealed-space reserve (merge correction 4): top each exposed region up toward the design density from the
-    /// dormant pool, with time constant refillTau, at the gas's current temperature. Declared visual physics.
-    private func seedRegions(_ dt: Double) {
-        guard tuning.reserveEnabled, !regions.isEmpty else { return }
-        regions.removeAll { $0.expires <= time }
-        let r = radius
-        let rects = walls.map { $0.rect(time).expanded(by: r) }
-        let sigma = meanSigma2().squareRoot()
-        // Closed boundaries conserve N: the reserve only gives back what windows took (dormant points).
-        var budget = settings.boundary == .reservoir ? Int.max : population - activeCount()
-        var done: [Int] = []
-        for ri in regions.indices {
-            let R = regions[ri].rect
-            let free = aetherSubtract([R], rects).reduce(0) { $0 + $1.area }
-            let deficit = regions[ri].density * free - Double(activeCount(in: R))
-            if deficit < 1 { if free >= R.area * 0.999 { done.append(ri) }; continue }
-            regions[ri].carry += deficit * (1 - exp(-dt / tuning.refillTau))
-            while regions[ri].carry >= 1 && budget > 0 {
-                regions[ri].carry -= 1
-                guard let slot = dormantSlot() else { break }
-                var placed = false
-                for _ in 0..<8 {
-                    let q = SIMD2(R.minX + rng.uniform() * R.width, R.minY + rng.uniform() * R.height)
-                    if freeSpot(q, rects) && !overlapsPoint(q) { activate(slot, q, sigma: sigma); stats.seeded += 1; budget -= 1; placed = true; break }
-                }
-                if !placed { break }
-            }
-        }
-        for ri in done.reversed() { regions.remove(at: ri) }
-    }
-
-    /// Reservoir edges: effusion inflow n0 σ / √(2π) per pt of edge per second, Maxwell flux velocities.
-    private func injectEdges(_ dt: Double, sigma2: Double) {
-        guard sigma2 > 0 else { return }
-        let s = sigma2.squareRoot(), r = radius
-        let rects = walls.map { $0.rect(time).expanded(by: r) }
-        let flux = designDensity * s / (2 * Double.pi).squareRoot()
-        for e in 0..<4 {
-            let horizontal = e < 2
-            let length = horizontal ? bounds.width : bounds.height
-            edgeCarry[e] += flux * length * dt
-            while edgeCarry[e] >= 1 {
-                edgeCarry[e] -= 1
-                let t = rng.uniform()
-                let q: SIMD2<Double>, inward: SIMD2<Double>
-                switch e {
-                case 0: q = SIMD2(bounds.minX + t * bounds.width, bounds.minY + r + 0.01); inward = SIMD2(0, 1)
-                case 1: q = SIMD2(bounds.minX + t * bounds.width, bounds.maxY - r - 0.01); inward = SIMD2(0, -1)
-                case 2: q = SIMD2(bounds.minX + r + 0.01, bounds.minY + t * bounds.height); inward = SIMD2(1, 0)
-                default: q = SIMD2(bounds.maxX - r - 0.01, bounds.minY + t * bounds.height); inward = SIMD2(-1, 0)
-                }
-                guard freeSpot(q, rects), let i = dormantSlot() else { continue }
-                let tangent = SIMD2(-inward.y, inward.x)
-                pos[i] = q; prevPos[i] = q; vel[i] = inward * (s * rng.rayleigh()) + tangent * (s * rng.gaussian())
-                phase[i] = .active; alpha[i] = 0; chainOf[i] = -1; boost[i] = 0; pressedAt[i] = -.infinity
-                stats.injected += 1
-            }
-        }
-    }
-
-    /// Capacity policy for crowded pockets: a coarse cell over crowdFactor x the design density fades its excess. A cell
-    /// holding a point pressed in the last crowdHold seconds is spared: a pile a window pushed disperses, never fades.
-    private func crowding() {
-        guard time >= nextCrowdCheck else { return }
-        nextCrowdCheck = time + tuning.crowdEvery
-        buildCoarse()
-        let cap = max(tuning.crowdFactor * designDensity * cc * cc, tuning.crowdMin)
-        var spared = Set<Int>()
-        for i in pos.indices where phase[i] == .active && time - pressedAt[i] < tuning.crowdHold { spared.insert(coarseIndex(pos[i])) }
-        for i in pos.indices.reversed() where phase[i] == .active {
-            let c = coarseIndex(pos[i])
-            if cCount[c] > cap && !spared.contains(c) { retire(i, .fading); cCount[c] -= 1; stats.crowded += 1 }
-        }
-    }
-
-    /// The crowding cap, points per coarse cell (tests).
-    var crowdCap: Double { max(tuning.crowdFactor * designDensity * cc * cc, tuning.crowdMin) }
-    func maxCoarseCount() -> Double { buildCoarse(); return cCount.max() ?? 0 }
-
-    /// Sprite stirring (owner, 2026-11-08). Entrainment: within stirReach x radius of a moving sprite, each point's
-    /// velocity component along the sprite's motion is pulled up toward the sprite's speed (never braked: a sprite
-    /// only drags gas forward), weight (1 - d/R)², so the gas behind it carries a wake. Body: a point inside the
-    /// sprite's circle is moved to its edge and given at least the body's outward speed there (a moving round wall).
-    /// The ceiling still holds (enforceCeiling after every substep); the wake settles under Cooling.
-    private func applyStirring(_ h: Double) {
-        let k = settings.stirring, r = radius
-        for (si, s) in sprites.enumerated() {
-            let a = max(s.radius, 1), body = a + r, R = tuning.stirReach * a, R2 = R * R
-            let vs = si < spriteVel.count ? spriteVel[si] : .zero, speed = len2(vs)
-            let dir = speed > 1e-6 ? vs / speed : .zero
-            for i in pos.indices where phase[i] == .active {
-                let dv = pos[i] - s.pos, d2 = dot2(dv, dv)
-                guard d2 < R2 else { continue }
-                let d = d2.squareRoot()
-                if speed > 0.5 {
-                    let w = (1 - max(0, d - a) / (R - a)) , f = 1 - exp(-h * tuning.stirRate * k * w * w)
-                    let along = dot2(vel[i], dir)
-                    if along < speed { vel[i] += dir * ((speed - along) * f) }
-                }
-                if d < body {
-                    let n = d > 1e-9 ? dv / d : SIMD2(1, 0)
-                    pos[i] = s.pos + n * (body + 1e-6)
-                    let wn = dot2(vs, n), un = dot2(vel[i], n)
-                    if un < wn { vel[i] += n * (wn - un) }
-                    if wn <= 0 && un < 0 { vel[i] -= n * un }   // a still body: no motion into it
-                }
-            }
-        }
     }
 
     /// One field family for release 1: a sideways (magnetic-style) deflection near each sprite, an exact rotation of
     /// the velocity (does no work, like the Boris push), ω = strength x ωmax x (a²/(d²+a²))^{3/2} x q, faded to 0 at
     /// fieldReach x radius. Opposite charges curl opposite ways: two counter-curling wakes.
-    private func applyField(_ h: Double) {
+    func applyField(_ h: Double) {
         let wmax = tuning.fieldOmegaMax * settings.fieldStrength
         for s in sprites {
             let a = max(s.radius, 1), R = tuning.fieldReach * a, R2 = R * R
-            for i in pos.indices where phase[i] == .active {
+            func touch(_ i: Int) {
                 let dv = pos[i] - s.pos, d2 = dot2(dv, dv)
-                guard d2 < R2 else { continue }
+                guard d2 < R2 else { return }
                 let f = a * a / (d2 + a * a)
                 let theta = wmax * f * f.squareRoot() * charge[i] * h * (1 - d2 / R2)
                 let c = cos(theta), sn = sin(theta), v = vel[i]
                 vel[i] = SIMD2(c * v.x - sn * v.y, sn * v.x + c * v.y)
             }
+            if gatherNear(s.pos, R) { for i in nearBuf { touch(i) } }
+            else { for i in pos.indices where phase[i] == .active { touch(i) } }
         }
     }
 }

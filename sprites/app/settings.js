@@ -1,7 +1,11 @@
 /* Sprites Settings window. Host contract:
  *   SpritesSettings.init({cast, projects:[{key, name, alias, hex, focus}]})   the host's project table (app/projects.js,
- *     SpritesProjects.build); one row per focus entry. cast.projects is keyed by project_key (review R1 #2), the key the
- *     stage and the ghost launch use; a row shows its launch alias. Entries without a key ({name, hex}) key by name.
+ *     SpritesProjects.build); one row per focus entry, plus every project active on the stage (init {snapshot}, the Augur
+ *     snapshot; SpritesSettings.setSnapshot(snap) as it changes), plus a collapsed Hidden section. Each row is Focus,
+ *     Untracked or Hidden (owner, 2026-11-08): Focus = the table's focus (Waypoint, else the host's local projects file);
+ *     Hidden = cast.projects[key].visibility "hide"; Untracked = neither, listed only while active. Editing an Untracked
+ *     row makes it Focus (otherwise the edit would not be kept). cast.projects is keyed by project_key (review R1 #2), the
+ *     key the stage and the ghost launch use; a row shows its launch alias. Entries without a key ({name, hex}) key by name.
  *   SpritesSettings.init({cast, waypoint:false})            no Waypoint: browse only
  *   SpritesSettings.init({..., behaviors:{key:bool}, demo:bool, size:number})  Behaviours tab; missing keys are ON; size 0.5..2 posts {setSize}.
  *   Behaviour saves: settings.postMessage({saveBehaviors:{...}}) and ({setDemo:bool}); browser: localStorage.
@@ -62,6 +66,21 @@
   const url = (c, iv, hue, [w, h], live, size) => `${PROTO}${c}.html?tl=g_cast&w=${w}&h=${h}&chrome=0&bg=0&dim=0&hover=0` +
     `&hue=${hue}&iv=${iv}` + "&fit=1&norm=" + NORM[size] + (live ? "&autostart=1&loop=1" : "&autostart=0");   // fit: hero and tiles size the craft to the cell
 
+  // Debug trace (host SPRITES_DEBUG_SETTINGS=1 passes init {debug:true}): every programmatic write to a colour input, with
+  // its stack, and every host entry point, posted to the host log. Off by default.
+  let dbg = false;
+  const trace = (...a) => { if (!dbg) return; const t = (performance.now() / 1000).toFixed(3) + " " + a.map(x => typeof x === "string" ? x : JSON.stringify(x)).join(" ");
+    try { webkit.messageHandlers.settings.postMessage({ debugLog: t }); } catch (e) { console.log(t); } };
+  function armTrace() { if (armTrace.done) return; armTrace.done = true;
+    const d = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+    Object.defineProperty(HTMLInputElement.prototype, "value", { configurable: true, get() { return d.get.call(this); },
+      set(v) { if (dbg && this.type === "color") { const old = d.get.call(this);
+          trace("SET", this.id || this.getAttribute("aria-label"), old, "->", String(v), "connected", this.isConnected, "focused", document.activeElement === this,
+            (new Error().stack || "").split("\n").slice(1, 6).map(s => s.trim()).join(" < ")); }
+        d.set.call(this, v); } });
+    document.addEventListener("input", e => { if (e.target && e.target.type === "color") trace("INPUT", e.target.id || e.target.getAttribute("aria-label"), e.target.value); }, true);
+    document.addEventListener("change", e => { if (e.target && e.target.type === "color") trace("CHANGE", e.target.id || e.target.getAttribute("aria-label"), e.target.value); }, true); }
+
   const SP = window.SpritesProjects;
   // centry: the cast entry of a row (by key; an entry saved before #2 under the alias or registry Name still counts)
   const centry = p => (p && (SP ? SP.castEntry(cast, p.key, p) : cast.projects[p.key])) || {};
@@ -119,14 +138,18 @@
       document.querySelectorAll(".tile").forEach(t => live(t, false)); } else paintHero(true); });
 
   // ---------- model ----------
-  function defaults(i) { return { concept: SPECIES[i % SPECIES.length].id, iv: (i * 3) % 8 }; }
+  // An un-cast project's species and form: the stage's own seeded draw (app/stage.html castFor), so the preview is the
+  // sprite on the desktop. A white (unmanaged, not focused) session is seeded by its session id, a project by its key.
+  function hashStr(s) { let h = 2166136261; s = String(s); for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+  function seedOf(p) { const a = actByKey.get(p.key); return a && a.white && !p.focus ? a.id : p.key; }
+  function defaults(p) { const h = hashStr(seedOf(p)); return { concept: SPECIES[h % SPECIES.length].id, iv: (h >>> 3) % 8 }; }
   function cur() { if (!waypoint) return browse; const p = projects[sel]; if (!p) return browse;
-    const c = centry(p); const d = defaults(sel);
+    const c = centry(p); const d = defaults(p);
     return { concept: SPECIES.some(s => s.id === c.concept) ? c.concept : d.concept,
       iv: Number.isInteger(c.iv) ? c.iv : d.iv, hex: p.hex, name: p.label }; }
   function choose(patch) {
     if (!waypoint) { Object.assign(browse, patch); return render(); }
-    const p = projects[sel], c = cur(); const prev = centry(p);
+    const p = projects[sel], c = cur(); promote(p); const prev = centry(p);
     putCast(p, Object.assign({}, prev, { concept: patch.concept || c.concept, iv: patch.iv != null ? patch.iv : c.iv, hex: p.hex }));
     save(); render(); }
   let savedT = 0;
@@ -136,13 +159,25 @@
     $("saved").classList.add("on"); clearTimeout(savedT); savedT = setTimeout(() => $("saved").classList.remove("on"), 1400); }
 
   // ---------- painting ----------
-  function paintList() { const ul = $("projects"); if (!waypoint) return;
-    if (ul.children.length !== projects.length) { ul.innerHTML = "";
-      projects.forEach((p, i) => { const li = el("li"); li.style.setProperty("--c", p.hex);
-        li.innerHTML = `<span class="dot"></span><span class="nm" title="${esc(p.name)}">${esc(p.label)}</span><span class="sp"></span>`;
-        li.onclick = () => { sel = i; render(); }; ul.appendChild(li); }); }
-    [...ul.children].forEach((li, i) => { li.classList.toggle("on", i === sel);
-      const s = sel; sel = i; const c = cur(); sel = s; li.querySelector(".sp").textContent = nameOf(c.concept, c.iv); }); }
+  // Rows: Focus and Untracked in #projects, Hidden in the collapsed #hiddenProjects. Each row: its live state and the
+  // three-way control (the same one as the selected project's Tracking row).
+  const LIVE = { needs: "needs you", working: "working", idle: "idle", ghost: "ghost" };
+  const TRACK = [["focus", "Focus"], ["untracked", "Untracked"], ["hidden", "Hidden"]];
+  function liveOf(p) { const a = actByKey.get(p.key); return a ? LIVE[a.state] || "idle" : "not running"; }
+  let listSig = "";
+  function paintList() { const ul = $("projects"), hl = $("hiddenProjects"); if (!waypoint) return;
+    const sig = projects.map(p => [p.key, p.label, p.hex, tracking(p), liveOf(p)].join("|")).join("\n");
+    if (sig !== listSig || ul.children.length + hl.children.length !== projects.length) { listSig = sig; ul.innerHTML = ""; hl.innerHTML = "";
+      projects.forEach((p, i) => { const li = el("li"), t = tracking(p), lv = liveOf(p); li.style.setProperty("--c", p.hex); li.dataset.key = p.key; li.dataset.i = i;
+        li.classList.toggle("live", lv !== "not running"); li.dataset.t = t;
+        li.innerHTML = `<span class="dot"></span><span class="nm" title="${esc(p.name)}">${esc(p.label)}</span><span class="st">${esc(lv)}</span>` +
+          `<span class="seg rowseg" role="radiogroup">${TRACK.map(([v, n]) => `<button data-t="${v}" role="radio" aria-checked="${v === t}">${n}</button>`).join("")}</span>`;
+        li.onclick = () => { sel = i; render(); };
+        li.querySelectorAll(".rowseg button").forEach(b => b.onclick = e => { e.stopPropagation(); sel = i; setTracking(p, b.dataset.t); render(); });
+        (t === "hidden" ? hl : ul).appendChild(li); }); }
+    const nh = projects.filter(p => tracking(p) === "hidden").length;
+    $("hiddenBox").classList.toggle("hidden", !nh); $("hiddenN").textContent = nh;
+    [...ul.children, ...hl.children].forEach(li => li.classList.toggle("on", +li.dataset.i === sel)); }
   function paintInfo() { const c = cur(), sp = SPECIES.find(s => s.id === c.concept);
     $("pname").textContent = waypoint ? c.name : "Random each session";
     $("sname").textContent = sp.name; $("vname").textContent = nameOf(c.concept, c.iv);
@@ -157,7 +192,7 @@
     const p = projects[sel]; if (!p) return; if (document.activeElement !== inp) inp.value = centry(p).short || "";
     inp.placeholder = autoShort(p); paintVis(p); paintColour(p); paintFocus(p); }
   let shortT = 0;
-  $("short").oninput = () => { const p = projects[sel]; if (!p) return; const v = $("short").value.trim().slice(0, 12), c = cur();
+  $("short").oninput = () => { const p = projects[sel]; if (!p) return; const v = $("short").value.trim().slice(0, 12), c = cur(); promote(p);
     const e = Object.assign({ concept: c.concept, iv: c.iv, hex: p.hex }, centry(p));
     if (v) e.short = v; else delete e.short; putCast(p, e);
     clearTimeout(shortT); shortT = setTimeout(save, 350); };
@@ -167,8 +202,8 @@
   // rather than a sprite-only field. The hue drives the SAME --hue / hexHue() path the species pickers use, so
   // the hero, the stills and the label preview follow the moment it changes.
   // Focus: the launches.md `Focus` column, through `waypoint focus add|remove`. A project with no launch alias
-  // on this machine cannot be focused (and, with Waypoint, has no Command cell to colour): the control is
-  // disabled and SAYS so rather than silently doing nothing.
+  // on this machine (no launch row, or a directory the registry does not know) is focused and coloured in the
+  // host's local projects file instead, keyed by project key (owner, 2026-11-08: never a silent no-op).
   // Without Waypoint both go to the host's local settings file (app/macos/Config.swift Paths.projects, beside
   // cast.json and behaviors.json); in a plain browser, to localStorage.
   let hasWaypoint = true, writeN = 0;
@@ -177,51 +212,84 @@
   function localProjects() { try { const o = JSON.parse(localStorage.getItem(LOCAL_KEY) || "null"); return (o && o.projects) || {}; } catch (e) { return {}; } }
   function putLocalProject(p, patch) { const all = localProjects(); all[p.key] = Object.assign({}, all[p.key], patch);
     try { localStorage.setItem(LOCAL_KEY, JSON.stringify({ projects: all })); return null; } catch (e) { return String(e.message || e); } }
-  /** Send one project write to the host; `revert` runs with the message if it fails. */
-  function writeProject(kind, p, patch, revert) {
+  /** Send one project write to the host; `revert` runs with the message if it fails, `ok` when it lands. Returns its id. */
+  function writeProject(kind, p, patch, revert, ok) {
     const id = "w" + ++writeN, msg = {};
     msg[kind] = Object.assign({ id: id, key: p.key, alias: p.alias || "" }, patch);
-    if (post(msg)) { pending.set(id, revert); return; }
+    if (post(msg)) { pending.set(id, { revert, ok }); return id; }
     const err = putLocalProject(p, patch);   // no host bridge: the browser's own store
-    if (err) revert(err); else flashSaved();
+    if (err) revert(err); else { if (ok) ok(); flashSaved(); }
+    return id;
   }
-  function writeResult(o) { o = o || {}; const revert = pending.get(o.id); if (!revert) return; pending.delete(o.id);
-    if (o.error) revert(String(o.error)); else flashSaved(); }
+  function writeResult(o) { o = o || {}; trace("writeResult", o); const w = pending.get(o.id); if (!w) return; pending.delete(o.id);
+    if (o.error) w.revert(String(o.error)); else { if (w.ok) w.ok(); flashSaved(); } }
   /** The one place that says why a control is unavailable (and clears it). */
   function say(msg, bad) { const w = $("focusWhy"); w.textContent = msg || ""; w.classList.toggle("bad", !!msg && !!bad); }
-  /** With Waypoint a project needs a launch alias to have a colour or a focus marker at all. */
-  function needsAlias(p) { return hasWaypoint && !(p && p.alias); }
-  function paintColour(p) { const row = $("clrRow"); row.classList.toggle("hidden", !waypoint);
+  /** Nothing is disabled for a missing alias any more: the host falls back to its local file. */
+  function needsAlias(p) { return false; }
+  // 🔴 A programmatic .value on a colour input that is open in NSColorPanel moves the PANEL too, so the next brightness
+  // drag starts from that value (owner, 2026-11-08: "it reverts back to the previous color"). Never write over the
+  // project he is editing: `editing` is the key he last dragged and when; only a real failed write forces the revert.
+  const EDIT_HOLD = 3000;
+  let clrEdit = { key: null, t: 0 };
+  const editingClr = p => p && clrEdit.key === p.key && (performance.now() - clrEdit.t < EDIT_HOLD || document.activeElement === $("clr"));
+  function paintColour(p, force) { trace("paintColour", p && p.key, p && p.hex); const row = $("clrRow"); row.classList.toggle("hidden", !waypoint);
     if (!waypoint || !p) return; const hex = /^#[0-9a-f]{6}$/i.test(p.hex || "") ? p.hex.toUpperCase() : "#8899AA";
-    $("clr").value = hex.toLowerCase(); $("clrHex").textContent = hex;
-    $("clr").disabled = needsAlias(p); $("clrWrap").title = needsAlias(p)
-      ? "No launch alias on this machine, so this project has no colour to set" : "This project's one colour: its sprite, its iTerm2 text and its SidePulse LED all use it"; }
+    if (force || !editingClr(p)) { if ($("clr").value !== hex.toLowerCase()) $("clr").value = hex.toLowerCase(); $("clrHex").textContent = hex; }
+    $("clr").disabled = false; $("clrWrap").title = hasWaypoint && !p.alias
+      ? "No launch alias on this machine: the colour is kept in Sprites' own projects file" : "This project's one colour: its sprite, its iTerm2 text and its SidePulse LED all use it"; }
+  const F2T = { "1": "focus", "0": "untracked", h: "hidden" };
   function paintFocus(p) { const row = $("focusRow"); row.classList.toggle("hidden", !waypoint);
-    if (!waypoint || !p) return; const on = !!p.focus, no = needsAlias(p);
-    [...$("focusSeg").children].forEach(b => { b.setAttribute("aria-checked", (b.dataset.f === "1") === on ? "true" : "false"); b.disabled = no; });
-    say(no ? "No launch alias on this machine: a project with no launch row cannot be a focus project." : "", false); }
+    if (!waypoint || !p) return; const t = tracking(p);
+    [...$("focusSeg").children].forEach(b => { b.setAttribute("aria-checked", F2T[b.dataset.f] === t ? "true" : "false"); b.disabled = false; }); }
+  /** Focus, Untracked or Hidden. Hidden wins: a project hidden from the On screen row reads Hidden whatever its focus. */
+  function tracking(p) { return SP && p ? SP.tracking(cast, p.key, p) : p && p.focus ? "focus" : "untracked"; }
+  /** Move a row to Focus, Untracked or Hidden. Hidden is the cast's visibility "hide" (the stage then draws nothing for
+   * the key); Focus is the focus write (Waypoint, else the local file). The three are exclusive, so Hidden also drops
+   * focus. Focusing freezes the species, form and colour on show into the cast, so they are what is retained. */
+  function setTracking(p, t) { if (!p || !TRACK.some(x => x[0] === t)) return; const was = tracking(p); if (t === was) return;
+    if (t === "hidden") { const e = Object.assign({}, centry(p), { visibility: "hide" });
+      if (!table.some(x => x && x.key === p.key)) e.name = p.name; putCast(p, e); save(); }
+    else if (was === "hidden") { const e = Object.assign({}, centry(p)); delete e.visibility; delete e.name;
+      if (Object.keys(e).length) putCast(p, e); else { putCast(p, e); delete cast.projects[p.key]; } save(); }
+    if (t === "focus" && !SPECIES.some(s => s.id === centry(p).concept)) { const c = curOf(p);
+      putCast(p, Object.assign({}, centry(p), { concept: c.concept, iv: c.iv, hex: p.hex })); save(); }
+    const on = t === "focus"; if (on !== !!p.focus) writeFocus(p, on);
+    say(t === "untracked" && !actByKey.has(p.key) ? "Untracked: it leaves this list once it is no longer active." : "", false);
+    paintFocus(p); paintVis(p); }
+  function writeFocus(p, on) { p.focus = on; const t = table.find(e => e && e.key === p.key); if (t) t.focus = on;
+    writeProject("setProjectFocus", p, { focus: on, name: p.name || "", dir: p.dir || "" }, err => { p.focus = !on; if (t) t.focus = !on; paintFocus(p); paintList();
+      say((on ? "Could not add focus: " : "Could not remove focus: ") + err, true); }); }
+  /** An edit to an Untracked row would be lost, so it makes the row Focus first, and says so. */
+  function promote(p) { if (!p || tracking(p) !== "untracked") return; setTracking(p, "focus");
+    say("Now a focus project, so this choice is kept.", false); }
+  function curOf(p) { const s = sel, i = projects.indexOf(p); if (i < 0) return cur(); sel = i; const c = cur(); sel = s; return c; }
   let clrT = 0;
+  const clrOk = new Map(), clrOkN = new Map(), clrLast = new Map();   // key -> the last colour the host confirmed; key -> id of the newest write
   // `input` fires continuously while the native picker is dragged: the preview follows every event, the write
   // is debounced to the colour he settles on (as the short-name field and the sliders do).
-  $("clr").oninput = () => { const p = projects[sel]; if (!p || needsAlias(p)) return;
+  $("clr").oninput = () => { const p = projects[sel]; if (!p) return; clrEdit = { key: p.key, t: performance.now() }; promote(p);
     const hex = String($("clr").value || "").toUpperCase(); if (!/^#[0-9A-F]{6}$/.test(hex)) return;
-    const was = p.hex; if (hex === (was || "").toUpperCase()) return;
+    if (!clrOk.has(p.key)) clrOk.set(p.key, p.hex);   // the colour before this edit: what a failed write restores
+    if (hex === (p.hex || "").toUpperCase()) return;
     p.hex = hex; const t = table.find(e => e && e.key === p.key); if (t) t.hex = hex;
     $("clrHex").textContent = hex; rowKey = varKey = ""; render();   // the hue path: hero, stills, label preview
     clearTimeout(clrT); clrT = setTimeout(() => { $("clrRow").classList.add("busy");
       // the cast mirrors the project's hex, and the stage prefers the cast's: move it too, or a stale cast
       // entry would keep painting the old colour after the table changed.
       castHex(p, hex);
-      writeProject("setProjectColour", p, { hex: hex }, err => { p.hex = was; if (t) t.hex = was; castHex(p, was);
-        rowKey = varKey = ""; $("clrRow").classList.remove("busy"); render(); say("Colour not saved: " + err, true); });
+      // only the NEWEST write may revert, and only to the last colour the host confirmed: an older write's answer
+      // arriving mid-drag must never pull the picker back (a stale echo)
+      const id = "w" + (writeN + 1);   // the id writeProject is about to use: the no-bridge path calls back before it returns
+      clrLast.set(p.key, id);
+      writeProject("setProjectColour", p, { hex: hex }, err => { if (clrLast.get(p.key) !== id) return;
+        const was = clrOk.get(p.key); p.hex = was; if (t) t.hex = was; castHex(p, was); clrEdit = { key: null, t: 0 };
+        rowKey = varKey = ""; $("clrRow").classList.remove("busy"); render(); paintColour(p, true); say("Colour not saved: " + err, true); },
+        () => { const n = +id.slice(1); if (n > (clrOkN.get(p.key) || 0)) { clrOkN.set(p.key, n); clrOk.set(p.key, hex); } });
       setTimeout(() => $("clrRow").classList.remove("busy"), 1200); }, 220); };
   function castHex(p, hex) { const e = centry(p); if (!e || !Object.keys(e).length) return;   // nothing saved yet: nothing to correct
     if (/^#[0-9A-F]{6}$/i.test(hex || "")) { putCast(p, Object.assign({}, e, { hex: hex })); save(); } }
-  [...$("focusSeg").children].forEach(b => b.onclick = () => { const p = projects[sel]; if (!p || needsAlias(p)) return;
-    const on = b.dataset.f === "1"; if (on === !!p.focus) return; p.focus = on;
-    const t = table.find(e => e && e.key === p.key); if (t) t.focus = on; paintFocus(p);
-    writeProject("setProjectFocus", p, { focus: on }, err => { p.focus = !on; if (t) t.focus = !on; paintFocus(p);
-      say((on ? "Could not add focus: " : "Could not remove focus: ") + err, true); }); });
+  [...$("focusSeg").children].forEach(b => b.onclick = () => { const p = projects[sel]; if (!p) return; setTracking(p, F2T[b.dataset.f]); paintList(); });
 
   // ---------- on screen: Show / Hide / Hide @ Work (owner, 2026-11-04; ProjectCert "is an outside project") ----------
   // cast.projects[key].visibility "hide" | "hide_at_work" (absent = show); the stage drops the project's sprites and
@@ -231,7 +299,7 @@
     [...$("visSeg").children].forEach(b => b.setAttribute("aria-checked", b.dataset.v === v ? "true" : "false")); }
   [...$("visSeg").children].forEach(b => b.onclick = () => { const p = projects[sel]; if (!p) return; const c = cur();
     const e = Object.assign({ concept: c.concept, iv: c.iv, hex: p.hex }, centry(p));
-    if (b.dataset.v === "show") delete e.visibility; else e.visibility = b.dataset.v; putCast(p, e); save(); paintVis(p); });
+    if (b.dataset.v === "show") delete e.visibility; else e.visibility = b.dataset.v; putCast(p, e); save(); paintVis(p); paintFocus(p); paintList(); });
   let rowKey = "", varKey = "";
   function paintSpecies() { const c = cur(), hue = hexHue(c.hex), row = $("species");
     if (!row.children.length) SPECIES.forEach(s => { const cell = el("div", "cell", `<div class="tile"></div><div class="lab">${s.name}</div>`);
@@ -348,32 +416,63 @@
     const known = new Set(GROUPS.flatMap(g => g[1])); behExtra = {}; Object.keys(beh).forEach(k => { if (!known.has(k)) { behExtra[k] = beh[k]; delete beh[k]; } }); paintDim();
     initVis(o); demoOn = !!o.demo; if ($("behView").classList.contains("hidden")) setSw($("demoSw"), demoOn); else paintBeh(); }
 
+  // ---------- the row set: focus entries + every active sprite + hidden (owner, 2026-11-08) ----------
+  let plain = false, actByKey = new Map();
+  const rowCache = new Map();   // key -> row object, kept across recomposes (writes and reverts hold the object)
+  function setActive(snap) { let a = []; try { a = SP && snap ? SP.active(typeof snap === "string" ? JSON.parse(snap) : snap) : []; } catch (e) { a = []; }
+    actByKey = new Map(a.map(x => [x.key, x])); }
+  const WHITE_HEX = "#B8C0CC";
+  function rowFor(key) { if (rowCache.has(key)) return rowCache.get(key);
+    const t = table.find(e => e && e.key === key), a = actByKey.get(key), c = (cast.projects && cast.projects[key]) || {};
+    const p = t ? Object.assign({}, t) : { key, name: a ? a.name : c.name || key, alias: null, dir: null, focus: false };
+    p.key = key; p.label = p.alias || p.name;
+    // a project with no colour of its own: the cast's, else the stage's seeded hue (grey for an unmanaged session)
+    if (!/^#[0-9a-f]{6}$/i.test(p.hex || "")) p.hex = /^#[0-9a-f]{6}$/i.test(c.hex || "") ? c.hex.toUpperCase()
+      : a && a.white && !p.focus ? WHITE_HEX : "#" + hsl2hex((hashStr(key) >>> 7) % 360).toUpperCase();
+    rowCache.set(key, p); return p; }
+  /** The rows, by SpritesProjects.settingsRows (node-tested), over the table as this window has edited it. */
+  function compose() { const eff = table.map(e => (e && e.key && rowCache.get(e.key)) || e);
+    for (const p of rowCache.values()) if (!table.some(e => e && e.key === p.key)) eff.push(p);
+    return SP.settingsRows(eff, cast, [...actByKey.values()], hasWaypoint).map(r => rowFor(r.key)); }
+  /** The host's snapshot changed: re-derive the rows, keep the selection on the same project. */
+  function setSnapshot(snap) { trace("setSnapshot"); if (plain || !$("projects")) return; setActive(snap);
+    const was = projects[sel] && projects[sel].key, next = compose();
+    if (!next.length && !projects.length) return;
+    projects = next; const i = projects.findIndex(p => p.key === was); const moved = i < 0;
+    sel = moved ? 0 : i; if (!waypoint && projects.length) { init(Object.assign({}, lastInit, { snapshot: snap })); return; }
+    if (moved) render(); else { paintList(); paintFocus(projects[sel]); } }
+  let lastInit = {};
+
   // ---------- entry ----------
-  function init(o) { o = o || {}; cast = o.cast && typeof o.cast === "object" ? o.cast : { projects: {} };
+  function init(o) { o = o || {}; if (o.debug) { dbg = true; armTrace(); } trace("init", { projects: Array.isArray(o.projects) ? o.projects.length : o.projects });
+    lastInit = o;cast = o.cast && typeof o.cast === "object" ? o.cast : { projects: {} };
     if (!cast.projects || typeof cast.projects !== "object") cast.projects = {};
-    waypoint = o.waypoint !== false && Array.isArray(o.projects) && o.projects.length > 0;
+    setActive(o.snapshot);
+    waypoint = o.waypoint !== false && Array.isArray(o.projects) && (o.projects.length > 0 || actByKey.size > 0);
     // Real detection, by the host (app/macos/Config.swift waypointCLIPath: an EXECUTABLE CLI and a
     // launches.md that parses into launch rows, not a path that merely exists). Absent: the colour and
     // focus writes go to the host's local settings file instead, and the same `nowp=1` switch still
     // drives whether this window shows the project list at all.
     hasWaypoint = o.hasWaypoint !== false && o.waypoint !== false;
-    pending.clear(); say("", false);
+    pending.clear(); clrOk.clear(); clrOkN.clear(); clrLast.clear(); say("", false);
     const rows = waypoint ? o.projects.filter(p => p && p.name && /^#[0-9a-f]{6}$/i.test(p.hex || "")) : [];
     // a full table (entries carry focus) lists its focus rows; a plain [{name, hex}] list is all rows, keyed by name
-    const isTable = rows.some(p => "focus" in p);
+    const isTable = waypoint && o.projects.some(p => p && "focus" in p);
     table = waypoint ? o.projects.filter(p => p && p.name).map(p => Object.assign({}, p)) : [];
     // a full table's row with key null (a launch dir that is no registry project, e.g. MandrakeVisualize) can match no
     // session: Augur keys sessions by registry project, so its cast would be read by nothing (R2-SPEC #3). Not listed.
     // Without Waypoint nothing is focused until he says so, so a focus-only filter would leave the list
     // empty and there would be nothing to colour or focus: every keyed row is listed instead.
-    const listed = !isTable ? rows : hasWaypoint ? rows.filter(p => p.focus && p.key) : rows.filter(p => p.key);
-    projects = listed.map(p => Object.assign({}, p, { key: p.key || p.alias || p.name, label: p.alias || p.name }));
-    if (!isTable) table = projects;
+    plain = !isTable; rowCache.clear(); listSig = "";
+    setActive(o.snapshot);
+    if (plain) { projects = rows.map(p => Object.assign({}, p, { key: p.key || p.alias || p.name, label: p.alias || p.name })); table = projects; }
+    else projects = compose();
     if (!projects.length) waypoint = false;
     sel = 0; rowKey = varKey = heroKey = "";
     $("projects").classList.toggle("hidden", !waypoint); $("sideCap").classList.toggle("hidden", !waypoint);
     $("nowp").classList.toggle("hidden", waypoint); document.body.classList.toggle("browse", !waypoint);
-    $("sub").textContent = waypoint ? "Choose a species for each focus project" : "Species gallery";
+    if (!waypoint) $("hiddenBox").classList.add("hidden");
+    $("sub").textContent = waypoint ? "Choose a species for each project; Focus keeps it" : "Species gallery";
     $("surprise").lastChild.textContent = waypoint ? "Surprise me" : "Show me another";
     initBeh(o); if (!$("behView").classList.contains("hidden") || !$("labView").classList.contains("hidden") || !$("bdView").classList.contains("hidden")) showTab("species"); render(); }
 
@@ -458,49 +557,103 @@
     bd.speeds[m.id] = Math.abs(v - m.speed) < 0.06 ? m.speed : v; $("bdSpeedVal").textContent = bd.speeds[m.id] === 0 ? "frozen" : bd.speeds[m.id].toFixed(2).replace(/0$/, "") + "x";
     clearTimeout(bdT); bdT = setTimeout(() => { saveBeh(); paintBackdrops(); }, 300); };
   // ---------- aether tab (behaviors.aether; parsed by AetherSettings.from in app/macos/Aether.swift; drawn by AetherHost.swift while enabled) ----------
-  const AE_DEFAULT = { enabled: false, motion: "settle-typing", boundary: "thermal", temperature: 27.5, density: 100, particleSize: 2.5, fieldStrength: 0.5, stirring: 0.7, cooling: 45, minTemperature: 1.5, colour: "green", brightness: 2 };
+  const AE_DEFAULT = { enabled: false, motion: "settle-typing", boundary: "thermal", temperature: 27.5, density: 100, particleSize: 2.5, fieldStrength: 0.5, stirring: 0.7, cooling: 45, minTemperature: 1.5, temperatureVariation: 0.85, attraction: 1, attractionRange: 2, repulsion: 0.5, repulsionRange: 2, chainForming: 0.5, colour: "green", brightness: 2, drift: "off", driftPeriod: 30, edgeTemperature: 1, driftCoupling: 1, fronts: 0.4, needleMemory: 0.5, knots: 0.4, dew: 0.3, speciesWakes: 0.5, handedness: 0.4, wakeReader: 0.3 };
   const AE_KNOBS = [   // [key, label, min, max, step, format]: sliders; the choice knobs follow below
     ["temperature", "Temperature", 0, 40, 0.5, v => v <= 0.5 ? "frozen" : v < 5 ? "cool" : v < 12 ? "mild" : v < 22 ? "warm" : "hot"],
     ["density", "Density", 100, 1600, 10, v => v < 250 ? "sparse" : v > 1000 ? "dense" : "medium"],
     ["stirring", "Sprite stirring", 0, 2, 0.1, v => v === 0 ? "off" : v < 0.65 ? "subtle" : v < 1.0 ? "moderate" : "strong"],
     ["cooling", "Cooling (drag)", 5, 120, 1, v => "settles in ~" + Math.round(v) + " s" + (v < 15 ? " (quick)" : v > 60 ? " (glides)" : "")],
     ["minTemperature", "Minimum temperature", 0, 10, 0.5, v => v === 0 ? "may freeze" : v.toFixed(1) + " pt/s drift"],
+    ["temperatureVariation", "Temperature variation", 0, 1, 0.05, v => v === 0 ? "uniform" : v === 1 ? "free" : v < 0.5 ? "evens out" : "hot and cold spots persist"],
+    ["attraction", "Attraction strength", 0, 3, 0.1, v => v === 0 ? "off" : v < 0.8 ? "faint" : v < 1.8 ? "sticky" : "clumps"],
+    ["attractionRange", "Attraction range", 1.5, 3, 0.1, v => v.toFixed(1) + " particle widths"],
+    ["repulsion", "Repulsion strength", 0, 2, 0.1, v => v === 0 ? "off" : v < 0.8 ? "gentle" : "spreads clumps"],
+    ["repulsionRange", "Repulsion range", 1, 4, 0.5, v => Math.round(v * 48) + " pt"],
+    ["chainForming", "Chain forming", 0, 1, 0.05, v => v === 0 ? "droplets" : v < 0.6 ? "some chains" : "needles"],
     ["particleSize", "Particle size", 0.5, 6, 0.1, v => v.toFixed(1) + " pt"],
     ["fieldStrength", "Field strength", 0, 2, 0.1, v => v === 0 ? "off" : v < 0.7 ? "subtle" : v < 1.3 ? "vivid" : "strong"],
-    ["brightness", "Brightness", 1, 3, 1, v => ["dim", "normal", "bright"][v - 1]]];
+    ["brightness", "Brightness", 1, 3, 1, v => ["dim", "normal", "bright"][v - 1]],
+    ["driftPeriod", "Drift period", 10, 120, 5, v => "~" + Math.round(v) + " min swells"],
+    // owner card 2026-11-08 18:30 PST: attraction and repulsion drift together, so the desktop never clumps
+    ["driftCoupling", "Drift coupling", 0, 1, 0.05, v => v === 0 ? "independent" : v < 0.7 ? "partly coupled" : "attraction and repulsion together"],
+    // owner card 2026-11-08 18:30 PST: drift varies by region, the borders wander over about an hour (needs Drift on)
+    ["fronts", "Weather fronts", 0, 1, 0.05, v => v === 0 ? "one universe everywhere" : v < 0.5 ? "gentle regions" : "strong regions"],
+    // owner card 2026-11-08 18:30 PST: broken needles leave their direction behind; a knot sometimes forms where two wakes cross
+    ["needleMemory", "Needle memory", 0, 1, 0.05, v => v === 0 ? "forgets at once" : v < 0.7 ? "remembers for seconds" : "remembers for minutes"],
+    ["knots", "Knots where wakes cross", 0, 1, 0.05, v => v === 0 ? "off" : v < 0.5 ? "sometimes" : v < 1 ? "often" : "every crossing"],
+    // owner card 2026-11-08 18:30 PST: dots bead along a window edge still for ~10 min (behaviors.json dewAfter, seconds), shake off on a move
+    ["dew", "Window dew", 0, 1, 0.05, v => v === 0 ? "off" : v < 0.5 ? "a few beads" : "beaded edges"],
+    // owner card 2026-11-08 18:30 PST: each species shapes its wake (Siphonophores comb, the Mothership a bow); never work or status
+    ["speciesWakes", "Species wakes", 0, 1, 0.05, v => v === 0 ? "all round" : v < 0.7 ? "a hint of each species" : "each species its own shape"],
+    // owner card 2026-11-08 18:30 PST: each project curls its wake one way (from its key), so two wakes braid or cancel
+    ["handedness", "Handedness by project", 0, 1, 0.05, v => v === 0 ? "off" : v < 0.6 ? "a gentle curl" : "a strong curl"],
+    // owner card 2026-11-08 18:30 PST: an idle sprite sometimes follows another's leftover current a little (rare, small)
+    ["wakeReader", "Wake reader", 0, 1, 0.05, v => v === 0 ? "off" : v < 0.5 ? "now and then" : "often"]];
   const AE_CHOICES = [
     ["motion", "Motion", [["living", "Always living"], ["settle-typing", "Living, settles while typing"], ["stir-settle", "Stirs, then settles"]]],
-    ["boundary", "Boundary", [["thermal", "Thermal walls"], ["reflect", "Reflect"], ["reservoir", "Reservoir"]]]];
+    ["boundary", "Boundary", [["thermal", "Thermal walls"], ["reflect", "Reflect"], ["reservoir", "Reservoir"]]],
+    ["drift", "Drift", [["off", "Off"], ["gentle", "Gentle"], ["wild", "Wild"]]]];
+  // Drifting constants (owner, 2026-11-08 ~5 PM): the host sends the drifted values about once a second while drift is on;
+  // each drifting slider shows its current value faintly beside it. "Hold this universe" writes them into the sliders.
+  const AE_DRIFTING = ["attraction", "attractionRange", "repulsion", "repulsionRange", "chainForming", "cooling", "temperatureVariation", "edgeTemperature", "fieldStrength", "stirring"];
+  let aeDrift = null;
+  const aeFmt = v => Math.abs(v) >= 10 ? v.toFixed(0) : v.toFixed(2);
+  function setAetherDrift(d) { trace("setAetherDrift"); aeDrift = d && typeof d === "object" ? d : null; paintAeDrift(); }
+  function paintAeDrift() { const on = !!(aeDrift && ae.drift !== "off" || aeDrift && aeDrift.amplitude > 0);
+    document.querySelectorAll("#aeGrid .aeDrift[data-key]").forEach(sp => { const v = aeDrift && aeDrift[sp.dataset.key];
+      sp.textContent = on && typeof v === "number" ? "now " + aeFmt(v) : ""; });
+    const h = $("aeHold"); if (h) h.disabled = !on; }
   // Colour: a real picker (any "#rrggbb") plus the three phosphor presets as quick swatches. The hex of each preset is
   // only what the picker shows; the saved value stays the preset's name, so the host keeps its exact phosphor tone.
   const AE_SWATCHES = [["green", "#47ff73"], ["amber", "#ffad2e"], ["white", "#d1e0eb"]];
   const aeHex = c => { const s = AE_SWATCHES.find(x => x[0] === c); return s ? s[1] : c; };
-  let ae = Object.assign({}, AE_DEFAULT), aeExtra = {}, aeT = null;
+  let ae = Object.assign({}, AE_DEFAULT), aeExtra = {}, aeT = null, aeClr = null;
   function aeRead(o) { o = o && typeof o === "object" ? o : {}; aeExtra = {}; const r = Object.assign({}, AE_DEFAULT);
     Object.keys(o).forEach(k => { if (!(k in AE_DEFAULT)) aeExtra[k] = o[k]; });   // chains, collisionSize, ...: carried through
     if (o.enabled === true) r.enabled = true;
     AE_CHOICES.forEach(c => { if (c[2].some(x => x[0] === o[c[0]])) r[c[0]] = o[c[0]]; });
     if (typeof o.colour === "string" && (AE_SWATCHES.some(x => x[0] === o.colour) || /^#[0-9a-f]{6}$/i.test(o.colour))) r.colour = o.colour.toLowerCase();
     AE_KNOBS.forEach(k => { if (typeof o[k[0]] === "number" && isFinite(o[k[0]])) r[k[0]] = Math.min(k[3], Math.max(k[2], o[k[0]])); });
+    if (typeof o.edgeTemperature === "number" && isFinite(o.edgeTemperature)) r.edgeTemperature = Math.min(2, Math.max(0.5, o.edgeTemperature));
     return r; }
   function aeOut() { return Object.assign({}, aeExtra, ae); }
   function aeSave() { clearTimeout(aeT); aeT = setTimeout(saveBeh, 250); }
-  function paintAether() { setSw($("aeSw"), ae.enabled); const g = $("aeGrid"); g.innerHTML = "";
+  function paintAether() { trace("paintAether", ae.colour); setSw($("aeSw"), ae.enabled); const g = $("aeGrid");
+    // Every row is rebuilt except the colour row, which is built ONCE and never leaves the grid: NSColorPanel is bound
+    // to the input it opened on, so replacing or detaching it (or pushing a value into it) mid-drag cut the panel loose
+    // or moved it back (owner, 2026-11-08). Its value is written only when it differs and he is not editing it.
+    [...g.children].forEach(r => { if (!aeClr || r !== aeClr.row) r.remove(); });
+    let after = false; const put = r => aeClr && !after && aeClr.row.parentNode === g ? g.insertBefore(r, aeClr.row) : g.appendChild(r);
     AE_CHOICES.forEach(c => { const row = el("div", "aeRow"); row.appendChild(el("div", "aeLab", c[1])); const seg = el("div", "aeSeg");
       c[2].forEach(o => { const b = el("button", "aeOpt" + (ae[c[0]] === o[0] ? " on" : ""), o[1]); b.onclick = () => { ae[c[0]] = o[0]; paintAether(); aeSave(); }; seg.appendChild(b); });
-      row.appendChild(seg); g.appendChild(row); });
-    { const row = el("div", "aeRow"); row.appendChild(el("div", "aeLab", "Colour")); const seg = el("div", "aeSeg");
-      AE_SWATCHES.forEach(s => { const b = el("button", "aeOpt aeSwatch" + (ae.colour === s[0] ? " on" : ""), s[0][0].toUpperCase() + s[0].slice(1));
-        b.style.setProperty("--sw", s[1]); b.onclick = () => { ae.colour = s[0]; paintAether(); aeSave(); }; seg.appendChild(b); });
-      const wrap = el("label", "swatch"); const inp = document.createElement("input"); inp.type = "color"; inp.value = aeHex(ae.colour);
-      inp.setAttribute("aria-label", "Aether colour"); const hx = el("span", "hx", aeHex(ae.colour));
-      inp.oninput = () => { ae.colour = inp.value.toLowerCase(); hx.textContent = ae.colour; seg.querySelectorAll(".aeSwatch").forEach(b => b.classList.remove("on")); aeSave(); };
-      wrap.appendChild(inp); wrap.appendChild(hx); seg.appendChild(wrap); row.appendChild(seg); g.appendChild(row); }
+      row.appendChild(seg); put(row); });
+    after = true;
+    if (!aeClr || aeClr.row.parentNode !== g) { const row = el("div", "aeRow"); row.appendChild(el("div", "aeLab", "Colour")); const seg = el("div", "aeSeg");
+      AE_SWATCHES.forEach(s => { const b = el("button", "aeOpt aeSwatch", s[0][0].toUpperCase() + s[0].slice(1)); b.dataset.c = s[0];
+        b.style.setProperty("--sw", s[1]); b.onclick = () => { ae.colour = s[0]; aeClr.t = 0; paintAether(); aeSave(); }; seg.appendChild(b); });
+      const w = el("label", "swatch"), i = document.createElement("input"); i.type = "color"; i.setAttribute("aria-label", "Aether colour");
+      const h = el("span", "hx"); w.appendChild(i); w.appendChild(h); seg.appendChild(w); row.appendChild(seg); g.appendChild(row);
+      aeClr = { row, seg, inp: i, hx: h, t: 0 };
+      i.oninput = () => { aeClr.t = performance.now(); ae.colour = i.value.toLowerCase(); h.textContent = ae.colour;
+        seg.querySelectorAll(".aeSwatch").forEach(b => b.classList.remove("on")); aeSave(); }; }
+    { const hexNow = aeHex(ae.colour), busy = performance.now() - aeClr.t < EDIT_HOLD || document.activeElement === aeClr.inp;
+      if (!busy) { if (aeClr.inp.value !== hexNow) aeClr.inp.value = hexNow; aeClr.hx.textContent = hexNow;
+        aeClr.seg.querySelectorAll(".aeSwatch").forEach(b => b.classList.toggle("on", b.dataset.c === ae.colour)); } }
     AE_KNOBS.forEach(k => { const row = el("div", "aeRow"); row.appendChild(el("div", "aeLab", k[1]));
       const inp = document.createElement("input"); inp.type = "range"; inp.min = k[2]; inp.max = k[3]; inp.step = k[4]; inp.value = ae[k[0]];
       const val = el("span", "aeVal", k[5](ae[k[0]]));
       inp.oninput = () => { ae[k[0]] = +inp.value; val.textContent = k[5](ae[k[0]]); aeSave(); };
-      row.appendChild(inp); row.appendChild(val); g.appendChild(row); }); }
+      row.appendChild(inp); row.appendChild(val);
+      const d = el("span", "aeDrift"); if (AE_DRIFTING.includes(k[0])) d.dataset.key = k[0]; row.appendChild(d);   // every row: the sliders line up
+      g.appendChild(row); });
+    { const row = el("div", "aeRow"); row.appendChild(el("div", "aeLab", "This universe"));
+      row.appendChild(el("div", "aeHint", "Edge temperature " + aeFmt(ae.edgeTemperature) + "x."));
+      const d = el("span", "aeDrift"); d.dataset.key = "edgeTemperature"; row.appendChild(d);
+      const b = el("button", "aeOpt", "Hold this universe"); b.id = "aeHold"; b.title = "Freeze the drifting values into the sliders and turn drift off";
+      b.onclick = () => { if (!aeDrift) return; AE_DRIFTING.forEach(k => { if (typeof aeDrift[k] === "number") ae[k] = aeDrift[k]; });
+        ae.drift = "off"; aeDrift = null; paintAether(); saveBeh(); };
+      row.appendChild(b); g.appendChild(row); }
+    paintAeDrift(); }
   $("aeSw").onclick = () => { ae.enabled = !ae.enabled; setSw($("aeSw"), ae.enabled); aeSave(); };
   window.SpritesAether = { defaults: AE_DEFAULT, read: aeRead };
   // ---------- dim desktop icons (host DimLayer, behaviors.dimIcons 0-80, missing = 45, 0 = off) ----------
@@ -510,7 +663,7 @@
   $("dimIcons").oninput = () => { const v = +$("dimIcons").value; behExtra.dimIcons = v; $("dimVal").textContent = v === 0 ? "off" : v + "%";
     clearTimeout(dimT); dimT = setTimeout(saveBeh, 200); };
   $("bdBoost").onchange = () => { bd.boost = $("bdBoost").checked; bdFrame(true); };
-  window.SpritesSettings = { init, get cast() { return cast; }, get labelStyle() { return labelStyle; }, showTab, setVisibility, writeResult };
+  window.SpritesSettings = { init, setAetherDrift, get cast() { return cast; }, get labelStyle() { return labelStyle; }, showTab, setVisibility, writeResult, setSnapshot, get projects() { return projects; } };
   const q = new URLSearchParams(location.search);
   if (q.get("demo") === "1") { let saved = null, sb = null, sd = false; const rd = k => { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch (e) { return null; } };
     saved = rd("sprites.cast"); sb = rd("sprites.behaviors"); sd = !!rd("sprites.demo"); const sz = rd("sprites.size"), vh = !!rd("sprites.hidden"), vm = !!rd("sprites.meeting");

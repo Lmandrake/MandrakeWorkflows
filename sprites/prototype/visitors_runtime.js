@@ -245,6 +245,15 @@ function createRuntime(q, env) {
   let demoMode = false, beaconOwner = false, vpnA = 0, riskA = 0;
   let liveS = null, liveFirst = true, paused = false, sizeTarget = P.size, lastHits = 0, wake = 1;
   const peers = [], born = {}, leaving = {}, lastData = {}, prevState = {}, flares = [], steerSt = {}, greets = [];
+  // Aether wake reader (owner card 2026-11-08 18:30 PST): the host's leftover currents (stage.html setCurrents). An idle,
+  // wandering sprite, at rare read moments (every READ.every..+READ.spread s, its own schedule), follows another sprite's
+  // leftover current a little: one target offset along it, at most READ.max px, held READ.hold s, eased like every
+  // steer. Never during play, a greeting, a perch, typing, curiosity or needs; never toward a sprite, only along the gas.
+  let currents = { k: 0, map: {} };
+  const READ = { every: num("readEvery", 45), spread: num("readSpread", 75), max: num("readMax", 40), gain: num("readGain", 1.5),
+    hold: num("readHold", 8), minSpeed: num("readMin", 3), want: num("readWant", 0.6) };
+  const idHash = id => { let h = 2166136261; for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619); return h | 0; };
+  const readLog = [];   // QA: the reads that happened [{id, t, dx, dy}]
   let lastFlare = -99;
   const CALM = { cpu: 0.05, mem: 0.6, procs: 1, state: "idle", rx: 0, tx: 0 };
   function normS(raw, sessions) {
@@ -323,6 +332,7 @@ function createRuntime(q, env) {
           if (st.perch && now > st.perch[2]) st.perch = null; }
         else st.perch = null;
         if (st.perch) { gx = st.perch[0]; gy = st.perch[1]; want = 0.85; }
+        else if (d.state === "idle" && !interacting(id) && wakeRead(id, st, tx, ty, now)) { gx = st.read[0]; gy = st.read[1]; want = READ.want; }
         else if (own) { const room = W - (own.x + own.w), sx = room > 2 * r + 30 ? own.x + own.w + r + 20 : own.x - r - 20;
           gx = Math.max(r, Math.min(W - r, sx)); gy = Math.max(TOP + r, Math.min(H - BOT - r, own.y + r + 30)); want = 0.45; } } }
     st.b += (want - st.b) * Math.min(1, lastDt / 1.2);   // ease in and out, never a jump
@@ -330,6 +340,23 @@ function createRuntime(q, env) {
     let ox = 0, oy = 0;
     if (!s.ghost && d.state !== "needs") { const k = separation(id, st, r); ox = k[0]; oy = k[1]; }
     return [tx + (st.x - tx) * st.b + ox, ty + (st.y - ty) * st.b + oy]; }
+  // Wake reader: true while this sprite is following a leftover current (st.read = [x, y, until]). A read moment comes
+  // on the sprite's own schedule; a read happens there with chance currents.k, if the gas near it carries another
+  // sprite's leftover current faster than READ.minSpeed. The offset is fixed at the read (no pursuit, no feedback).
+  function wakeRead(id, st, tx, ty, now) {
+    if (st.read && now < st.read[2]) return true;
+    st.read = null;
+    const ih = idHash(id);   // the whole id: two sessions of one project ("100@1", "101@1") must not read in lockstep
+    if (st.readAt == null) st.readAt = now + READ.every + READ.spread * hash(ih, 7);
+    if (now < st.readAt) return false;
+    const n = (st.readN = (st.readN || 0) + 1), roll = hash(ih, n * 7919 + 1);
+    st.readAt = now + READ.every + READ.spread * hash(ih, n * 104729 + 3);
+    const c = currents.map[id]; if (!(currents.k > 0) || roll >= currents.k || !Array.isArray(c)) return false;
+    const sp = Math.hypot(c[0], c[1]); if (!(sp >= READ.minSpeed)) return false;
+    const len = Math.min(READ.max, sp * READ.gain);
+    st.read = [tx + c[0] / sp * len, ty + c[1] / sp * len, now + READ.hold];
+    readLog.push({ id, t: now, dx: c[0] / sp * len, dy: c[1] / sp * len }); while (readLog.length > 64) readLog.shift();
+    return true; }
   // Gentle separation. Everything that could be stood on: where other sprites are and where they are heading to perch.
   const interacting = id => { const g = greets.some(q => (q.who === id || q.with === id) && V.t < q.until), pl = S && S.play;
     return g || !!(pl && pl.amt > 0 && pl.pair.includes(id)) || (!!S && (S.net.vpn === "down" || S.net.link === "risk") && on("vpnHuddle")); };
@@ -647,6 +674,7 @@ function createRuntime(q, env) {
     if (m.activity) activity = m.activity;
     if (m.windows) windows = m.windows;
     if (m.peers) { peers.length = 0; for (const p of m.peers) peers.push(p); }   // every sprite on stage, all layers (stage.html)
+    if (m.currents) currents = { k: +m.currents.k || 0, map: m.currents.map || {} };   // the Aether's wake reader (stage.html setCurrents)
     if (m.visible) visRect = [m.visible.x, m.visible.y, m.visible.w, m.visible.h];
     if (Number.isFinite(m.scale)) sizeTarget = Math.max(0.5, Math.min(2, m.scale)) * LIVE_BASE;
     if (m.greet) { let bd = 600, who = null; for (const id in reports) { if (id === m.greet.id) continue; const s = V.sessions.find(x => x.id === id), r = reports[id];
@@ -824,6 +852,7 @@ function createRuntime(q, env) {
       const LBm = bsum / n; out[id] = { contrast: (peak + 0.05) / (LBm + 0.05), peak, bg: LBm }; }
     return out; };
   QA.__report = () => ({ t: simT, reports, focus: lastFocus });
+  QA.__reads = () => readLog.slice();
   QA.__nav = () => ({ plans: [...navPlan.entries()].map(([id, p]) => [id, p.goal, p.path.length, p.travel]), vis: navVis, a: navA, grid: grid && [grid.nx, grid.ny, grid.ver] });
   // QA (live): feed one live message synchronously, then advance n fixed steps and render; returns reports.
   QA.__live = function (msg, n) { if (msg) onLive(msg); paused = true; for (let i = 0; i < (n || 0); i++) tick(); render();

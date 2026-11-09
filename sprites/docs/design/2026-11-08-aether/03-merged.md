@@ -254,3 +254,64 @@ Owner, 2026-11-08 3:15 PM PST, question card (verbatim):
    round the window's corners, and every plausible move is swept, calm reads included. The absorb-above-ceiling rule
    (correction 3's "absorbs the point") is removed. Only a window that appears on top of dots, with no motion, sends
    them dormant; the revealed-space reserve stays.
+
+Owner, 2026-11-08 ~4:00 PM PST (verbatim):
+
+7. **Temperature varies:** "Let's not relax particles to the 'correct' temperature. Let it vary more." The per-point
+   relaxation toward the target is scaled by a new "Temperature variation" setting (0 = the old uniform gas, 1 =
+   free; default 0.85). Energy leaves through Cooling (drag) and comes in from windows, sprite stirring, the tray
+   Stir and the screen edges, now a weak, slow source (thermal edges re-emit at the Temperature on a fraction of hits,
+   else reflect). The Minimum temperature stays as a global floor (a uniform rescale of the mean), and the hot-pocket
+   damping stays only as a ceiling against runaway. The same message: "Yes, sprite grid" (the sprite passes read
+   only the collision-grid cells under each sprite's reach).
+
+Owner, 2026-11-08 ~4:10 PM PST (verbatim):
+
+8. **Bonding by forces:** "with the removal of forced equilibrium I would like to add a short-range attraction and a
+   long range repulsion. Both of these should be adjustable for fun. Make sure I'm not driving your CPU usage crazy
+   though. See if we can reproduce the bonding through actual forces rather than constraints. Relax those
+   constraints." The chain constraints (bond length, straightening, stochastic lifetimes, caps, formation windows,
+   the "chains" setting) are deleted. Attraction is a tapered pair well in the collision grid; repulsion is
+   particle-in-cell on the coarse grid; needles come from an optional dipole term ("Chain forming"). Five sliders:
+   Attraction strength and range, Repulsion strength and range, Chain forming. Cost is bounded by deterministic work
+   counters in the tests, not a benchmark.
+
+
+Owner, 2026-11-08 ~5:00 PM PST (verbatim):
+
+9. **Drifting constants:** "Please have a mode where the Universal Constants slowly vary over the course of tens of
+   minutes so that the behavior of the dots is surprising and interesting over the course of a day." Built as "Drift:
+   off / gentle / wild" (default off) with a period (10-120 min, default 30). Attraction strength and range, repulsion
+   strength and range, chain forming, cooling, temperature variation, edge temperature, field strength and stirring
+   each follow their own seeded sum of three sines at jittered, incommensurate period multiples, added in logit space
+   around the owner's slider value, so drift never leaves a slider's range and never turns on a constant he set to
+   off. Density and collision size do not drift (the population and the grid are fixed per sim). The amplitude eases
+   in and out over ~3 minutes. Settings shows the drifted values faintly beside the sliders; "Hold this universe"
+   writes them into the sliders and turns drift off. The same message asked for two GPT passes (creative expansion,
+   then a skeptical code review) and question cards on the result: `04-gpt-creative.md`, `05-gpt-code-review.md`,
+   `06-synthesis.md`.
+
+Owner card 2026-11-08 18:30 PST (the question cards in `06-synthesis.md`; the choices as relayed to the build):
+
+10. **Gas ideas:** build **Weather fronts** (drift varies by region; the borders wander over about an hour), **Needle
+    memory and knots** (broken needles leave their direction behind for the next ones; a small knot sometimes forms
+    where two sprites' wakes cross) and **Window dew** (dots bead along a window edge that has not moved for about 10
+    minutes and shake off when it moves). Owner card 2026-11-08 18:30 PST.
+11. **Sprite ideas:** build **Species wakes** (each species shapes the gas its own way: a Siphonophore combs it into
+    strands, the Mothership parts it like a bow; never tied to work or status), **Handedness by project** (each project
+    always curls the gas the same way, so two wakes braid or cancel) and **Wake reader** (an idle sprite at play
+    sometimes follows another sprite's leftover current a little; rare and subtle, so it never reads as one project
+    following another). Owner card 2026-11-08 18:30 PST.
+12. **Drift shape:** **Couple the risky pairs** (attraction and repulsion drift together), plus a test that samples a
+    simulated day and fails on desktop-wide clumping. Owner card 2026-11-08 18:30 PST.
+13. **Speed-ups:** not built now; filed as tickets `MANDRAKEWORKFLOWS_FIX_AETHER_SLOT_SCAN_AND_SIX_RULE_BREAKS`,
+    `MANDRAKEWORKFLOWS_TRIM_AETHER_LOOPS_TO_LIVE_DOTS_ONLY`, `MANDRAKEWORKFLOWS_TRY_AETHER_LOOPS_WITHOUT_ACCESS_CHECKS`
+    and `MANDRAKEWORKFLOWS_SPLIT_AETHER_FILE_AROUND_ONE_SETTINGS_TABLE`. Owner card 2026-11-08 18:30 PST.
+14. **Frame rate:** "30 calm, 60 when pushed" (owner card 2026-11-08 ~6:35 PM PST). A calm, drifting gas presents
+    at 30 fps; it goes to 60 only while a window face pushes the gas or a moving sprite stirs it, plus about 1 s of
+    hold-off, then returns to 30. Positions stay blended between sim steps; the host's thermal cap still wins.
+
+Rules for every feature in 10-12 (same message): bounded surprise (local, never desktop-wide, never an attention
+cue); each gets a Settings control with a subtle default; each stays inside the work-counter budget (Dense under 15
+pair checks per point per step at default, under 45 at max), over a sampled drift day too; each test fails on a
+deliberately broken version.

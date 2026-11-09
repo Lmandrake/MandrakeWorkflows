@@ -13,11 +13,16 @@ import QuartzCore
 ///  - sprites: the stage's hit circles, with ids (field family 1, a sideways deflection; stirring, from their motion).
 ///  - typing: HID idle counters (no grant), as pushActivity reads them.
 /// Three clocks (correction 2): geometry 2 Hz calm / 12 Hz while a drag is seen / at once on a Space change; the sim's
-/// fixed step; presentation from frameInterval (30-60 fps while anything moves, positions interpolated between steps).
+/// fixed step; presentation from frameInterval (30 fps calm, 60 only while a window pushes or a sprite stirs the gas
+/// and ~1 s after: owner card 2026-11-08 ~18:35 PST; positions interpolated between steps).
 /// A still gas holds its frame (no draws).
 /// Quiet plan (aetherQuietPlan): hidden, meeting, locked and covered draw nothing; Reduce Motion, Low Power and thermal
 /// Serious hold a still frame. Battery under 20 % is not read yet (no IOKit here).
 /// Release 1 is unmeasured on WindowServer cost: the owner waived that gate until he is back at Lab (2026-11-08).
+/// One sprite for the Aether, CG global points: the stage's hit circle, its id, its species (concept) and project key.
+/// Identity only (species wakes, handedness): nothing about its work or status reaches the gas.
+struct AetherHit { var pos: CGPoint; var r: CGFloat; var id: String; var species = "", key = "" }
+
 final class AetherHost {
     private struct Screen { let screen: NSScreen; let window: BackdropWindow; var sim: AetherSim; var last: [AetherObstacle] }
     private var screens: [Screen] = []
@@ -31,8 +36,18 @@ final class AetherHost {
     private var reconcile = true, needsDraw = true, stillDrawn = false, blanked = false
     private var dragMonitor: Any?
     /// CG-global sprite circles (centre, radius in points); set by the app from the stage's hits.
-    var sprites: () -> [(CGPoint, CGFloat, String)] = { [] }
+    var sprites: () -> [AetherHit] = { [] }
     var paused = false { didSet { if paused != oldValue { wake() } } }
+    /// Drifting constants (owner, 2026-11-08 ~5 PM): the walk's clock (seeded, wall-clock phase), and a callback with
+    /// the drifted values about once a second while drift is on or easing out (Settings shows them, faint).
+    private var drift = AetherDriftClock(epochSeconds: Date().timeIntervalSince1970, periodMinutes: 30)
+    static let driftSeed: UInt64 = 0xAE7E_D21F_7000_0001
+    private var lastDriftReport = -Double.infinity
+    var onDrift: (([String: Double]) -> Void)?
+    /// Wake reader (owner card 2026-11-08 18:30 PST): every ~2 s, each sprite's leftover current from OTHER sprites'
+    /// wakes, pt/s (CG and stage px point the same way), and the reader's strength, for the stage. Empty when off.
+    var onCurrents: ((Double, [String: (Double, Double)]) -> Void)?
+    private var lastCurrents = -Double.infinity, sentCurrents = false
 
     init(device: MTLDevice, owner: Backdrop) {
         self.device = device; self.owner = owner; queue = device.makeCommandQueue()
@@ -52,8 +67,15 @@ final class AetherHost {
     func apply(_ s: AetherSettings) {
         let rebuild = s.densityPerMpt2 != settings.densityPerMpt2 || s.boundary != settings.boundary ||
             s.collisionDiameter != settings.collisionDiameter || screens.isEmpty
+        // "Hold this universe" writes the drifted values into the sliders and turns drift off: when the new centre is
+        // the universe now running, the walk stops at once (no ease back), so holding never moves a single dot.
+        if s.drift == .off && settings.drift != .off && drift.amplitude > 0 {
+            let now = drifted()
+            if aetherDriftKeys.allSatisfy({ abs(s[keyPath: $0.path] - now[keyPath: $0.path]) <= 0.02 * ($0.hi - $0.lo) }) { drift.amplitude = 0 }
+        }
         settings = s
-        if rebuild { build() } else { for i in screens.indices { screens[i].sim.settings = s } }
+        if rebuild { build() } else { let d = drifted(); for i in screens.indices { screens[i].sim.settings = d } }
+        refreshFronts()   // the fronts carry slider values: a moved slider (or drift off) must reach them at once
         needsDraw = true; wake()
     }
 
@@ -71,7 +93,7 @@ final class AetherHost {
             var t = AetherTuning(); t.maxCatchUp = 32   // a 2 fps frame is 15 steps; the sim still holds anything beyond 1 s
             let seed = UInt64(Date().timeIntervalSince1970 * 1000) ^ UInt64(k + 1) &* 0x9E37_79B9_7F4A_7C15
             let sim = AetherSim(bounds: AetherRect(x: 0, y: 0, width: s.frame.width, height: s.frame.height),
-                                settings: settings, seed: seed, tuning: t, obstacles: obs)
+                                settings: drifted(), seed: seed, tuning: t, obstacles: obs)
             return Screen(screen: s, window: w, sim: sim, last: obs)
         }
         log("aether: \(screens.count) screen(s), \(screens.map { $0.sim.population }) points, motion \(settings.motion.rawValue)")
@@ -129,16 +151,65 @@ final class AetherHost {
             readGeometry(sweep: reconcile ? 0 : interval)
             nextGeom = now + interval; reconcile = false
         }
+        stepDrift(dt, now)
         let sp = sprites()
+        defer { reportCurrents(now) }
         var next: Double? = nil
         for i in screens.indices {
             let o = cgFrame(screens[i].screen).origin
-            screens[i].sim.setSprites(sp.map { AetherSprite(pos: SIMD2(Double($0.0.x - o.x), Double($0.0.y - o.y)), radius: Double($0.1), id: $0.2) })
+            screens[i].sim.setSprites(sp.map { AetherSprite(pos: SIMD2(Double($0.pos.x - o.x), Double($0.pos.y - o.y)), radius: Double($0.r), id: $0.id,
+                                                            species: $0.species, key: $0.key) })
             screens[i].sim.advance(by: dt, typing: typing)
             if let f = screens[i].sim.frameInterval(capFps: cap) { next = min(next ?? f, f) }
         }
         if next != nil || needsDraw { drawAll(); needsDraw = false }
         schedule(min(next ?? .infinity, max(0.005, nextGeom - now)))
+    }
+
+    /// SPRITES_DEBUG_AETHER=1: one QA line per screen every 5 s (dew, knots, fronts, frame rate, currents).
+    private let debug = ProcessInfo.processInfo.environment["SPRITES_DEBUG_AETHER"] == "1"
+    private var lastDebug = -Double.infinity
+    private func reportCurrents(_ now: Double) {
+        if debug && now - lastDebug >= 5 { lastDebug = now; for (k, s) in screens.enumerated() { log("aether[\(k)]: \(s.sim.debugLine)") } }
+        guard now - lastCurrents >= 2, let cb = onCurrents else { return }
+        lastCurrents = now
+        guard settings.wakeReader > 0 else { if sentCurrents { cb(0, [:]); sentCurrents = false }; return }
+        var all: [String: (Double, Double)] = [:]
+        for s in screens { for (id, v) in s.sim.leftoverCurrents() { all[id] = (v.x, v.y) } }
+        cb(settings.wakeReader, all); sentCurrents = true
+    }
+
+    // MARK: drifting constants
+
+    /// The settings the sims run: the owner's sliders moved along the drift walk (the sliders are the centre).
+    private func drifted() -> AetherSettings {
+        aetherDrifted(settings, seed: Self.driftSeed, phase: drift.phase, amplitude: drift.amplitude)
+    }
+
+    /// Advance the walk with the presentation clock (a still, held gas does not tick, and so does not drift: nothing
+    /// would show it) and hand every sim the drifted constants. Once a second, report them to Settings.
+    private func stepDrift(_ dt: Double, _ now: Double) {
+        guard settings.drift != .off || drift.amplitude > 0 else { return }
+        drift.advance(dt, mode: settings.drift, periodMinutes: settings.driftPeriodMinutes)
+        let d = drifted()
+        for i in screens.indices { screens[i].sim.settings = d }
+        guard now - lastDriftReport >= 1 else { return }
+        lastDriftReport = now
+        refreshFronts()   // once a second: the borders move over an hour
+        guard let cb = onDrift else { return }
+        var out: [String: Double] = ["amplitude": drift.amplitude]
+        for k in aetherDriftKeys { out[k.name] = d[keyPath: k.path] }
+        cb(out)
+    }
+
+    /// Weather fronts (owner card 2026-11-08 18:30 PST): each region's own drift phase, or nil (drift off, fronts 0).
+    private func refreshFronts() {
+        let minutes = Date().timeIntervalSince1970 / 60
+        for i in screens.indices {
+            let sim = screens[i].sim
+            sim.setFronts(aetherFronts(settings, seed: Self.driftSeed, phase: drift.phase, amplitude: drift.amplitude, minutes: minutes,
+                                       bounds: sim.bounds, cell: sim.tuning.coarseCell))
+        }
     }
 
     // MARK: geometry

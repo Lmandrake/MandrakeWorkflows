@@ -74,7 +74,8 @@ final class WeakHandler: NSObject, WKScriptMessageHandler {
     }
 }
 
-struct Hit { let id: String; let pid: pid_t; let project: String; let x, y, r: CGFloat }
+/// concept (the species) and key (the project key) ride along for the Aether's species wakes and handedness only.
+struct Hit { let id: String; let pid: pid_t; let project: String; let x, y, r: CGFloat; var concept = "", key = "" }
 
 /// One transparent, click-through panel covering one NSScreen, running stage.html's script natively (JavaScriptCore +
 /// Metal, Native.swift; docs/NATIVE_PORT.md). The WKWebView renderer was removed at the swap (2026-11-01, owner's
@@ -212,7 +213,8 @@ final class Stage: NSObject {
             hits = hs.compactMap { h in
                 guard let x = num(h["x"]), let y = num(h["y"]), let r = num(h["r"]) else { return nil }
                 return Hit(id: "\(h["id"] ?? "")", pid: pid_t(num(h["pid"]) ?? 0),
-                           project: h["project"] as? String ?? "", x: x, y: y, r: r)
+                           project: h["project"] as? String ?? "", x: x, y: y, r: r,
+                           concept: h["concept"] as? String ?? "", key: h["key"] as? String ?? "")
             }
             if debugClicks {
                 log("hits world(\(Int(span.size.width))x\(Int(span.size.height))): " + hits.map {

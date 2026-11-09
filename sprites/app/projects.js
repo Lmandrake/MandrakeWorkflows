@@ -77,6 +77,47 @@
       if (hit) { const e = at.get(hit.key); if (e.alias && !(focus && !e.focus)) continue;   // first row wins; a focus row beats a non-focus one
         Object.assign(e, { alias, hex, focus }); }
       else out.push({ key: null, name: alias, dir, alias, hex, focus }); }
+    return mergeLocal(out, o.local, o.hasWaypoint !== false); }
+
+  /** The host's local projects file (Config.swift Paths.projects: {"<key>": {focus, hex, name, dir}}) over the table
+   * (owner, 2026-11-08: "with a click could become Focused and thus retained"). Without Waypoint it is the only source of
+   * focus and colour; with Waypoint it fills in only for projects Waypoint cannot hold, those with no launch alias (a
+   * registry project with no launch row, or an active sprite in a directory the registry does not know, which gets an
+   * entry of its own). Keyless table rows and alias rows under Waypoint are untouched. */
+  function mergeLocal(table, local, hasWaypoint) {
+    if (!local || typeof local !== "object") return table;
+    const seen = new Set();
+    for (const e of table) { if (!e.key) continue; seen.add(e.key);
+      const l = own(local, e.key) && local[e.key] && typeof local[e.key] === "object" ? local[e.key] : null;
+      if (hasWaypoint && e.alias) continue;
+      if (!hasWaypoint) e.focus = !!(l && l.focus === true);
+      else if (l && typeof l.focus === "boolean") e.focus = l.focus;
+      if (l && /^#[0-9a-f]{6}$/i.test(l.hex || "")) e.hex = l.hex.toUpperCase(); }
+    for (const k of Object.keys(local)) { const l = local[k]; if (seen.has(k) || !l || l.focus !== true || !KEY_RE.test(k)) continue;
+      table.push({ key: k, name: clean(l.name) || k, dir: clean(l.dir) || null, alias: null,
+        hex: /^#[0-9a-f]{6}$/i.test(l.hex || "") ? l.hex.toUpperCase() : null, focus: true, local: true }); }
+    return table; }
+
+  /** What is on the stage now, from an Augur snapshot, by the stage's own rules (app/stage.html adaptState): one entry per
+   * project key, sessions first (a headless child is its parent's satellite, not a sprite), then ghosts (burning, no
+   * session). state: "needs" | "working" | "idle" | "ghost"; white = an unmanaged session (a dir with no registry row).
+   * Visibility is NOT applied: a hidden project is still active, and Settings lists it under Hidden. */
+  function active(snap, nowSec) {
+    if (!snap || typeof snap !== "object" || !Array.isArray(snap.sessions) || snap.schema !== "augur.snapshot" ||
+        String(snap.version ?? "").split(".")[0] !== "1" || snap.off === true) return [];
+    const ids = new Set(), out = [], at = new Map();
+    for (const x of snap.sessions) if (x && x.id != null) ids.add(String(x.id));
+    const rank = { needs: 3, working: 2, idle: 1 };
+    for (const x of snap.sessions) { if (!x || x.id == null || (x.parent != null && ids.has(String(x.parent)))) continue;
+      const key = x.project_key ? String(x.project_key) : keyOf(x.project), a = x.attention && x.attention.state;
+      const state = a === "needs_you" ? "needs" : a === "working" ? "working" : "idle", white = x.managed === false;
+      const e = at.get(key);
+      if (!e) { const n = { key, id: String(x.id), name: String(x.project || key), state, white, sessions: 1 }; at.set(key, n); out.push(n); }
+      else { e.sessions++; if (rank[state] > rank[e.state]) e.state = state; if (!white) e.white = false; } }
+    const now = nowSec ?? Date.now() / 1000;   // a ghost needs fresh counts, as the stage's blk() does
+    for (const p of Array.isArray(snap.projects) ? snap.projects : []) { const c = p && p.counts;
+      if (!p || !p.key || at.has(String(p.key)) || !c || !(c.burning > 0) || !(c.valid_until >= now)) continue;
+      const n = { key: String(p.key), name: String(p.name || p.key), state: "ghost", white: false, sessions: 0 }; at.set(n.key, n); out.push(n); }
     return out; }
 
   // ---------- lookups (stage and Settings) ----------
@@ -102,6 +143,24 @@
     items.forEach(i => { out[i.k] = SN.display(own(r, i.p.name) ? r[i.p.name] : i.p.name); });
     return out; }
 
-  const api = { build, index, castEntry, shortTable, keyOf, tables, registryRows, forMachine };
+  /** Settings' row set (owner, 2026-11-08: "Focus, Untracked, or Hidden (don't show again)"). tracking: "hidden" when the
+   * cast says visibility "hide" (wins), "focus" when the entry is focused, else "untracked". Rows: every focus entry (in
+   * table order; without Waypoint every keyed entry, as before), every active project (snapshot order), every hidden cast
+   * key; an Untracked row is listed only while active. Focus and Untracked first, then Hidden. Each row:
+   * {key, entry (the table's, or null), live (the active() entry, or null), tracking}. */
+  function tracking(cast, key, entry) { const c = castEntry(cast, key, entry || { name: key }) || {};
+    return c.visibility === "hide" ? "hidden" : entry && entry.focus ? "focus" : "untracked"; }
+  function settingsRows(table, cast, act, hasWaypoint) {
+    const by = index(table), live = new Map((act || []).map(a => [a.key, a])), keys = [], seen = new Set();
+    const add = k => { if (k && !seen.has(k)) { seen.add(k); keys.push(k); } };
+    for (const e of Array.isArray(table) ? table : []) if (e && e.key && (hasWaypoint === false || e.focus)) add(e.key);
+    for (const k of live.keys()) add(k);
+    const P = cast && cast.projects && typeof cast.projects === "object" ? cast.projects : {};
+    for (const k of Object.keys(P)) if (P[k] && P[k].visibility === "hide" && KEY_RE.test(k)) add(k);
+    const rows = keys.map(k => { const e = by.get(k) || null; return { key: k, entry: e, live: live.get(k) || null, tracking: tracking(cast, k, e) }; })
+      .filter(r => r.tracking !== "untracked" || r.live || hasWaypoint === false && r.entry);
+    return rows.filter(r => r.tracking !== "hidden").concat(rows.filter(r => r.tracking === "hidden")); }
+
+  const api = { build, mergeLocal, active, tracking, settingsRows, index, castEntry, shortTable, keyOf, tables, registryRows, forMachine };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.SpritesProjects = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);

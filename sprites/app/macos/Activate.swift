@@ -234,7 +234,7 @@ final class ProjectTable {
     private var lodestar: String { let v = env["AUGUR_LODESTAR"] ?? ""; return v.isEmpty ? Paths.home + "/dev/Lodestar" : v }
     private var files: [String] {
         [lodestar + "/sync/registry.md", lodestar + "/machines.md", Paths.home + "/.config/waypoint/waypoints.md", Paths.launches,
-         Paths.sprites.appendingPathComponent("app/projects.js").path]
+         Paths.sprites.appendingPathComponent("app/projects.js").path, Paths.projects]
     }
     /// (table, its JSON) for this machine; [] when the files or the module are missing.
     func current() -> ([[String: Any]], String) {
@@ -252,7 +252,9 @@ final class ProjectTable {
         let wm = (env["WAYPOINT_MACHINE"] ?? "").isEmpty ? (host.hasSuffix(".local") ? String(host.dropLast(6)) : host) : env["WAYPOINT_MACHINE"]!.lowercased()
         let lm = (env["LODESTAR_MACHINE"] ?? "").isEmpty ? String(host.split(separator: ".").first ?? "") : env["LODESTAR_MACHINE"]!.lowercased()
         let args: [String: Any] = ["registry": rd(files[0]), "machines": rd(files[1]), "waypoints": rd(files[2]), "launches": rd(files[3]),
-                                   "home": Paths.home, "machine": wm, "lodestarMachine": lm]
+                                   "home": Paths.home, "machine": wm, "lodestarMachine": lm,
+                                   // the local projects file: focus and colour for what Waypoint cannot hold (owner, 2026-11-08)
+                                   "local": loadLocalProjects(), "hasWaypoint": waypointCLIPath() != nil]
         guard let ctx = JSContext() else { return (table, json) }
         ctx.exceptionHandler = { _, e in log("projects.js: \(e?.toString() ?? "?")") }
         ctx.evaluateScript(rd(files[4]))

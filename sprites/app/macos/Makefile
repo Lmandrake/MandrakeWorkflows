@@ -1,7 +1,7 @@
 # Sprites v1 native host. The binary and bundle are derived (build/, never committed).
 # `make install` -> ~/Applications/Sprites.app; `make install-agent` loads the LaunchAgent (owner's call).
 SWIFTC  ?= /usr/bin/swiftc
-SOURCES := Config.swift Decide.swift Aether.swift AetherHost.swift Native.swift CGCanvas.swift Stage.swift Focus.swift Activate.swift Settings.swift Backdrop.swift App.swift
+SOURCES := Config.swift Decide.swift Aether.swift AetherReserve.swift AetherStep.swift AetherWakes.swift AetherSettings.swift AetherHost.swift Native.swift CGCanvas.swift Stage.swift Focus.swift Activate.swift Settings.swift Backdrop.swift App.swift
 BUILD   ?= build
 APP     := $(BUILD)/Sprites.app
 DEST    := $(HOME)/Applications/Sprites.app
@@ -35,9 +35,11 @@ endef
 .PHONY: all app install install-agent uninstall-agent clean signing-identity
 all: app
 
+# RISK: -enforce-exclusivity=unchecked removes runtime detection of real exclusivity violations (overlapping
+# access to the same variable), so it can hide real bugs; the test suite must also be run once without the flag.
 $(BUILD)/Sprites: $(SOURCES)
 	@mkdir -p $(BUILD)
-	$(SWIFTC) -O -swift-version 5 -parse-as-library -target arm64-apple-macos13.0 \
+	$(SWIFTC) -O -enforce-exclusivity=unchecked -swift-version 5 -parse-as-library -target arm64-apple-macos13.0 \
 	    -framework AppKit -framework WebKit -framework Carbon -framework Metal -framework QuartzCore -framework JavaScriptCore $(SOURCES) -o $@
 
 app: $(BUILD)/Sprites Info.plist Sprites.entitlements

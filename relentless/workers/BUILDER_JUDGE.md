@@ -39,6 +39,14 @@ both pass together. So (RimMandrake `RELENTLESS_BUILD_EXAM_BEFORE_BUILDER`, rede
   and run at every candidate a Marker returned to count the returns it would have caught. Shadow ends at 30 items with
   a Marker verdict, a sample count, not a date.
 
+## Reuse first (owner's ruling, 2026-11-08)
+
+Before Build starts a new system, a new art set, or a second big rewrite of either, it spends 15-30 minutes on what
+already does it: the platform and its extensions, the project's own code, and proven open-source work. It writes one
+line in its current state: what it needs, the closest existing thing, and used / adapted / rejected because. The same
+rule binds Artisan loops; there, eight redraws of one texture came before a single question found the platform's own
+version of it.
+
 ## Memory between generations
 
 Each Build generation starts in a fresh context, so what it needs must be on disk. Owner, 2026-11-01: *"How might we

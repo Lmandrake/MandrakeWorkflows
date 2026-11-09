@@ -36,6 +36,7 @@
  *   update(snapshot|null) setCast(json) setProjects(table) setBehaviors({key:bool}) setDemo(bool) setPaused(bool)
  *   setCursor({x,y}|null) setFocus({x,y,w,h}|null) setActivity({typing,idleSec}) setWindows([{x,y,w,h,pid,sessionPid?}])
  *   setSize(w,h) setScale(0.5..2) setVisible({x,y,w,h}|null) (the screen's visible frame, stage px)
+ *   setCurrents(k, {id:[vx,vy]}) (the Aether's wake reader: each sprite's leftover current, k its strength)
  * and receives, through webkit.messageHandlers.sprites: {hits:[{id,x,y,r,project,pid}]} (~10 Hz) and
  * {click:{id,pid,project,key,ghost}}. Projects are keyed by Augur's project_key everywhere (app/projects.js: the cast,
  * the hue, the short name and the ghost launch); setProjects hands in the host's table (SpritesProjects.build).
@@ -150,6 +151,7 @@
     const atWork = vpn && typeof vpn.on_site === "boolean" ? vpn.on_site : lastOnSite;
     const hiddenKey = key => { const e = pindex.get(key), c = SP && SP.castEntry(cast, key, e || { name: key }), v = c && c.visibility;
       return v === "hide" || (v === "hide_at_work" && atWork); };
+    const castKept = key => { const e = pindex.get(key), c = e && e.focus === true && SP && SP.castEntry(cast, key, e); return !!(c && SPECIES.includes(c.concept)); };
     const sessions = [], s = Object.create(null), oldest = Object.create(null);
     // Headless children (Augur 1.2: a `claude -p` run with `parent`) are satellites of the parent creature, never creatures
     // of their own (owner, 2026-11-04). Each satellite carries its cpu_cores (`cpu`, unset when unmeasured) so the runtime
@@ -163,8 +165,12 @@
     for (const x of snap.sessions) { if (!x || x.id == null) continue;
       if (x.parent != null && ids.has(String(x.parent))) continue;          // drawn as its parent's satellite
       const orphan = x.parent != null;                                       // parent not in the snapshot: white, as before 1.2
-      const id = String(x.id), white = x.managed === false || orphan, key = x.project_key ? String(x.project_key) : keyOf(x.project);
-      if (!white && hiddenKey(key)) continue;
+      const key = x.project_key ? String(x.project_key) : keyOf(x.project);
+      // Hidden ("don't show again", owner 2026-11-08) holds for an unmanaged session's dir too; an unmanaged session
+      // whose key was focused in Settings (a cast with a species) keeps that cast instead of drawing white and random.
+      if (hiddenKey(key)) continue;
+      const kept = !orphan && x.managed === false && castKept(key);
+      const id = String(x.id), white = (x.managed === false || orphan) && !kept;
       const name = white ? String(x.project || key) : nameOf(key, x.project ? String(x.project) : key);
       const k = castFor(key, white ? id : key, white, name);   // a project's sprites keep the project's cast: same form for each session
       sessions.push({ id, pid: x.pid | 0, project: name, key, name, label: name, white, ghost: false,
@@ -448,7 +454,7 @@
   const host = () => window.webkit && webkit.messageHandlers && webkit.messageHandlers.sprites;
   function allHits() { const out = [];
     for (const c in hitsBy) for (const h of hitsBy[c] || []) { const x = model.sessions.find(z => z.id === h.id); if (!x) continue;   // ghosts are clickable: they open a session
-      out.push({ id: h.id, x: h.x, y: h.y, r: h.r, ix: h.ix, px: h.px, py: h.py, project: x.project, key: x.key, ghost: !!x.ghost, pid: x.pid }); }
+      out.push({ id: h.id, x: h.x, y: h.y, r: h.r, ix: h.ix, px: h.px, py: h.py, project: x.project, key: x.key, concept: c, ghost: !!x.ghost, pid: x.pid }); }
     return out; }
   // The host captures the mouse over every posted hit, so post none when every click would be ignored (demo, or a snapshot
   // past valid_until): a disc that eats a click and does nothing breaks "no behaviour may block a click" (R3-SPEC #1, #2).
@@ -496,6 +502,9 @@
     setWindows(ws) { windows = Array.isArray(ws) ? ws : []; sendAll({ windows }); },
     setSize(w, h) { w = Math.round(w); h = Math.round(h); if (w === W && h === H && Object.keys(layers).length) return; W = w; H = h; rebuildLayers(); },
     setScale(s) { scale = clamp(+s || 1, 0.5, 2); sendAll({ scale }); },
+    // Aether wake reader (owner card 2026-11-08 18:30 PST): k = the reader's strength (0 off), map = sprite id -> its
+    // leftover current [vx, vy] (px/s) from OTHER sprites' wakes. The runtime nudges an idle sprite along it, rarely.
+    setCurrents(k, map) { sendAll({ currents: { k: fin(k) ? clamp(k, 0, 1) : 0, map: map && typeof map === "object" ? map : {} } }); },
   };
   window.__stage = { adaptState, unknownWords, vpnDebounce, linkDebounce, resetVpn: () => { vpnShown = "ok"; lostSince = null; riskSince = null; lastOnSite = false; }, get model() { return model; }, get layers() { return layers; }, allHits, clickHits, demoState,
     V: c => layers[c] && layers[c].V, canvas: cv, renderAt, get fps() { return FPS; } };

@@ -27,9 +27,13 @@ final class Backdrop {
     /// The Aether (AetherHost.swift): while on, it replaces the moving backdrop in the same black windows.
     private var aether: AetherHost?
     /// CG-global sprite circles for the Aether's field (the app reads the stage's hits).
-    var aetherSprites: () -> [(CGPoint, CGFloat, String)] = { [] }
+    var aetherSprites: () -> [AetherHit] = { [] }
     func aetherStir() { aether?.stir() }
+    /// The Aether's drifted constants, about once a second while drift is on (Settings shows them beside the sliders).
+    var aetherDrift: (([String: Double]) -> Void)? { didSet { aether?.onDrift = aetherDrift } }
     var aetherOn: Bool { aether != nil }
+    /// Wake reader: the strength and each sprite's leftover current, about every 2 s while the Aether runs.
+    var aetherCurrents: ((Double, [String: (Double, Double)]) -> Void)? { didSet { aether?.onCurrents = aetherCurrents } }
     private let device = MTLCreateSystemDefaultDevice()
     private var pipeline: MTLRenderPipelineState?, pipelineSrc = ""
     private lazy var queue = device?.makeCommandQueue()
@@ -92,6 +96,7 @@ final class Backdrop {
         if aether == nil {
             guard let device else { log("aether: no Metal device"); return }
             let h = AetherHost(device: device, owner: self); h.sprites = { [weak self] in self?.aetherSprites() ?? [] }
+            h.onDrift = aetherDrift; h.onCurrents = aetherCurrents
             aether = h
         }
         aether?.paused = locked || asleep || hidden
@@ -101,6 +106,7 @@ final class Backdrop {
     private func stopAether() {
         guard let h = aether else { return }
         h.stop(); aether = nil; lastKey = ""
+        aetherCurrents?(0, [:])   // the stage's wake reader stops with the Aether
     }
 
     private func spaceChanged() {

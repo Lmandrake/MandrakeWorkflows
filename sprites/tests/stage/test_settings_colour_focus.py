@@ -7,8 +7,7 @@ launches.md Focus column through the host. Both post to the host when Waypoint i
 ({setProjectColour} / {setProjectFocus}, answered by SpritesSettings.writeResult) and fall back to the
 browser's own store when there is no bridge, as Demo Mode does.
 
-A project with no launch alias cannot be coloured or focused with Waypoint present: the controls are
-disabled and the window SAYS why rather than silently doing nothing.
+A project with no launch alias is coloured and focused through the host's local projects file (owner, 2026-11-08).
 
 A stub webkit.messageHandlers records posts and answers them. One headless Chromium. Exit 0 = pass."""
 import json
@@ -92,17 +91,18 @@ with sync_playwright() as pw:
           "a refused focus write reverts the toggle and reports the reason")
     pg.evaluate("window.__fail = null")
 
-    # ---- a project with no launch alias: disabled, and it says why (never a silent no-op)
+    # ---- a project with no launch alias (owner, 2026-11-08): enabled; the write goes to the host, which keeps it in its
+    #      local projects file (Config.swift setProjectFocus / setProjectColour), never a silent no-op
     rows = pg.evaluate("[...document.querySelectorAll('#projects li .nm')].map(e => e.textContent)")
     if "Hestia" in rows:
         pg.click(f"#projects li:nth-child({rows.index('Hestia') + 1})"); pg.wait_for_timeout(250)
         pg.evaluate("window.__posts.length = 0")
-        state = pg.evaluate("[document.getElementById('clr').disabled, document.getElementById(\"focusSeg\").children[0].disabled, document.getElementById('focusWhy').textContent]")
-        check(state[0] and state[1], f"a project with no launch alias has both controls disabled: {state[:2]}")
-        check("cannot be a focus project" in state[2], f"and the window says why: {state[2]!r}")
-        pg.evaluate("document.getElementById('focusSeg').children[0].click(); const c = document.getElementById('clr'); c.value='#111111'; c.dispatchEvent(new Event('input'))")
-        pg.wait_for_timeout(300)
-        check(pg.evaluate("window.__posts.length") == 0, "and nothing is posted for it")
+        state = pg.evaluate("[document.getElementById('clr').disabled, document.getElementById('focusSeg').children[0].disabled]")
+        check(not state[0] and not state[1], f"a project with no launch alias has both controls enabled: {state}")
+        pg.evaluate("document.getElementById('focusSeg').children[1].click()"); pg.wait_for_timeout(300)
+        f = [p["setProjectFocus"] for p in pg.evaluate("window.__posts") if "setProjectFocus" in p]
+        check(len(f) == 1 and f[0]["focus"] is False and f[0]["key"] == "hestia" and f[0]["alias"] == "",
+              f"Untracked posts setProjectFocus false by key, with no alias: {f}")
     else:
         check(False, f"Hestia listed: {rows}")
 

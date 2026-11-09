@@ -386,5 +386,24 @@ do {
     }
 }
 
+// Owner, 2026-11-08: "when I pick a new color, then try to adjust its darkness, it reverts back to the previous color".
+// A colour write whose handler SUCCEEDS (nil) must answer nil, not "no handler" (the page reverts the picker on any error).
+do {
+    let w = SettingsWindow()
+    var got: [String] = []
+    w.onSetProjectColour = { k, a, h in got.append("\(k)|\(a)|\(h)"); return nil }
+    w.onSetProjectFocus = { k, a, on, n, d in got.append("\(k)|\(a)|\(on)|\(n)|\(d)"); return nil }
+    let ok = w.projectWrite("setProjectColour", ["id": "w1", "key": "ember28", "alias": "Ember28", "hex": "#801A00"])?()
+    check(ok == nil, "COLOUR-REVERT a colour write that lands answers no error (got \(ok ?? "nil"))")
+    let okf = w.projectWrite("setProjectFocus", ["id": "w2", "key": "ember28", "alias": "Ember28", "focus": true])?()
+    check(okf == nil, "COLOUR-REVERT a focus write that lands answers no error (got \(okf ?? "nil"))")
+    check(got == ["ember28|Ember28|#801A00", "ember28|Ember28|true||"], "COLOUR-REVERT the handlers get the key, alias and value (\(got))")
+    w.onSetProjectColour = { _, _, _ in "disk full" }
+    check(w.projectWrite("setProjectColour", ["key": "k", "hex": "#000000"])?() == "disk full", "COLOUR-REVERT a failing write passes its message through")
+    w.onSetProjectColour = nil
+    check(w.projectWrite("setProjectColour", ["key": "k", "hex": "#000000"])?() == "no handler", "COLOUR-REVERT no handler says so")
+    w.window.close()
+}
+
 print("\(passed) passed, \(failed) failed")
 exit(failed == 0 ? 0 : 1)
