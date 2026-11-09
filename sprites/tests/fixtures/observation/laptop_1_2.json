@@ -1,0 +1,58 @@
+{
+ "schema": "augur.snapshot",
+ "version": "1.2",
+ "producer": {
+  "name": "augur",
+  "rev": "0000000",
+  "pid": 3373,
+  "platform": "darwin",
+  "machine": "mt-AAAAAA",
+  "started_at": 1794152800.0
+ },
+ "written_at": 1794160000.0,
+ "valid_until": 1794160010.0,
+ "seq": 74000,
+ "cadence_s": {
+  "fast": 2,
+  "agents": 5,
+  "probes": 15,
+  "counts": 60
+ },
+ "machine": {
+  "vpn": {
+   "observed_at": 1794159999.0,
+   "valid_until": 1794160004.0,
+   "state": "up",
+   "on_site": true
+  }
+ },
+ "sessions_at": {
+  "observed_at": 1794159998.0,
+  "valid_until": 1794160010.5
+ },
+ "projects": [
+  {
+   "key": "lodestar",
+   "name": "Lodestar",
+   "kind": "lodestar",
+   "sessions": 0
+  }
+ ],
+ "sessions": [
+  {
+   "id": "19778@1794098220",
+   "pid": 19778,
+   "started_at": 1794098220.0,
+   "project": "Orchard_Mandrake",
+   "project_key": "orchard-mandrake",
+   "managed": true,
+   "load": {
+    "observed_at": 1794159998.0,
+    "valid_until": 1794160010.5,
+    "cpu_cores": 0.1,
+    "mem_gb": 0.3,
+    "procs": 2
+   }
+  }
+ ]
+}

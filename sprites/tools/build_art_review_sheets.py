@@ -41,7 +41,7 @@ NIGHT_OLD = ("OLD:prototype/c6_night.html", None, "Night Signals 9x9 (before vec
 NIGHT_C2 = ("prototype/experiments/resolution/armC_edge.html", None, "Night Signals vector prototype (round-2 arm C2)")
 
 METRICS = {}
-
+import sys as _sys; from pathlib import Path as _P; _sys.path.insert(0, str(_P(__file__).resolve().parents[1] / "tests/tools")); import load_rule  # owner rule: renders are load
 
 def M(state="working", cpu=0.9, mem=0.8, procs=4, rx=0.0, tx=0.0, level=0.0, thermal=0.0, mempress=0.0,
       strain=0.0, hue=HUE, iv=0, vpn="up"):
@@ -488,6 +488,7 @@ def headroom(b, port):
 
 
 def main():
+    load_rule.require()   # only on on-site network without the VPN; unknown = refuse
     ap = argparse.ArgumentParser(); ap.add_argument("--only", default="01a,01b,01c,02,03,04,05"); a = ap.parse_args()
     global OLDPORT
     want = set(a.only.split(",")); port = bsc.serve(); OLDPORT = serve_old()

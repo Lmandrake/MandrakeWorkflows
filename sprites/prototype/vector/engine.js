@@ -39,6 +39,13 @@
 "use strict";
 root.SpritesVectorEngine = function (V, GLYPHS, OPT) {
   const TAU = Math.PI * 2, LOD_E = 90;
+  // legibility knobs (owner, 2026-11-08: CPU swirl and bandwidth beads nearly invisible on thin lines)
+  const LW_DIV = 60, LW_MIN = 1.4, LW_MAX = 2.5;             // outline width = clamp(E/LW_DIV, LW_MIN, LW_MAX)
+  const BEAD_MIN = 1.6, BEAD_K = 0.04, BEAD_HALO_A = 0.5;    // bead radius = max(BEAD_MIN, E*BEAD_K); halo alpha
+  const BAND_BIG_FLOOR = 0.4, BAND_ALPHA = 0.6, BAND_W = 3;  // CPU soft band: drawn at every size
+  const BASE_DIM_CPU = 0.25;                                 // base outline dims by this x cpuOn while the sweep runs
+  const CPU_SAT = 0.6;                                       // cores at which the sweep is fully on
+  const SPIN_FLOOR = 0.15, CPU_SPIN_MIN = 0.01;              // turns/s floor, only for a live, measured, non-zero CPU
   const clamp = (x, a, b) => x < a ? a : x > b ? b : x;
   const lerp = (a, b, f) => a + (b - a) * f;
   let G = null;
@@ -197,7 +204,8 @@ root.SpritesVectorEngine = function (V, GLYPHS, OPT) {
         s.flare = Math.max(0, s.flare - dt / 0.9);
         s.heatSm += (heat - s.heatSm) * Math.min(1, dt * 2);
         s.E += (extentOf(s.mem) - s.E) * Math.min(1, dt * 2.5);
-        s.spin += dt * TAU * 0.85 * s.cpu;
+        const cpuMeasured = Number.isFinite(s.cpu) && s.cpu >= CPU_SPIN_MIN && !s.ghost;   // unknown or measured-zero stays still
+        s.spin += dt * TAU * (cpuMeasured ? Math.max(0.85 * s.cpu, SPIN_FLOOR) : 0.85 * (s.cpu || 0));
         // ---- bandwidth: beads inside the glyph. rx = rim -> core (cool), tx = core -> rim (gold); jam at the rim ----
         s.rx = d.rx || 0; s.tx = d.tx || 0;
         const moving = clamp(Math.log10(1 + s.rx + s.tx) / 0.8, 0, 1), bwT = (S.net.strain || 0) * moving * (1 - G.vpnAmt);
@@ -334,7 +342,7 @@ root.SpritesVectorEngine = function (V, GLYPHS, OPT) {
   }
   // the dot body: interior at the body tone, edge dots a touch brighter (the samples' "hard dots, no halo")
   function dotsBody(ctx, s, E, sat, light, B, flowDim, heat, slip, t) {
-    const g = (1 - 0.65 * heat) * (1 - 0.4 * clamp(s.cpu / 0.35, 0, 1)) * flowDim;
+    const g = (1 - 0.65 * heat) * (1 - BASE_DIM_CPU * clamp(s.cpu / CPU_SAT, 0, 1)) * flowDim;
     ctx.globalAlpha = clamp((0.55 + 0.35 * B) * g, 0, 1); dotsPass(ctx, s, E, 0, 0, 0, slip, t, s.hue, sat, Math.min(80, light));
     ctx.globalAlpha = clamp((0.7 + 0.3 * B) * g, 0, 1); dotsPass(ctx, s, E, 0, 1, 0, slip, t, s.hue, sat * 0.9, Math.min(90, light + 22));
   }
@@ -361,13 +369,13 @@ root.SpritesVectorEngine = function (V, GLYPHS, OPT) {
     if (strained) ctx.transform(1, 0, (V.vnoise(s.hue, t * 2.2) - 0.5) * 0.5 * heat * heat, 1, 0, 0);   // the figure shears
     const slip = strained ? E * 0.06 * heat * heat * (1 + 0.25 * (S.m.thermal || 0)) : 0;               // and its loops slip apart
     // 1. the outline: a hairline, ~1/90 of the extent, 1..2 CSS px (Choir's rings are 1-1.4)
-    const lw = clamp(E / 90, 1, 2);
+    const lw = clamp(E / LW_DIV, LW_MIN, LW_MAX);
     ctx.lineJoin = "round"; ctx.lineCap = "round";
     const flowDim = 1 - 0.25 * clamp(s.pulses.length / 6, 0, 1);
-    const cpuOn = clamp(s.cpu / 0.35, 0, 1);
+    const cpuOn = clamp(s.cpu / CPU_SAT, 0, 1);
     // the base outline steps down while the CPU sweep runs, so the lit wedge reads as light moving round the figure;
     // strain: the hue gives way to ember
-    ctx.globalAlpha = clamp((0.62 + 0.38 * B) * flowDim * (1 - 0.65 * heat) * (1 - 0.4 * cpuOn), 0, 1);
+    ctx.globalAlpha = clamp((0.62 + 0.38 * B) * flowDim * (1 - 0.65 * heat) * (1 - BASE_DIM_CPU * cpuOn), 0, 1);
     ctx.strokeStyle = V.hsl(s.hue, sat * 0.9, Math.min(90, light + 18), 1); ctx.lineWidth = lw;
     if (DOTS) dotsBody(ctx, s, E, sat, light, B, flowDim, heat, slip, t);
     else { outlinePath(ctx, lv, R, slip, t, s.hue); ctx.stroke(); }
@@ -378,12 +386,12 @@ root.SpritesVectorEngine = function (V, GLYPHS, OPT) {
     if (cpuOn > 0.01) {                                  // follows the slipped loops under strain, like the outline
       // a soft wide band round a bright core; below ~40 px the band would fill the gaps between strokes (measured:
       // TARDIS and Fuji smeared at 23 px), so it fades out and the core narrows to the outline's own width
-      const big = clamp((E - 30) / 40, 0, 1);
+      const big = clamp((E - 30) / 40, 0, 1), bandBig = Math.max(big, BAND_BIG_FLOOR);
       if (DOTS) { ctx.globalAlpha = clamp(lerp(0.75, 1.0, big) * cpuOn * B, 0, 1);
         dotsPass(ctx, s, E, s.spin, 2, lerp(0.5, 0.35, big), slip, t, s.hue, sat * 0.3, 96); }
       else {
-      if (big > 0.02) { ctx.strokeStyle = V.hsl(s.hue, sat * 0.7, 72, 1); ctx.lineWidth = lw * 2.4;
-        if (sweepPath(ctx, lv, R, s.spin, 0.08, slip, t, s.hue)) { ctx.globalAlpha = clamp(0.35 * cpuOn * B * P.glow * big, 0, 1); ctx.stroke(); } }
+      { ctx.strokeStyle = V.hsl(s.hue, sat * 0.7, 72, 1); ctx.lineWidth = lw * BAND_W;
+        if (sweepPath(ctx, lv, R, s.spin, 0.08, slip, t, s.hue)) { ctx.globalAlpha = clamp(BAND_ALPHA * cpuOn * B * P.glow * bandBig, 0, 1); ctx.stroke(); } }
       ctx.strokeStyle = V.hsl(s.hue, sat * 0.3, 96, 1); ctx.lineWidth = lw * lerp(1, 1.25, big);
       if (sweepPath(ctx, lv, R, s.spin, lerp(0.5, 0.35, big), slip, t, s.hue)) { ctx.globalAlpha = clamp(lerp(0.75, 1.0, big) * cpuOn * B, 0, 1); ctx.stroke(); } }
     }
@@ -393,12 +401,12 @@ root.SpritesVectorEngine = function (V, GLYPHS, OPT) {
       ctx.beginPath(); const l = lv.loops[0]; ctx.moveTo(l[0][0] * R, l[0][1] * R); for (let q = 1; q < l.length; q++) ctx.lineTo(l[q][0] * R, l[q][1] * R); ctx.closePath(); ctx.stroke(); }
     // 5. bandwidth beads, inside the glyph: radius = u x the glyph's own rim at that angle
     for (const p of s.pulses) {
-      const u = clamp(p.u, 0, 1), rad = u * rimAt(lv, p.a) * R * 0.94, px = Math.cos(p.a) * rad, py = Math.sin(p.a) * rad, rr = Math.max(0.9, E * 0.022);
+      const u = clamp(p.u, 0, 1), rad = u * rimAt(lv, p.a) * R * 0.94, px = Math.cos(p.a) * rad, py = Math.sin(p.a) * rad, rr = Math.max(BEAD_MIN, E * BEAD_K);
       const jam = s.bwS > 0.02 && u > 0.62 ? s.bwS * (0.5 + 0.5 * V.vnoise(p.sd, t * 12)) : 0;
       ctx.globalAlpha = clamp((0.85 * p.br * (1 - 0.4 * jam) + 0.2 * jam) * (1 - vpn), 0, 1);
       ctx.fillStyle = p.dir < 0 ? V.hsl(212, 45, 95, 1) : V.hsl(42, 95, 72, 1);
       ctx.beginPath(); ctx.arc(px, py, rr, 0, TAU); ctx.fill();
-      ctx.globalAlpha = clamp(0.25 * p.br * P.glow * (1 - vpn), 0, 1);
+      ctx.globalAlpha = clamp(BEAD_HALO_A * p.br * P.glow * (1 - vpn), 0, 1);
       ctx.drawImage(sprite(p.dir < 0 ? V.hsl(210, 55, 90, 1) : V.hsl(40, 100, 62, 1)), px - rr * 3, py - rr * 3, rr * 6, rr * 6);
     }
     ctx.restore();

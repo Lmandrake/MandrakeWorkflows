@@ -43,6 +43,14 @@ function createRuntime(q, env) {
   // permitted." The slider (0.5..2, default 1) maps to P.size = slider x LIVE_BASE, so 200% = the old live size,
   // 100% = half of it, 50% = a quarter.
   const LIVE_BASE = 0.5;
+  // Gentle separation (owner 2026-11-08: "avoid standing on top of each other gently"). Distances are in body widths (2 r);
+  // each is overridable from the query string like the other numbers here. Interacting sprites (play, greet, huddle) are exempt.
+  const SEP = { perchGap: num("sepPerchGap", 1),   // clear space wanted between two perchers when choosing a perch spot
+    tries: num("sepTries", 16),                    // candidate perch spots scored per choice
+    overlap: num("sepOverlap", 1),                 // the pull starts when centres are closer than overlap x (rA + rB)
+    rate: num("sepRate", 14),                      // drift speed of the pull, px/s (slow on purpose)
+    reach: num("sepReach", 1.5),                   // furthest a sprite is nudged from where it would otherwise be
+    ease: num("sepEase", 0.15) };                  // per second, the nudge relaxes back once nobody is near
   if (q.get("live") === "1") P.size *= LIVE_BASE;
   // Size normalisation (owner, 2026-11-07: "for the same memory configuration the stdev of the distribution of pixel
   // distance from its center is roughly equal"). ONE zoom per creature, k = SPRITES_SIZE_NORM[context][species][iv]
@@ -236,7 +244,7 @@ function createRuntime(q, env) {
   let cursor = null, cursorMovedAt = 0, cursorRestAt = 0, activity = { typing: false, idleSec: 0 }, windows = [];
   let demoMode = false, beaconOwner = false, vpnA = 0, riskA = 0;
   let liveS = null, liveFirst = true, paused = false, sizeTarget = P.size, lastHits = 0, wake = 1;
-  const born = {}, leaving = {}, lastData = {}, prevState = {}, flares = [], steerSt = {}, greets = [];
+  const peers = [], born = {}, leaving = {}, lastData = {}, prevState = {}, flares = [], steerSt = {}, greets = [];
   let lastFlare = -99;
   const CALM = { cpu: 0.05, mem: 0.6, procs: 1, state: "idle", rx: 0, tx: 0 };
   function normS(raw, sessions) {
@@ -285,7 +293,7 @@ function createRuntime(q, env) {
     if (S.net.vpn === "down" && on("vpnHuddle") && !s.ghost) return [tx, ty];   // the huddle wins over every steer
     const rk = s.ghost || !V.huddlePt ? 0 : 0.22 * riskA;   // at risk: the flock is drawn in slightly toward the beacon
     if (rk > 0.001) { tx += (V.huddlePt[0] - tx) * rk; ty += (V.huddlePt[1] - ty) * rk; }
-    const st = steerSt[id] || (steerSt[id] = { x: tx, y: ty, b: 0, perchT: -1, perchAt: 30 + 90 * hash(id.length, id.charCodeAt(0) | 0), perch: null, greet: null });
+    const st = steerSt[id] || (steerSt[id] = { x: tx, y: ty, b: 0, perchT: -1, perchAt: 30 + 90 * hash(id.length, id.charCodeAt(0) | 0), perch: null, greet: null, sx: 0, sy: 0, sepT: -1 });
     let gx = tx, gy = ty, want = 0; const now = V.t;
     if (s.ghost) {   // ghost visitor: faint, almost still, in a spot NO window covers (ghostSpots), one slot each
       const k = Number.isFinite(s.slot) ? s.slot : V.sessions.filter(x => x.ghost).indexOf(s), nk = s.slots || 1;
@@ -305,9 +313,13 @@ function createRuntime(q, env) {
         if (on("perch") && d.state === "idle") {
           if (!st.perch && now > st.perchAt) { st.perchAt = now + 70 + 80 * V.rand();
             const f = lastFocus, cands = windows.filter(w => w.w > 3 * r && w.y > TOP + 2 * r && !(f && w.x === f[0] && w.y === f[1]));
-            const w = cands.length ? cands[Math.floor(V.rand() * cands.length)] : null;
-            if (w) { const px = w.x + w.w * (0.2 + 0.6 * V.rand()), py = w.y - r * 0.9;
-              if (!(f && px + r > f[0] && px - r < f[0] + f[2] && py + r > f[1] && py - r < f[1] + f[3])) st.perch = [px, py, now + 18 + 10 * V.rand()]; } }
+            if (cands.length) { const occ = occupants(id), want = 2 * r * (1 + SEP.perchGap); let best = null, bd = -1;   // prefer the freest spot on the edges
+              for (let i = 0; i < SEP.tries; i++) { const w = cands[Math.floor(V.rand() * cands.length)], px = w.x + w.w * (0.2 + 0.6 * V.rand()), py = w.y - r * 0.9;
+                if (f && px + r > f[0] && px - r < f[0] + f[2] && py + r > f[1] && py - r < f[1] + f[3]) continue;
+                let d = 1e9; for (const o of occ) d = Math.min(d, Math.hypot(px - o[0], py - o[1]));
+                if (d > bd) { bd = d; best = [px, py, now + 18 + 10 * V.rand(), w.x, w.w]; }
+                if (d >= want) break; }
+              if (best && bd >= r) st.perch = best; } }
           if (st.perch && now > st.perch[2]) st.perch = null; }
         else st.perch = null;
         if (st.perch) { gx = st.perch[0]; gy = st.perch[1]; want = 0.85; }
@@ -315,7 +327,36 @@ function createRuntime(q, env) {
           gx = Math.max(r, Math.min(W - r, sx)); gy = Math.max(TOP + r, Math.min(H - BOT - r, own.y + r + 30)); want = 0.45; } } }
     st.b += (want - st.b) * Math.min(1, lastDt / 1.2);   // ease in and out, never a jump
     if (want > 0) { st.x = gx; st.y = gy; }
-    return [tx + (st.x - tx) * st.b, ty + (st.y - ty) * st.b]; }
+    let ox = 0, oy = 0;
+    if (!s.ghost && d.state !== "needs") { const k = separation(id, st, r); ox = k[0]; oy = k[1]; }
+    return [tx + (st.x - tx) * st.b + ox, ty + (st.y - ty) * st.b + oy]; }
+  // Gentle separation. Everything that could be stood on: where other sprites are and where they are heading to perch.
+  const interacting = id => { const g = greets.some(q => (q.who === id || q.with === id) && V.t < q.until), pl = S && S.play;
+    return g || !!(pl && pl.amt > 0 && pl.pair.includes(id)) || (!!S && (S.net.vpn === "down" || S.net.link === "risk") && on("vpnHuddle")); };
+  function others(id) {   // [{x, y, r, px, py, ix}]: this layer's sprites from live reports, other layers from the stage's peers message
+    const out = [];
+    for (const o in reports) { if (o === id) continue; const s = V.sessions.find(z => z.id === o); if (!s || s.ghost || leaving[o]) continue;
+      const q = steerSt[o], rp = reports[o]; out.push({ x: rp.bx, y: rp.by, r: rp.r, px: q && q.perch ? q.perch[0] : null, py: q && q.perch ? q.perch[1] : null, ix: interacting(o) }); }
+    for (const p of peers) if (!reports[p.id] && p.id !== id) out.push(p);
+    return out; }
+  const occupants = id => { const o = []; for (const q of others(id)) { o.push([q.x, q.y]); if (q.px != null) o.push([q.px, q.py]); } return o; };
+  function separation(id, st, r) {   // slow drift away from overlapping sprites; relaxes back when alone; [dx, dy] added to the target
+    const dt = Math.min(0.25, lastDt || 0.05); if (st.sepT === V.t) return [st.sx, st.sy]; st.sepT = V.t;
+    const rp = reports[id], px = st.perch && st.b > 0.5, mine = interacting(id);
+    let fx = 0, fy = 0, near = false;
+    if (rp && !mine) for (const q of others(id)) { if (q.ix) continue;
+      const dx = rp.bx - q.x, dy = rp.by - q.y, d = Math.hypot(dx, dy), lim = SEP.overlap * (rp.r + q.r);
+      if (d < lim * 1.3) near = true;
+      if (d < lim) { const u = (lim - d) / lim, a = d > 1e-3 ? [dx / d, dy / d] : [Math.cos(hash(id.length, id.charCodeAt(0) | 0) * 6.283), 0];
+        fx += a[0] * u; fy += a[1] * u; } }
+    if (px) fy = 0;   // a perched sprite slides along its edge, never off it
+    const m = Math.hypot(fx, fy);
+    if (m > 0.001) { const k = SEP.rate * dt * Math.min(1, m * 2) / m; st.sx += fx * k; st.sy += fy * k; }
+    else if (!near) { const e = Math.max(0, 1 - SEP.ease * dt); st.sx *= e; st.sy *= e; }
+    const cap = SEP.reach * 2 * r, n = Math.hypot(st.sx, st.sy); if (n > cap) { st.sx *= cap / n; st.sy *= cap / n; }
+    if (px && st.perch[3] != null) { const lo = st.perch[3] + r * 0.5, hi = st.perch[3] + st.perch[4] - r * 0.5;   // stay on the window's edge
+      st.sx = Math.max(lo - st.perch[0], Math.min(hi - st.perch[0], st.sx)); }
+    return [st.sx, st.sy]; }
   // Spots for n ghosts: candidates along all four screen edges (inset by the creature), scored by how far they are
   // from every on-screen window (setWindows) and the focused window; uncovered spots win, then they spread out. All
   // layers compute the same list from the same windows, so slot k means the same spot in every layer.
@@ -552,6 +593,25 @@ function createRuntime(q, env) {
   // cpu_cores -> brightness, fixed absolute scale: 0 cores = 0.35 floor, >= 1 core = 1, sqrt between; missing = floor.
   function headBright(cpu) { const c = typeof cpu === "number" && isFinite(cpu) ? Math.max(0, Math.min(1, cpu)) : 0; return 0.35 + 0.65 * Math.sqrt(c); }
   V.headBright = headBright;
+  // Unknown (docs/OBSERVATION_CONTRACT.md "Drawing unknown"; foreign-work 01-design §5.4, 03-merged C18): a creature
+  // whose BODY fields (attention state, cpu tempo, memory size) were filled calm because they are absent carries the
+  // unknown mark: three still, neutral-grey dots in a row just above its right shoulder, an ellipsis ("no word"). Still,
+  // so never a satellite (they orbit); grey, so never strain (red) or identity (hue); not a ring, so never needs-you;
+  // full strength, so never a ghost (faint). Absent tasks/net (satellites, pulses) are named in the hover words only.
+  // The hover label adds "unknown <what> · <age>" (app/stage.html). Not a behaviour switch: honesty is not optional.
+  const CORE = ["state", "cpu", "mem"];
+  function unknownOf(id) { const d = S && S.s[id], s = V.sessions.find(x => x.id === id);
+    if (!d || !s || s.ghost || leaving[id]) return null; const ab = Array.isArray(d._absent) ? d._absent : [];
+    const core = ab.filter(k => CORE.includes(k)); return ab.length ? { absent: ab.slice(), core } : null; }
+  V.unknownOf = unknownOf;
+  let unkDrawn = 0; V.unknownDrawn = () => unkDrawn;   // QA: marks drawn in the last frame
+  function drawUnknown() { unkDrawn = 0; for (const s of V.sessions) { const u = unknownOf(s.id), r = reports[s.id];
+      if (!u || !u.core.length || !r) continue; const a = alphaOf(s.id); if (a <= 0.004) continue;
+      const k = Math.sqrt(P.size), dot = Math.max(1.6, 1.9 * k), gap = dot * 3.2, x0 = r.x + r.r * 0.72, y0 = r.y - r.r * 0.82 - 4 * k;
+      ctx.save(); ctx.globalCompositeOperation = "source-over";
+      for (let i = 0; i < 3; i++) { ctx.globalAlpha = 0.9 * a; ctx.fillStyle = "rgba(20,24,32,0.55)"; ctx.beginPath(); ctx.arc(x0 + i * gap, y0, dot * 1.7, 0, 7); ctx.fill();
+        ctx.fillStyle = "rgba(206,212,222,1)"; ctx.beginPath(); ctx.arc(x0 + i * gap, y0, dot, 0, 7); ctx.fill(); }
+      ctx.restore(); unkDrawn++; } }
   function drawHeads() { for (const s of V.sessions) { const d = S.s[s.id], hs = d && Array.isArray(d.heads) ? d.heads : null, r = reports[s.id];
       if (!hs || !hs.length || !r || s.ghost) continue;
       const a0 = alphaOf(s.id), R = r.r * 1.35 + 8 * Math.sqrt(P.size), sz = Math.max(2.2, 2.8 * Math.sqrt(P.size)), n = hs.length;
@@ -571,7 +631,9 @@ function createRuntime(q, env) {
   function postHits() { const now = performance.now(); if (now - lastHits < 100) return; lastHits = now;
     const hits = []; for (const id in reports) { const s = V.sessions.find(x => x.id === id); if (!s || leaving[id]) continue;   // ghosts too: a ghost click opens its project
       if (alphaOf(id) < 0.1) continue;   // faded out (nothing fits, arriving): no disc, it must not block a click (R1 #5); a ghost is 0.22
-      const r = reports[id]; hits.push({ id, x: Math.round(r.x), y: Math.round(r.y), r: Math.round(Math.max(18, r.r)) }); }
+      const r = reports[id]; const q = steerSt[id], h = { id, x: Math.round(r.x), y: Math.round(r.y), r: Math.round(Math.max(18, r.r)) };
+      if (LIVE) { if (q && q.perch) { h.px = Math.round(q.perch[0]); h.py = Math.round(q.perch[1]); } if (interacting(id)) h.ix = 1; }
+      hits.push(h); }
     const m = JSON.stringify(hits); if (m === lastHitsMsg) return; lastHitsMsg = m;   // only on change
     post({ ev: "hits", hits }); }
   let lastHitsMsg = "";
@@ -584,11 +646,12 @@ function createRuntime(q, env) {
     if ("huddle" in m) { V.huddlePt = m.huddle ? [m.huddle.x, m.huddle.y] : null; beaconOwner = !!(m.huddle && m.huddle.owner); }
     if (m.activity) activity = m.activity;
     if (m.windows) windows = m.windows;
+    if (m.peers) { peers.length = 0; for (const p of m.peers) peers.push(p); }   // every sprite on stage, all layers (stage.html)
     if (m.visible) visRect = [m.visible.x, m.visible.y, m.visible.w, m.visible.h];
     if (Number.isFinite(m.scale)) sizeTarget = Math.max(0.5, Math.min(2, m.scale)) * LIVE_BASE;
     if (m.greet) { let bd = 600, who = null; for (const id in reports) { if (id === m.greet.id) continue; const s = V.sessions.find(x => x.id === id), r = reports[id];
         if (!s || s.ghost || (S.s[id] || {}).state === "needs") continue; const d = Math.hypot(r.x - m.greet.x, r.y - m.greet.y); if (d < bd) { bd = d; who = id; } }
-      if (who) greets.push({ who, x: m.greet.x, y: m.greet.y, until: V.t + 5 }); while (greets.length > 8) greets.shift(); }
+      if (who) greets.push({ who, with: m.greet.id, x: m.greet.x, y: m.greet.y, until: V.t + 5 }); while (greets.length > 8) greets.shift(); }
     if ("paused" in m && m.paused !== paused) { paused = m.paused; if (!paused) { last = performance.now(); schedule(); } }
     if (m.S && m.sessions) { liveS = m.S; for (const id in (m.S.s || {})) lastData[id] = m.S.s[id];
       if (!membership(m.sessions)) { S = normS(liveS, V.sessions); S.T = simT; S.tData = simT; }
@@ -609,7 +672,7 @@ function createRuntime(q, env) {
     const nf = S.focus ? S.focus.map(Math.round).join() : ""; if (nf !== (lastFocus ? lastFocus.map(Math.round).join() : "")) { lastFocus = S.focus; drawBg(lastFocus); }
     V.t = simT; if (!LIVE || V.sessions.length) V._def.step && V._def.step(V, S, dt); simT += dt; V.frame++; }
   function render() { if (skipDraw) return; if (SHARED) ctx.__aS = AS; else ctx.clearRect(0, 0, W, H); if (LIVE && !V.sessions.length) return; V._def.draw(V, S, ctx);
-    if (LIVE) { drawAllLights(); drawHeads(); }
+    if (LIVE) { drawAllLights(); drawHeads(); drawUnknown(); }
     if (q.get("legend") === "1") drawLegend();
     if (q.get("hud") === "1") { drawHud(); drawLabels(); }
     if (LIVE) { drawFlares(); drawBeacon(); }
@@ -766,7 +829,7 @@ function createRuntime(q, env) {
   QA.__live = function (msg, n) { if (msg) onLive(msg); paused = true; for (let i = 0; i < (n || 0); i++) tick(); render();
     return { t: simT, reports: JSON.parse(JSON.stringify(reports)), ids: V.sessions.map(s => s.id), errors: window.__errors }; };
   // QA (review R1 #18): the ids each per-id map holds, to check that departed sessions are pruned
-  QA.__idMaps = () => ({ lastData: Object.keys(lastData), prevState: Object.keys(prevState), steerSt: Object.keys(steerSt), navPlan: [...navPlan.keys()],
+  QA.__idMaps = () => ({ lastData: Object.keys(lastData), prevState: Object.keys(prevState), steerSt: Object.keys(steerSt), _steer: steerSt, navPlan: [...navPlan.keys()],
     pull: Object.keys(pull), navA: Object.keys(navA), navVis: Object.keys(navVis), motePts: Object.keys(motePts), born: Object.keys(born), leaving: Object.keys(leaving) });
   QA.__fps = () => frames.length < 2 ? 0 : 1000 * (frames.length - 1) / (frames[frames.length - 1] - frames[0]);
   QA.__duration = TL.duration;
@@ -774,7 +837,7 @@ function createRuntime(q, env) {
   // hover-label hook: the hovered creature (id, x, y, r, session, optional motes from the piece's own motes(V, id))
   V._beacon = () => beaconAt();
   V._hover = () => { if (!hoverId || !reports[hoverId]) return null; const r = reports[hoverId], s = V.sessions.find(x => x.id === hoverId);
-    if (!s) return null; return { id: hoverId, x: r.x, y: r.y, r: r.r, s, alpha: alphaOf(hoverId), motes: hoverMotes(hoverId) }; };
+    if (!s) return null; return { id: hoverId, x: r.x, y: r.y, r: r.r, s, alpha: alphaOf(hoverId), motes: hoverMotes(hoverId), unknown: unknownOf(hoverId) }; };
   // the piece's own points: V.motes() if it reported any, else its running-light spots (its rim/body points), else none
   function hoverMotes(id) { let pts = motePts[id];
     if (!pts && V._def.lightSpots) { try { pts = V._def.lightSpots(V, id, 32); } catch (e) { pts = null; } }

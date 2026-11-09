@@ -1,7 +1,7 @@
 # Sprites v1 native host. The binary and bundle are derived (build/, never committed).
 # `make install` -> ~/Applications/Sprites.app; `make install-agent` loads the LaunchAgent (owner's call).
 SWIFTC  ?= /usr/bin/swiftc
-SOURCES := Config.swift Decide.swift Native.swift CGCanvas.swift Stage.swift Focus.swift Activate.swift Settings.swift Backdrop.swift App.swift
+SOURCES := Config.swift Decide.swift Aether.swift AetherHost.swift Native.swift CGCanvas.swift Stage.swift Focus.swift Activate.swift Settings.swift Backdrop.swift App.swift
 BUILD   ?= build
 APP     := $(BUILD)/Sprites.app
 DEST    := $(HOME)/Applications/Sprites.app

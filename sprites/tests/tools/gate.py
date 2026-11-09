@@ -15,6 +15,7 @@ Usage:  gate.py CMD [ARGS...]      -- runs CMD under the gate; exits with CMD's 
 Env:    SPRITES_GATE_MAX_LOAD      -- 1-minute load ceiling (default 8)
         SPRITES_GATE_TIMEOUT       -- seconds to wait for the lock and for the load to fall (default 1800)
         SPRITES_GATE_NICE          -- niceness (default 19); 0 disables renicing
+Refuses (exit 3) unless Augur machine.vpn says on_site and not up: see load_rule.py.
 """
 import fcntl
 import os
@@ -22,6 +23,9 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import load_rule
 
 LOCK = Path(os.environ.get("SPRITES_GATE_LOCK", str(Path.home() / "agent-storage/sprites/live/native/tools/.gate.lock")))
 MAX_LOAD = float(os.environ.get("SPRITES_GATE_MAX_LOAD", "8"))
@@ -50,6 +54,7 @@ def main(argv: list) -> int:
     if not argv:
         print(__doc__, file=sys.stderr)
         return 2
+    load_rule.require()   # owner rule: load only on on-site network without the VPN; unknown = refuse
     LOCK.parent.mkdir(parents=True, exist_ok=True)
     deadline = time.monotonic() + TIMEOUT
     with open(LOCK, "a+") as fh:

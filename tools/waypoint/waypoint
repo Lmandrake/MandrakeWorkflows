@@ -91,6 +91,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import difflib
 import json
 import os
 import plistlib
@@ -703,31 +704,30 @@ def render_block(waypoints: list[Waypoint], machine: str = "") -> str:
         lines.append("# wp <name>: jump (cd) to a waypoint's root directory.")
         lines.append("# `wp` with no argument lists the available names.")
         lines.append("wp() {")
-        lines.append("  local _wp_target _wp_key")
+        lines.append("  local _wp_target _wp_key _wp_tried")
         lines.append("  if [ -z \"$1\" ]; then")
         names_display = " ".join(w.name.lower() for w in wps)
         lines.append(f"    echo \"waypoints: {names_display}\"")
         lines.append("    return 0")
         lines.append("  fi")
-        # Fold the argument to lowercase so matching is fully case-insensitive.
-        # bash and zsh share no portable in-shell lowercase operator, so we shell
-        # out to tr; the case labels below are all lowercase to match.
-        lines.append("  _wp_key=$(printf '%s' \"$1\" | tr '[:upper:]' '[:lower:]')")
-        lines.append("  case \"$_wp_key\" in")
-        # Each arm also answers to its folder's name (`wp rimmandrake` for
-        # RIMMASTER -> .../RimMandrake), unless that is another waypoint's name.
-        taken = {w.name.lower() for w in wps}
-        for w in wps:
-            pat = w.name.lower()
-            base = Path(w.path.rstrip("/")).name.lower()
-            if base != pat and base not in taken and VALID_NAME.match(base):
-                taken.add(base)
-                pat = f"{pat}|{base}"
-            lines.append(f"    {pat}) _wp_target={sh_squote(w.path)} ;;")
-        lines.append("    *) echo \"wp: unknown waypoint '$1'\" >&2; return 1 ;;")
-        lines.append("  esac")
+        # Fold the argument (lowercase, letters and digits only) so `my-notes`,
+        # `MY_Notes` and `mynotes` all hit one arm. Each arm also answers to its
+        # folder's name (`wp mygame` for GAME -> .../MyGame). A miss asks the CLI for
+        # the closest name (prefix, substring, then spelling) and jumps there.
+        lines.append(f"  _wp_key=$({SH_NORM})")
+        lines.append("  while :; do")
+        lines.append("    case \"$_wp_key\" in")
+        for w, (_, keys) in zip(wps, match_keys([(w.name, w.path) for w in wps])):
+            if keys:
+                lines.append(f"      {'|'.join(keys)}) _wp_target={sh_squote(w.path)}; break ;;")
+        lines.append("      *) [ -z \"$_wp_tried\" ] || { echo \"wp: shell block is stale; run: waypoint sync\" >&2; return 1; }"
+                     f" ; _wp_tried=1 ; _wp_key=$({sh_squote(str(Path(__file__).resolve()))} resolve wp \"$1\") || return 1"
+                     " ; [ -n \"$_wp_key\" ] || return 1 ; set -- \"$_wp_key\" ;;")
+        lines.append("    esac")
+        lines.append("  done")
         lines.append("  cd \"$_wp_target\" || return 1")
         lines.append("}")
+        lines.extend(sh_completion("wp", [w.name.lower() for w in wps]))
 
     lines.append(END)
     return "\n".join(lines)
@@ -757,6 +757,87 @@ def case_aliases(name: str) -> list[str]:
         if a != name.upper() and a not in out and a.lower() not in SHELL_RESERVED:
             out.append(a)
     return out
+
+
+def norm_key(text: str) -> str:
+    """The form names are matched in: lowercase, letters and digits only.
+
+    `my-notes`, `MY_Notes` and `mynotes` all become `mynotes`. The shell
+    functions apply the same fold (tr) before their case statement, so the two agree.
+    """
+    return re.sub(r"[^0-9a-z]", "", text.lower())
+
+
+# The shell-side twin of norm_key: lowercase, then drop everything but [a-z0-9].
+SH_NORM = "printf '%s' \"$1\" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9'"
+
+
+def match_keys(pairs: list[tuple[str, str]]) -> list[tuple[str, list[str]]]:
+    """Normalised match keys per target: its name, then its folder name.
+
+    `pairs` is (name, path) in render order. A key already claimed by an earlier
+    target (two names that fold together, or a folder named like another
+    waypoint) stays with the first claimant, so every key is unambiguous.
+    """
+    names = {norm_key(n) for n, _ in pairs}
+    taken: set[str] = set()
+    out: list[tuple[str, list[str]]] = []
+    for name, path in pairs:
+        keys = []
+        base = norm_key(Path(path.rstrip("/")).name) if path else ""
+        for k in (norm_key(name), base):
+            if not k or k in taken or (k != norm_key(name) and k in names):
+                continue
+            taken.add(k)
+            keys.append(k)
+        out.append((name, keys))
+    return out
+
+
+def fuzzy_pick(term: str, table: list[tuple[str, list[str]]]) -> tuple[str | None, list[str]]:
+    """Best target for a term that matched no key exactly: (name, []) or (None, candidates).
+
+    Tried in order, each must be unique to win: a key that starts with the term,
+    a key that contains it, then the closest spelling (difflib ratio >= 0.6, with a
+    clear margin over the runner-up). Otherwise the near candidates are returned
+    so the caller can list them.
+    """
+    t = norm_key(term)
+    if not t:
+        return None, []
+    owner = {k: name for name, keys in table for k in keys}
+    for test in (lambda k: k.startswith(t), lambda k: t in k):
+        hits = sorted({owner[k] for k in owner if test(k)})
+        if len(hits) == 1:
+            return hits[0], []
+        if hits:
+            return None, hits
+    scored = sorted(((difflib.SequenceMatcher(None, t, k).ratio(), owner[k]) for k in owner),
+                    reverse=True)
+    best: dict[str, float] = {}
+    for r, name in scored:
+        best.setdefault(name, r)
+    ranked = sorted(best.items(), key=lambda kv: -kv[1])
+    if ranked and ranked[0][1] >= 0.6 and (len(ranked) == 1 or ranked[0][1] - ranked[1][1] >= 0.08):
+        return ranked[0][0], []
+    return None, [n for n, r in ranked[:5] if r >= 0.4]
+
+
+def sh_completion(func: str, words: list[str]) -> list[str]:
+    """Tab completion for `wp`/`launch`: zsh (compsys or plain compctl) and bash."""
+    w = " ".join(words)
+    return [
+        f"if [ -n \"$ZSH_VERSION\" ]; then",
+        f"  if (( $+functions[compdef] )); then",
+        f"    _{func}_complete() {{ compadd -M 'm:{{a-zA-Z-}}={{A-Za-z_}} r:|[-_]=* r:|=*' -- {w}; }}",
+        f"    compdef _{func}_complete {func}",
+        f"  else",
+        f"    compctl -M 'm:{{a-zA-Z-}}={{A-Za-z_}} r:|[-_]=* r:|=*' -k '({w})' {func}",
+        f"  fi",
+        f"elif [ -n \"$BASH_VERSION\" ]; then",
+        f"  complete -W '{w}' {func}",
+        f"fi",
+    ]
 
 
 def resolve_launch_dir(launch: "Launch", wp_paths: dict[str, str]) -> str | None:
@@ -814,23 +895,30 @@ def render_launch_block(launches: list[Launch], waypoints: list[Waypoint],
         lines.append("# launch <name>: cd into a project and run its command.")
         lines.append("# `launch` with no argument lists the available names.")
         lines.append("launch() {")
-        lines.append("  local _launch_key")
+        lines.append("  local _launch_key _launch_tried")
         lines.append("  if [ -z \"$1\" ]; then")
         names_display = " ".join(l.name.lower() for l, _, _ in entries)
         lines.append(f"    echo \"launches: {names_display}\"")
         lines.append("    return 0")
         lines.append("  fi")
-        # Case-insensitive match, same tr-based lowercase fold as wp().
-        lines.append("  _launch_key=$(printf '%s' \"$1\" | tr '[:upper:]' '[:lower:]')")
-        lines.append("  case \"$_launch_key\" in")
-        for l, directory, command in entries:
-            pat = l.name.lower()
+        # Same fold and closest-name fallback as wp().
+        lines.append(f"  _launch_key=$({SH_NORM})")
+        lines.append("  while :; do")
+        lines.append("    case \"$_launch_key\" in")
+        table = match_keys([(l.name, "") for l, _, _ in entries])
+        for (l, directory, command), (_, keys) in zip(entries, table):
+            if not keys:
+                continue
             # The directory is single-quoted (it's data); the command is embedded
             # literally (it's meant to be executed as the user wrote it).
-            lines.append(f"    {pat}) cd {sh_squote(directory)} && {command} ;;")
-        lines.append("    *) echo \"launch: unknown alias '$1'\" >&2; return 1 ;;")
-        lines.append("  esac")
+            lines.append(f"      {'|'.join(keys)}) cd {sh_squote(directory)} && {command} ; return ;;")
+        lines.append("      *) [ -z \"$_launch_tried\" ] || { echo \"launch: shell block is stale; run: waypoint sync\" >&2; return 1; }"
+                     f" ; _launch_tried=1 ; _launch_key=$({sh_squote(str(Path(__file__).resolve()))} resolve launch \"$1\") || return 1"
+                     " ; [ -n \"$_launch_key\" ] || return 1 ; set -- \"$_launch_key\" ;;")
+        lines.append("    esac")
+        lines.append("  done")
         lines.append("}")
+        lines.extend(sh_completion("launch", [l.name.lower() for l, _, _ in entries]))
 
     lines.append(LAUNCH_END)
     return "\n".join(lines)
@@ -1383,6 +1471,33 @@ def cmd_machine(args) -> int:
 # --------------------------------------------------------------------------- #
 # Launch-alias commands
 # --------------------------------------------------------------------------- #
+
+def cmd_resolve(args) -> int:
+    """`wp`/`launch` miss handler: print the closest name's match key, or list candidates.
+
+    Called by the rendered shell functions when the folded argument hits no arm.
+    Prints one key on stdout (the shell retries with it) and a one-line note on
+    stderr saying what it picked; exits 1 with the near candidates when unsure.
+    """
+    machine = current_machine(args.machine)
+    wps = resolve_for_machine(load_db(), machine)
+    if args.kind == "wp":
+        wps = sorted(wps, key=lambda w: w.name.upper())
+        table = match_keys([(w.name, w.path) for w in wps])
+    else:
+        wp_paths = {w.name.upper(): w.path for w in wps}
+        ls = sorted(resolve_for_machine(load_launches(), machine), key=lambda l: l.name.upper())
+        table = match_keys([(l.name, "") for l in ls if resolve_launch_dir(l, wp_paths) is not None])
+    table = [(n, k) for n, k in table if k]
+    name, near = fuzzy_pick(args.term, table)
+    if name is None:
+        hint = f"; did you mean: {', '.join(n.lower() for n in near)}" if near else ""
+        print(f"{args.kind}: no {'waypoint' if args.kind == 'wp' else 'launch'} like '{args.term}'{hint}", file=sys.stderr)
+        return 1
+    print(f"{args.kind}: '{args.term}' -> {name.lower()}", file=sys.stderr)
+    print(dict(table)[name][0])
+    return 0
+
 
 def cmd_launch_add(args) -> int:
     name = args.name
@@ -2432,6 +2547,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("machine", help="Print this machine's resolved identity key.")
     sp.set_defaults(func=cmd_machine)
+
+    sp = sub.add_parser("resolve", help="Closest wp/launch name to a misspelt one (used by the shell functions).")
+    sp.add_argument("kind", choices=["wp", "launch"])
+    sp.add_argument("term")
+    sp.set_defaults(func=cmd_resolve)
 
     # Launch aliases: a parallel managed block + `launch <name>` shell function.
     lp = sub.add_parser("launch", help="Manage launch aliases (cd into a dir + run a command).")

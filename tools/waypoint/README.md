@@ -193,6 +193,13 @@ canonical one; names zsh reserves such as `path` are skipped). Mixed casings lik
 `$ThEsIs` cannot work, since shell variable names are case-sensitive. `wp` also
 answers to the target folder's name (`wp mygame` for a `GAME` row pointing at `.../MyGame`).
 
+**`wp` and `launch` forgive spelling.** The argument is folded to lowercase letters and
+digits before matching, so `wp my-game`, `wp My_Game` and `wp mygame` are the same. A name
+that still matches nothing goes to `waypoint resolve`, which picks the one name the term is
+a prefix of, else the one containing it, else the closest spelling (`wp dialxis`), says what
+it picked on stderr and jumps; when several fit it lists them instead. Both functions also
+get Tab completion (zsh, case- and separator-insensitive; bash, plain).
+
 Paths are single-quoted, so roots containing spaces or parentheses are handled correctly.
 
 ## Commands reference

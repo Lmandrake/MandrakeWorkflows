@@ -300,7 +300,7 @@
   function flashSaved() { $("saved").classList.add("on"); clearTimeout(savedT); savedT = setTimeout(() => $("saved").classList.remove("on"), 1400); }
   function setSw(b, on) { b.setAttribute("aria-checked", on ? "true" : "false"); }
   function saveBeh() { const all = Object.assign({}, behExtra); GROUPS.forEach(g => g[1].forEach(k => { all[k] = beh[k] !== false; })); all.labelStyle = labelStyle;
-    all.backdrop = bd.id; all.backdropSpeed = Object.assign({}, bd.speeds);
+    all.backdrop = bd.id; all.backdropSpeed = Object.assign({}, bd.speeds); all.aether = aeOut();
     if (!post({ saveBehaviors: all })) localStorage.setItem("sprites.behaviors", JSON.stringify(all)); flashSaved(); }
   function paintBeh() { const grid = $("behGrid"); grid.innerHTML = "";
     const cols = [el("div", "behCol"), el("div", "behCol")];
@@ -325,11 +325,12 @@
     if (!post({ setHidden: vis.hidden })) localStorage.setItem("sprites.hidden", JSON.stringify(vis.hidden)); flashSaved(); };
   $("meetSw").onclick = () => { vis.meeting = !vis.meeting; setSw($("meetSw"), vis.meeting);
     if (!post({ setMeeting: vis.meeting })) localStorage.setItem("sprites.meeting", JSON.stringify(vis.meeting)); flashSaved(); };
-  function showTab(t) { const b = t === "behaviours", l = t === "labels", k = t === "backdrop";
-    $("speciesView").classList.toggle("hidden", b || l || k); $("behView").classList.toggle("hidden", !b); $("labView").classList.toggle("hidden", !l);
+  function showTab(t) { const b = t === "behaviours", l = t === "labels", k = t === "backdrop", a = t === "aether";
+    $("aeView").classList.toggle("hidden", !a); if (a) { document.documentElement.style.setProperty("--hue", "#7fd6a8"); paintAether(); }
+    $("speciesView").classList.toggle("hidden", b || l || k || a); $("behView").classList.toggle("hidden", !b); $("labView").classList.toggle("hidden", !l);
     $("bdView").classList.toggle("hidden", !k);
     document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("on", x.dataset.tab === t));
-    $("sub").classList.toggle("hidden", b || l || k); labAnim(l); bdAnim(k);
+    $("sub").classList.toggle("hidden", b || l || k || a); labAnim(l); bdAnim(k);
     if (b) { paintBeh(); document.documentElement.style.setProperty("--hue", BROWSE_HEX); } else if (l) paintLabels();
     else if (k) { document.documentElement.style.setProperty("--hue", "#6f8fd8"); paintBackdrops(); } else render(); }
   document.querySelectorAll("#tabs button").forEach(x => x.onclick = () => showTab(x.dataset.tab));
@@ -343,6 +344,7 @@
     labelStyle = LSTYLES.includes(beh.labelStyle) ? beh.labelStyle : LDEFAULT; delete beh.labelStyle;
     bd.id = typeof beh.backdrop === "string" ? beh.backdrop : "none"; bd.speeds = beh.backdropSpeed && typeof beh.backdropSpeed === "object" ? Object.assign({}, beh.backdropSpeed) : {};
     delete beh.backdrop; delete beh.backdropSpeed;
+    ae = aeRead(beh.aether); delete beh.aether;
     const known = new Set(GROUPS.flatMap(g => g[1])); behExtra = {}; Object.keys(beh).forEach(k => { if (!known.has(k)) { behExtra[k] = beh[k]; delete beh[k]; } }); paintDim();
     initVis(o); demoOn = !!o.demo; if ($("behView").classList.contains("hidden")) setSw($("demoSw"), demoOn); else paintBeh(); }
 
@@ -455,6 +457,52 @@
   $("bdSpeed").oninput = () => { const m = bd.cat && bd.cat.find(x => x.id === bd.id); if (!m) return; const v = +$("bdSpeed").value;
     bd.speeds[m.id] = Math.abs(v - m.speed) < 0.06 ? m.speed : v; $("bdSpeedVal").textContent = bd.speeds[m.id] === 0 ? "frozen" : bd.speeds[m.id].toFixed(2).replace(/0$/, "") + "x";
     clearTimeout(bdT); bdT = setTimeout(() => { saveBeh(); paintBackdrops(); }, 300); };
+  // ---------- aether tab (behaviors.aether; parsed by AetherSettings.from in app/macos/Aether.swift; drawn by AetherHost.swift while enabled) ----------
+  const AE_DEFAULT = { enabled: false, motion: "settle-typing", boundary: "thermal", temperature: 27.5, density: 100, particleSize: 2.5, fieldStrength: 0.5, stirring: 0.7, cooling: 45, minTemperature: 1.5, colour: "green", brightness: 2 };
+  const AE_KNOBS = [   // [key, label, min, max, step, format]: sliders; the choice knobs follow below
+    ["temperature", "Temperature", 0, 40, 0.5, v => v <= 0.5 ? "frozen" : v < 5 ? "cool" : v < 12 ? "mild" : v < 22 ? "warm" : "hot"],
+    ["density", "Density", 100, 1600, 10, v => v < 250 ? "sparse" : v > 1000 ? "dense" : "medium"],
+    ["stirring", "Sprite stirring", 0, 2, 0.1, v => v === 0 ? "off" : v < 0.65 ? "subtle" : v < 1.0 ? "moderate" : "strong"],
+    ["cooling", "Cooling (drag)", 5, 120, 1, v => "settles in ~" + Math.round(v) + " s" + (v < 15 ? " (quick)" : v > 60 ? " (glides)" : "")],
+    ["minTemperature", "Minimum temperature", 0, 10, 0.5, v => v === 0 ? "may freeze" : v.toFixed(1) + " pt/s drift"],
+    ["particleSize", "Particle size", 0.5, 6, 0.1, v => v.toFixed(1) + " pt"],
+    ["fieldStrength", "Field strength", 0, 2, 0.1, v => v === 0 ? "off" : v < 0.7 ? "subtle" : v < 1.3 ? "vivid" : "strong"],
+    ["brightness", "Brightness", 1, 3, 1, v => ["dim", "normal", "bright"][v - 1]]];
+  const AE_CHOICES = [
+    ["motion", "Motion", [["living", "Always living"], ["settle-typing", "Living, settles while typing"], ["stir-settle", "Stirs, then settles"]]],
+    ["boundary", "Boundary", [["thermal", "Thermal walls"], ["reflect", "Reflect"], ["reservoir", "Reservoir"]]]];
+  // Colour: a real picker (any "#rrggbb") plus the three phosphor presets as quick swatches. The hex of each preset is
+  // only what the picker shows; the saved value stays the preset's name, so the host keeps its exact phosphor tone.
+  const AE_SWATCHES = [["green", "#47ff73"], ["amber", "#ffad2e"], ["white", "#d1e0eb"]];
+  const aeHex = c => { const s = AE_SWATCHES.find(x => x[0] === c); return s ? s[1] : c; };
+  let ae = Object.assign({}, AE_DEFAULT), aeExtra = {}, aeT = null;
+  function aeRead(o) { o = o && typeof o === "object" ? o : {}; aeExtra = {}; const r = Object.assign({}, AE_DEFAULT);
+    Object.keys(o).forEach(k => { if (!(k in AE_DEFAULT)) aeExtra[k] = o[k]; });   // chains, collisionSize, ...: carried through
+    if (o.enabled === true) r.enabled = true;
+    AE_CHOICES.forEach(c => { if (c[2].some(x => x[0] === o[c[0]])) r[c[0]] = o[c[0]]; });
+    if (typeof o.colour === "string" && (AE_SWATCHES.some(x => x[0] === o.colour) || /^#[0-9a-f]{6}$/i.test(o.colour))) r.colour = o.colour.toLowerCase();
+    AE_KNOBS.forEach(k => { if (typeof o[k[0]] === "number" && isFinite(o[k[0]])) r[k[0]] = Math.min(k[3], Math.max(k[2], o[k[0]])); });
+    return r; }
+  function aeOut() { return Object.assign({}, aeExtra, ae); }
+  function aeSave() { clearTimeout(aeT); aeT = setTimeout(saveBeh, 250); }
+  function paintAether() { setSw($("aeSw"), ae.enabled); const g = $("aeGrid"); g.innerHTML = "";
+    AE_CHOICES.forEach(c => { const row = el("div", "aeRow"); row.appendChild(el("div", "aeLab", c[1])); const seg = el("div", "aeSeg");
+      c[2].forEach(o => { const b = el("button", "aeOpt" + (ae[c[0]] === o[0] ? " on" : ""), o[1]); b.onclick = () => { ae[c[0]] = o[0]; paintAether(); aeSave(); }; seg.appendChild(b); });
+      row.appendChild(seg); g.appendChild(row); });
+    { const row = el("div", "aeRow"); row.appendChild(el("div", "aeLab", "Colour")); const seg = el("div", "aeSeg");
+      AE_SWATCHES.forEach(s => { const b = el("button", "aeOpt aeSwatch" + (ae.colour === s[0] ? " on" : ""), s[0][0].toUpperCase() + s[0].slice(1));
+        b.style.setProperty("--sw", s[1]); b.onclick = () => { ae.colour = s[0]; paintAether(); aeSave(); }; seg.appendChild(b); });
+      const wrap = el("label", "swatch"); const inp = document.createElement("input"); inp.type = "color"; inp.value = aeHex(ae.colour);
+      inp.setAttribute("aria-label", "Aether colour"); const hx = el("span", "hx", aeHex(ae.colour));
+      inp.oninput = () => { ae.colour = inp.value.toLowerCase(); hx.textContent = ae.colour; seg.querySelectorAll(".aeSwatch").forEach(b => b.classList.remove("on")); aeSave(); };
+      wrap.appendChild(inp); wrap.appendChild(hx); seg.appendChild(wrap); row.appendChild(seg); g.appendChild(row); }
+    AE_KNOBS.forEach(k => { const row = el("div", "aeRow"); row.appendChild(el("div", "aeLab", k[1]));
+      const inp = document.createElement("input"); inp.type = "range"; inp.min = k[2]; inp.max = k[3]; inp.step = k[4]; inp.value = ae[k[0]];
+      const val = el("span", "aeVal", k[5](ae[k[0]]));
+      inp.oninput = () => { ae[k[0]] = +inp.value; val.textContent = k[5](ae[k[0]]); aeSave(); };
+      row.appendChild(inp); row.appendChild(val); g.appendChild(row); }); }
+  $("aeSw").onclick = () => { ae.enabled = !ae.enabled; setSw($("aeSw"), ae.enabled); aeSave(); };
+  window.SpritesAether = { defaults: AE_DEFAULT, read: aeRead };
   // ---------- dim desktop icons (host DimLayer, behaviors.dimIcons 0-80, missing = 45, 0 = off) ----------
   const DIM_DEFAULT = 45; let dimT = null;
   function dimNow() { const v = behExtra.dimIcons; return typeof v === "number" ? Math.max(0, Math.min(80, Math.round(v))) : DIM_DEFAULT; }

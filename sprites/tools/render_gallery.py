@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 PIECES = ROOT / "prototype"
 OUT = Path.home() / "agent-storage/sprites/gallery/v"
 ALL = ["c1_choir", "c2_siphon", "c3_sigils", "c4_kaleido", "c5_fireflies", "c6_night", "c7_patches", "c8_instruments", "c9_wild", "c10_made", "c11_old"]
-
+import sys as _sys; from pathlib import Path as _P; _sys.path.insert(0, str(_P(__file__).resolve().parents[1] / "tests/tools")); import load_rule  # owner rule: renders are load
 
 def scenarios():
     s = (PIECES / "scenarios.js").read_text()
@@ -59,6 +59,7 @@ def render_one(port, piece, sid, dur, fps, scale):
 
 
 def main():
+    load_rule.require()   # only on on-site network without the VPN; unknown = refuse
     ap = argparse.ArgumentParser()
     ap.add_argument("--pieces", default=",".join(ALL)); ap.add_argument("--scen", default="")
     ap.add_argument("--fps", type=int, default=30); ap.add_argument("--jobs", type=int, default=6)

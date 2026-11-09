@@ -36,6 +36,8 @@ import argparse, base64, functools, http.server, io, json, socketserver, statist
 from pathlib import Path
 
 SPR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SPR / "tests/tools"))
+import load_rule
 SPECIES = ["c1_choir", "c2_siphon", "c3_sigils", "c4_kaleido", "c5_fireflies", "c6_night", "c7_patches", "c8_instruments",
            "c9_wild", "c10_made", "c11_old"]
 # context -> (stage w, h) in CSS px; live is the laptop's screen (1728 x 1117 "looks like" at 3456 x 2234)
@@ -185,6 +187,7 @@ def main():
     ap.add_argument("--before", default=None, help="report.json of a --measure-only run of the pre-calibration tree (targets)")
     ap.add_argument("--rounds", type=int, default=6)
     a = ap.parse_args()
+    load_rule.require()   # owner rule: renders are load; only on on-site network without the VPN
     try: live_size = float(subprocess.check_output(["defaults", "read", "com.mandrake.sprites", "size"], text=True).strip())
     except Exception: live_size = 1.0
     outdir = storage() / "sprites/size-calibration"; outdir.mkdir(parents=True, exist_ok=True)

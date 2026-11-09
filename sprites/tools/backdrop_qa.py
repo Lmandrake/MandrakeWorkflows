@@ -11,6 +11,7 @@ from PIL import Image, ImageDraw, ImageFont
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1] / "app/backdrops"
+import sys as _sys; from pathlib import Path as _P; _sys.path.insert(0, str(_P(__file__).resolve().parents[1] / "tests/tools")); import load_rule  # owner rule: renders are load
 
 def srgb_decode(c):
     c = c.astype(np.float32) / 255
@@ -29,6 +30,7 @@ def grab(pg, n, t, boost=False, nc=False):
     return np.asarray(Image.open(io.BytesIO(base64.b64decode(url.split(',')[1]))).convert("RGB"))
 
 def main():
+    load_rule.require()   # only on on-site network without the VPN; unknown = refuse
     ap = argparse.ArgumentParser(); ap.add_argument("--w", type=int, default=1728); ap.add_argument("--h", type=int, default=1117)
     ap.add_argument("--t", type=float, default=0); ap.add_argument("--n", default=""); ap.add_argument("--frames", type=int, default=0)
     ap.add_argument("--span", type=float, default=60); ap.add_argument("--out", default=str(Path.home() / "agent-storage/art/backgrounds/live"))

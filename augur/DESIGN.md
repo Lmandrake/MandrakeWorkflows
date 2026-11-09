@@ -5,7 +5,7 @@ snapshot file. Three consumers read that file instead of each measuring on its o
 
 - **Lodestar Companion**: `~/dev/Lodestar/bin/companion.py` writes `now.json`, and its HOST recorder
   (`bin/lib/hostrec.py`) writes `host-trace.json`.
-- **The SidePulse LED card**: `~/dev/SidePulse`, driven by the runners `~/dev/Lodestar/bin/sidepulse_*.py`.
+- **The SidePulse LED card**: `~/dev/Machinist/sidepulse`, driven by the runners `~/dev/Lodestar/bin/sidepulse_*.py`.
 - **Sprites**, the desktop creatures (the Visitors study, renamed Sprites):
   `~/dev/MandrakeWorkflows/sprites/`.
 

@@ -24,7 +24,7 @@ from PIL import Image, ImageDraw, ImageFont
 from playwright.sync_api import sync_playwright
 
 SPR = Path(__file__).resolve().parents[1]
-
+import sys as _sys; from pathlib import Path as _P; _sys.path.insert(0, str(_P(__file__).resolve().parents[1] / "tests/tools")); import load_rule  # owner rule: renders are load
 
 def storage():
     h = Path.home() / "dev/Lodestar/bin/lib/agent_storage.py"
@@ -206,6 +206,7 @@ def bat_strip(shots, stats):
 
 
 def main():
+    load_rule.require()   # only on on-site network without the VPN; unknown = refuse
     ap = argparse.ArgumentParser(); ap.add_argument("--only", default=None); a = ap.parse_args()
     stats = json.loads((SPR / RES / "symbols_edge.js").read_text().split(" *   ", 1)[1].split("\n", 1)[0])
     port = serve()

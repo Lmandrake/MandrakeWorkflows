@@ -7,9 +7,9 @@ here=$(cd "$(dirname "$0")" && pwd)
 # when that tree was cleared this script refused to start and EVERY browser-rendered suite stopped running silently
 # (11 test files). The repo now owns the source (tests/tools/gate.py); install it if the derived copy is missing.
 gate="$HOME/agent-storage/sprites/live/native/tools/gate.py"
-if [ ! -f "$gate" ]; then
+if [ ! -f "$gate" ] || [ ! -f "$(dirname "$gate")/load_rule.py" ]; then
   if [ -f "$here/tools/gate.py" ]; then
-    mkdir -p "$(dirname "$gate")" && cp "$here/tools/gate.py" "$gate" && chmod +x "$gate"
+    mkdir -p "$(dirname "$gate")" && cp "$here/tools/gate.py" "$here/tools/load_rule.py" "$(dirname "$gate")/" && chmod +x "$gate"
     echo "installed the render gate from $here/tools/gate.py -> $gate"
   else
     echo "missing $gate (the render gate) and no $here/tools/gate.py to install from"; exit 2
@@ -18,14 +18,20 @@ fi
 fails=""
 run() { name=$1; shift; echo "=== $name"; if "$@"; then echo "--- $name ok"; else fails="$fails $name"; echo "--- $name FAILED"; fi; }
 run swift sh "$here/swift/run.sh"
+run aether sh "$here/swift/aether/run.sh"
 run host_safety sh "$here/swift/host/run.sh"
 run qa_scripts sh "$here/test_qa_scripts.sh"
 run demo_feed python3 "$here/test_demo_feed.py"
+run load_rule python3 -m pytest -q "$here/test_load_rule.py"
 run sigil_glyphs python3 "$here/test_sigil_glyphs.py"
 run r1_runtime nice -n 19 node "$here/js/test_r1_runtime.js"
+run perch_separation nice -n 19 node "$here/js/test_perch_separation.js"
 run project_map python3 "$here/test_project_map.py"
 run project_keys node "$here/node/test_project_keys.js"
 run headless_satellites node "$here/node/test_headless_satellites.js"
+run observation_contract node "$here/node/test_observation_contract.js"
+run observation_fixtures python3 "$here/test_observation_fixtures.py"
+run unknown_drawn node "$here/node/test_unknown_drawn.js"
 run labels python3 "$gate" python3 -m pytest -q "$here/test_labels.py"
 run native_gradient python3 "$here/native/test_gradient.py"
 run native_label_quad python3 "$here/native/test_label_quad.py"

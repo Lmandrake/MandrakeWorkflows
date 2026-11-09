@@ -1,0 +1,141 @@
+{
+ "schema": "augur.snapshot",
+ "version": "1.3",
+ "producer": {
+  "name": "augur",
+  "rev": "0000000",
+  "pid": 6100,
+  "platform": "darwin",
+  "machine": "mt-BBBBBB",
+  "started_at": 1794073600.0
+ },
+ "written_at": 1794160000.0,
+ "valid_until": 1794160010.0,
+ "seq": 500,
+ "cadence_s": {
+  "fast": 2,
+  "agents": 5,
+  "probes": 15,
+  "counts": 60
+ },
+ "machine": {
+  "vpn": {
+   "observed_at": 1794159999.0,
+   "valid_until": 1794160004.0,
+   "state": "up",
+   "on_site": true
+  }
+ },
+ "sessions_at": {
+  "observed_at": 1794159998.0,
+  "valid_until": 1794160010.5
+ },
+ "projects": [
+  {
+   "key": "lodestar",
+   "name": "Lodestar",
+   "kind": "lodestar",
+   "sessions": 1
+  }
+ ],
+ "sessions": [
+  {
+   "id": "4100@1794150000",
+   "pid": 4100,
+   "started_at": 1794150000.0,
+   "project": "Lodestar",
+   "project_key": "lodestar",
+   "managed": true,
+   "load": {
+    "observed_at": 1794159998.0,
+    "valid_until": 1794160010.5,
+    "cpu_cores": 0.2,
+    "mem_gb": 0.4,
+    "procs": 3
+   }
+  }
+ ],
+ "coverage": {
+  "declared": {
+   "observed_at": 1794159970.0,
+   "valid_until": 1794160120.0,
+   "scopes": {
+    "*": "complete"
+   }
+  },
+  "mux": {
+   "observed_at": 1794159998.0,
+   "valid_until": 1794160010.5,
+   "scopes": {
+    "tmux:default": "complete"
+   }
+  },
+  "containers": {
+   "observed_at": 1794159970.0,
+   "valid_until": 1794160120.0,
+   "scopes": {
+    "colima:default": "complete",
+    "colima:granite": "complete"
+   }
+  },
+  "models": {
+   "observed_at": 1794159970.0,
+   "valid_until": 1794160120.0,
+   "scopes": {
+    "omlx": "complete"
+   }
+  }
+ },
+ "foreign": [
+  {
+   "observed_at": 1794159970.0,
+   "valid_until": 1794160120.0,
+   "id": "run:granite-e7s4-01",
+   "collector": "declared",
+   "scope": "*",
+   "kind": "remote_job",
+   "declared": true,
+   "label": "granite",
+   "launched_from": "mt-AAAAAA",
+   "attach": "deskrun:granite",
+   "started_at": 1794156400.0
+  },
+  {
+   "observed_at": 1794159998.0,
+   "valid_until": 1794160010.5,
+   "id": "mux:tmux:default:%3:4242@1794159000",
+   "collector": "mux",
+   "scope": "tmux:default",
+   "kind": "unknown",
+   "declared": false,
+   "started_at": 1794159000.0
+  },
+  {
+   "observed_at": 1794159970.0,
+   "valid_until": 1794160120.0,
+   "id": "ctr:abc123",
+   "collector": "containers",
+   "scope": "colima:granite",
+   "kind": "container",
+   "declared": false
+  },
+  {
+   "observed_at": 1794159970.0,
+   "valid_until": 1794160120.0,
+   "id": "ctr:def456",
+   "collector": "containers",
+   "scope": "colima:default",
+   "kind": "container",
+   "declared": false
+  },
+  {
+   "observed_at": 1794159970.0,
+   "valid_until": 1794160120.0,
+   "id": "model:omlx:glm",
+   "collector": "models",
+   "scope": "omlx",
+   "kind": "resident_model",
+   "declared": false
+  }
+ ]
+}

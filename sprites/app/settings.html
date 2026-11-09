@@ -10,7 +10,7 @@
   <div class="sub" id="sub">Choose a species for each focus project</div>
   <label class="size" title="Overall size of the sprites on your desktop">Size
     <input type="range" id="size" min="0.5" max="2" step="0.05" value="1"><span id="sizeVal">100%</span></label>
-  <nav class="tabs" id="tabs"><button data-tab="species" class="on">Species</button><button data-tab="behaviours">Behaviours</button><button data-tab="labels">Name label</button><button data-tab="backdrop">Backdrop</button></nav>
+  <nav class="tabs" id="tabs"><button data-tab="species" class="on">Species</button><button data-tab="behaviours">Behaviours</button><button data-tab="labels">Name label</button><button data-tab="backdrop">Backdrop</button><button data-tab="aether">Aether</button></nav>
   <div class="saved" id="saved">Saved</div>
 </header>
 <main id="speciesView">
@@ -80,6 +80,14 @@
         <input type="range" id="bdSpeed" min="0" max="4" step="0.05" value="1"><span id="bdSpeedVal">1.0x</span></label></div>
     <div class="row backdrops" id="backdrops"></div>
     <p class="rd dim" id="bdNote"></p>
+  </div>
+</main>
+<main id="aeView" class="hidden">
+  <div class="bdWrap">
+    <div class="labHead bdHead"><div class="rt"><div class="rl">Aether</div>
+      <div class="rd">A drifting field of phosphor points on the black desktop, outside every window. <b id="aeNote">While on, it replaces the moving backdrop; switch it off to get your backdrop back.</b></div></div>
+      <button class="sw" id="aeSw" role="switch" aria-checked="false" title="Aether on or off"></button></div>
+    <div class="aeGrid" id="aeGrid"></div>
   </div>
 </main>
 <script src="backdrops/bd.js"></script>

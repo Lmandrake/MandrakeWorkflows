@@ -27,6 +27,7 @@
 <script src="../prototype/vector/glyphs_old_signs_vector.js"></script>
 <script src="../prototype/labels/shortname.js" onerror="void 0"></script>
 <script src="projects.js"></script>
+<script src="observe.js"></script>
 <script src="../prototype/labels/labels.js" onerror="void 0"></script>
 </head><body>
 <script>
@@ -58,6 +59,7 @@
   let W = innerWidth || 1440, H = innerHeight || 900;
   let cast = { projects: {} }, beh = {}, demo = false, paused = false, scale = 1;
   const SP = window.SpritesProjects;
+  const SO = window.SpritesObserve;   // app/observe.js (the observation contract; here only its ageWords)
   let ptable = [], pindex = new Map();   // the host's project table (app/projects.js), key -> entry
   let raw = null, focus = null, cursor = null, activity = { typing: false, idleSec: 0 }, windows = [];
   const layers = {};            // concept -> {V (runtime instance), ready, queue, dropAt}
@@ -86,6 +88,18 @@
     return { concept, iv, hue, hex: white ? undefined : (/^#[0-9a-f]{6}$/i.test(c.hex || "") ? c.hex : e && e.hex || undefined) };
   }
   let lastOnSite = false;   // the last vpn.on_site Augur reported (adaptState, visibility hide_at_work)
+  // Unknown with an age (docs/OBSERVATION_CONTRACT.md "Drawing unknown"): per session, the observed_at of the last FRESH
+  // reading of each drawn field. The runtime flags what it filled calm (_absent) and draws the unknown mark; the hover
+  // label says what is unknown and since when ("unknown 2m"; no age = never measured since Sprites started).
+  const lastGood = Object.create(null);
+  function noteGood(id, by) { const g = lastGood[id] || (lastGood[id] = {});
+    for (const k in by) if (by[k] && fin(by[k].observed_at)) g[k] = Math.max(g[k] || 0, by[k].observed_at); }
+  const UNK_WORD = { state: "state", cpu: "cpu", mem: "memory", procs: "tasks", rx: "net", tx: "net" };
+  function unknownWords(id, absent, nowSec) { if (!absent || !absent.length) return "";
+    const w = [...new Set(absent.map(k => UNK_WORD[k] || k))], all = ["state", "cpu", "memory"].every(x => w.includes(x));
+    const g = lastGood[id] || {}, ts = absent.map(k => g[k]).filter(fin), now = nowSec ?? Date.now() / 1000;
+    const age = ts.length === absent.length ? " " + (SO ? SO.ageWords(now - Math.min(...ts)) : Math.round(now - Math.min(...ts)) + "s") : "";
+    return (all ? "unknown" : w.join(", ") + " unknown") + age; }
   const keyOf = n => SP ? SP.keyOf(n) : String(n || "").toLowerCase();
   const nameOf = (key, fallback) => { const e = pindex.get(key); return e && e.name || fallback || key; };
 
@@ -156,6 +170,8 @@
       sessions.push({ id, pid: x.pid | 0, project: name, key, name, label: name, white, ghost: false,
         concept: k.concept, iv: k.iv, hue: k.hue, hex: k.hex, started: fin(x.started_at) ? x.started_at : 0 });
       const d = {}, at = blk(x.attention), ld = blk(x.load), tk = blk(x.tasks), nt = blk(x.net);
+      noteGood(id, { state: at && at.state ? at : null, cpu: ld && fin(ld.cpu_cores) ? ld : null, mem: ld && fin(ld.mem_gb) ? ld : null,
+        procs: tk && fin(tk.background) ? tk : null, rx: nt && fin(nt.rx_mbps) ? nt : null, tx: nt && fin(nt.tx_mbps) ? nt : null });
       if (at && at.state) { d.state = at.state === "needs_you" ? "needs" : at.state === "working" ? "working" : "idle";
         if (d.state === "needs" && fin(at.since)) d.needSec = Math.max(0, now - at.since); }
       if (ld && fin(ld.cpu_cores)) d.cpu = ld.cpu_cores;
@@ -171,6 +187,7 @@
         if (!o || st < o.st || (st === o.st && id < o.id)) oldest[key] = { id, st }; } }
     // lights on ONE creature per project: its oldest session (owner ruling 3)
     for (const key in oldest) { const b = burn[key]; if (b.burning > 0) Object.assign(s[oldest[key].id], { burning: b.burning, burning_red: b.burning_red }); }
+    for (const id in lastGood) if (!(id in s)) delete lastGood[id];
     // ghost visitors: burning > 0 and no session at all (ruling 4; Lodestar follows the same rule). An unmanaged session
     // is a session too (R1 #16a: no ghost beside a white sprite of the same project).
     const live = new Set(sessions.map(x => x.key));
@@ -311,7 +328,9 @@
     for (const id in labelSt) { const st = labelSt[id]; if (hov && hov.id === id) st.h = hov;
       if (!SL) { if (hov && hov.id === id) plainLabel(st.h); else delete labelSt[id]; continue; }
       SL.track(st, !!hov && hov.id === id, dt, style); if (!st.phase) { delete labelSt[id]; continue; }
-      const h = st.h, s = h.s, short = h.beacon || s.white ? s.label : shortFor(s);
+      const h = st.h, s = h.s, base = h.beacon || s.white ? s.label : shortFor(s);
+      // words only where the mark is drawn (a body field absent), so the mark and the words always agree
+      const uw = !h.beacon && h.unknown && h.unknown.core.length ? unknownWords(h.id, h.unknown.absent) : "", short = uw ? base + " \u00b7 " + uw : base;
       ctx.save(); const lab = ctx.__beginLabel ? ctx.__beginLabel() : false;   // native: the label becomes one textured quad
       try { SL.draw(ctx, { style, name: s.name, short, hex: s.white ? undefined : s.hex, hue: s.white ? undefined : s.hue,
         x: h.x, y: h.y, r: h.r, scale, t: now / 1000, phase: st.phase, p: st.p, motes: h.motes, W, H,
@@ -429,7 +448,7 @@
   const host = () => window.webkit && webkit.messageHandlers && webkit.messageHandlers.sprites;
   function allHits() { const out = [];
     for (const c in hitsBy) for (const h of hitsBy[c] || []) { const x = model.sessions.find(z => z.id === h.id); if (!x) continue;   // ghosts are clickable: they open a session
-      out.push({ id: h.id, x: h.x, y: h.y, r: h.r, project: x.project, key: x.key, ghost: !!x.ghost, pid: x.pid }); }
+      out.push({ id: h.id, x: h.x, y: h.y, r: h.r, ix: h.ix, px: h.px, py: h.py, project: x.project, key: x.key, ghost: !!x.ghost, pid: x.pid }); }
     return out; }
   // The host captures the mouse over every posted hit, so post none when every click would be ignored (demo, or a snapshot
   // past valid_until): a disc that eats a click and does nothing breaks "no behaviour may block a click" (R3-SPEC #1, #2).
@@ -440,6 +459,12 @@
   setInterval(() => { const g = clickable(); if (paused || (!hitT && g === lastGate)) return; hitT = 0; lastGate = g;
     const hs = clickHits(), m = JSON.stringify(hs);
     if (m !== lastHitsMsg) { lastHitsMsg = m; const h = host(); if (h) h.postMessage({ hits: hs }); } }, 100);
+  // Gentle separation across species: every layer learns where the OTHER layers' sprites are (and where they are heading to
+  // perch, and whether they are interacting), twice a second; a layer sees its own sprites directly. Ghosts are left out.
+  let lastPeers = "";
+  setInterval(() => { if (paused) return; const ps = [];
+    for (const c in hitsBy) for (const h of hitsBy[c] || []) { const x = model.sessions.find(z => z.id === h.id); if (x && !x.ghost) ps.push(h); }
+    const m = JSON.stringify(ps); if (m === lastPeers) return; lastPeers = m; sendAll({ peers: ps }); }, 500);
   // The owner's gesture is a DOUBLE-click (2026-11-05), so `count` (the event's clickCount) rides with the click and
   // the host decides (Decide.swift clickGesture): the second click acts at once, a lone click acts once the
   // double-click window passes. Nothing is decided here — a click over a sprite is always posted, so no click is eaten
@@ -472,7 +497,7 @@
     setSize(w, h) { w = Math.round(w); h = Math.round(h); if (w === W && h === H && Object.keys(layers).length) return; W = w; H = h; rebuildLayers(); },
     setScale(s) { scale = clamp(+s || 1, 0.5, 2); sendAll({ scale }); },
   };
-  window.__stage = { adaptState, vpnDebounce, linkDebounce, resetVpn: () => { vpnShown = "ok"; lostSince = null; riskSince = null; lastOnSite = false; }, get model() { return model; }, get layers() { return layers; }, allHits, clickHits, demoState,
+  window.__stage = { adaptState, unknownWords, vpnDebounce, linkDebounce, resetVpn: () => { vpnShown = "ok"; lostSince = null; riskSince = null; lastOnSite = false; }, get model() { return model; }, get layers() { return layers; }, allHits, clickHits, demoState,
     V: c => layers[c] && layers[c].V, canvas: cv, renderAt, get fps() { return FPS; } };
   push(true);
 })();

@@ -20,7 +20,7 @@ SCEN = ["g_idle", "g_cpu", "g_net", "g_needs", "g_strain", "g_vpn", "g_variants"
 
 class Quiet(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *a): pass
-
+import sys as _sys; from pathlib import Path as _P; _sys.path.insert(0, str(_P(__file__).resolve().parents[1] / "tests/tools")); import load_rule  # owner rule: renders are load
 
 def serve(root):
     srv = socketserver.ThreadingTCPServer(("127.0.0.1", 0), functools.partial(Quiet, directory=str(root)))
@@ -58,6 +58,7 @@ def compare(a, b):
 
 
 if __name__ == "__main__":
+    load_rule.require()   # only on on-site network without the VPN; unknown = refuse
     ap = argparse.ArgumentParser(); ap.add_argument("--out"); ap.add_argument("--pieces", default=",".join(ALL))
     ap.add_argument("--compare", nargs=2); ap.add_argument("--root", default=str(SPR),
                     help="serve this sprites/ tree instead of the checkout (e.g. a git-archive of a commit)")

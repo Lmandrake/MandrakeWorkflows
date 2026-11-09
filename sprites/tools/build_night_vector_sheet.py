@@ -20,7 +20,7 @@ from PIL import Image, ImageDraw, ImageFont
 from playwright.sync_api import sync_playwright
 
 SPR = Path(__file__).resolve().parents[1]
-
+import sys as _sys; from pathlib import Path as _P; _sys.path.insert(0, str(_P(__file__).resolve().parents[1] / "tests/tools")); import load_rule  # owner rule: renders are load
 
 def storage():
     h = Path.home() / "dev/Lodestar/bin/lib/agent_storage.py"
@@ -61,6 +61,7 @@ def font(sz, bold=False):
 
 
 def main():
+    load_rule.require()   # only on on-site network without the VPN; unknown = refuse
     srv = socketserver.ThreadingTCPServer(("127.0.0.1", 0), functools.partial(Quiet, directory=str(SPR)))
     srv.daemon_threads = True; threading.Thread(target=srv.serve_forever, daemon=True).start(); port = srv.server_address[1]
     errs, cells = [], {}

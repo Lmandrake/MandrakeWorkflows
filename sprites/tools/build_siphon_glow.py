@@ -22,7 +22,7 @@ BEFORE = {k: v for k, v in bsc.JELLY_FINE.items() if not k.startswith("pulseGlow
 AFTER = bsc.JELLY_FINE
 CASES = [c for c in bsc.JELLY_CASES if c[1] in (64, 256)]
 TRAFFIC = [("net", 8.0, 3.0), ("zero", 0.0, 0.0)]
-
+import sys as _sys; from pathlib import Path as _P; _sys.path.insert(0, str(_P(__file__).resolve().parents[1] / "tests/tools")); import load_rule  # owner rule: renders are load
 
 def shots(b, port):
     import math
@@ -43,6 +43,7 @@ def shots(b, port):
 
 
 def main():
+    load_rule.require()   # only on on-site network without the VPN; unknown = refuse
     port = bsc.serve()
     with sync_playwright() as pw:
         b = pw.chromium.launch(); print("chromium", b.version, flush=True)

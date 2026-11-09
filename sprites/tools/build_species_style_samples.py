@@ -36,7 +36,7 @@ VERDICT = {
     "Made Marks": "VERDICT: vector, narrowly. Both read at every size; dots make the lighthouse a bold silhouette but blur the target's crosshair gaps at 23 px.",
     "Old Signs": "VERDICT: dots. Skull and phoenix read as bold carved silhouettes at all three sizes; vector at 23 px turns the teeth and feathers to scribble.",
 }
-
+import sys as _sys; from pathlib import Path as _P; _sys.path.insert(0, str(_P(__file__).resolve().parents[1] / "tests/tools")); import load_rule  # owner rule: renders are load
 
 def storage():
     h = Path.home() / "dev/Lodestar/bin/lib/agent_storage.py"
@@ -81,6 +81,7 @@ def render(errors):
 
 
 def main():
+    load_rule.require()   # only on on-site network without the VPN; unknown = refuse
     errors = []
     shots = render(errors)
     if errors: print("PAGE ERRORS:", errors[:5], file=sys.stderr); sys.exit(1)

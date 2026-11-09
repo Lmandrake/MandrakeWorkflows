@@ -10,7 +10,7 @@ Built and run on the Laptop desktop in demo mode. The LaunchAgent is NOT install
   (only on change) and `{click}` on mousedown over a creature.
 - `adaptState(snapshot)`: the ONE reader, Augur shape only (owner 2026-10-31 23:50; SHIP_PLAN shape removed). Mapping per
   augur/DESIGN.md §11. Any block past its valid_until, `unknown`, or a snapshot past valid_until = absent; the runtime
-  fills absent values calm (flagged `_absent`), never 0. needs_you -> needs, stopped -> idle, tasks.total else load.procs,
+  fills absent values calm (flagged `_absent`), never 0, and draws the unknown mark plus hover words with the age (docs/OBSERVATION_CONTRACT.md "Drawing unknown"). needs_you -> needs, stopped -> idle, tasks.total else load.procs,
   strain level = score x 0.75, thermal clamp 2, VPN lost only when down and not on site, bandwidth strain absent = no jam.
 - Casting: cast.json project -> {concept, iv, hex}; anything uncast and every unmanaged session draws randomly (seeded
   by name, or by id for unmanaged), unmanaged drawn white (V.hsl desaturates while inside V.creature).

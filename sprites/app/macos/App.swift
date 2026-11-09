@@ -110,6 +110,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let ws = NSWorkspace.shared.notificationCenter
+        backdrop.aetherSprites = { [weak self] in   // the stage's hit circles, world stage px -> CG global points
+            guard let st = self?.stage else { return [] }
+            let w = st.span.world, top = NSScreen.screens.first?.frame.maxY ?? 0
+            return st.hits.map { (CGPoint(x: $0.x + w.minX, y: $0.y - w.maxY + top), $0.r, $0.id) }
+        }
         behaviorsWatch = FileWatch(Paths.behaviors, every: 2.0) { [weak self] d in
             guard let self else { return }
             self.lastBehaviors = d.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
@@ -471,12 +476,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         demoItem = NSMenuItem(title: "Demo Mode", action: #selector(toggleDemo), keyEquivalent: "")
         let set = NSMenuItem(title: "Sprites Settings…", action: #selector(openSettings), keyEquivalent: ",")
         let quit = NSMenuItem(title: "Quit Sprites", action: #selector(quit), keyEquivalent: "q")
-        for i in [showItem!, meetingItem!, demoItem!, NSMenuItem.separator(), set, NSMenuItem.separator(), quit] {
+        let stir = NSMenuItem(title: "Stir the Aether", action: #selector(stirAether), keyEquivalent: "")
+        for i in [showItem!, meetingItem!, demoItem!, stir, NSMenuItem.separator(), set, NSMenuItem.separator(), quit] {
             i.target = self; m.addItem(i)
         }
         status.menu = m
     }
 
+    @objc func stirAether() { backdrop.aetherStir() }
     @objc func toggleShow() { userHidden.toggle(); applyVisibility() }
     @objc func toggleMeeting() { meeting.toggle(); applyVisibility() }
     @objc func toggleDemo() { setDemo(!demo) }

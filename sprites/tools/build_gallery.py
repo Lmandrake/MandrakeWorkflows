@@ -26,7 +26,7 @@ ROWS = ["g_variants", "g_projects", "g_idle", "g_cpu", "g_mem", "g_tasks", "g_ne
 ROWNAME = {"g_variants": "Individualizer", "g_projects": "Your projects", "g_idle": "Idle", "g_cpu": "CPU",
            "g_mem": "Memory", "g_tasks": "Background tasks", "g_needs": "Needs you", "g_strain": "Machine strain",
            "g_net": "Network", "g_vpn": "VPN lost", "g_play": "Play"}
-
+import sys as _sys; from pathlib import Path as _P; _sys.path.insert(0, str(_P(__file__).resolve().parents[1] / "tests/tools")); import load_rule  # owner rule: renders are load
 
 def waypoint_colours():
     seen = {}
@@ -53,6 +53,7 @@ def variant_names():
 
 
 def main():
+    load_rule.require()   # only on on-site network without the VPN; unknown = refuse
     sc = json.loads((PIECES / "scenarios.js").read_text().split("=", 1)[1].rstrip().rstrip(";"))
     # p2 = the current pieces (live round 2); p1 = round-1 pieces from git (d4196e5) for the round switch.
     for d in ("p", "p2"):

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "sprites/observation-contract",
+  "title": "Augur 1.3 additions read by the Sprites observation contract (proposal; docs/OBSERVATION_CONTRACT.md)",
+  "description": "Only the keys a 1.3 producer ADDS: top-level `coverage` and `foreign[]`. Everything else is augur/schema/snapshot.schema.json, which a fixture must also pass. Not yet adopted by Augur: plan step 4 (D) lands it there. A 1.2 producer publishes neither key, and a reader then treats no foreign scope as covered.",
+  "type": "object",
+  "properties": {
+    "coverage": {
+      "type": "object",
+      "description": "one stamp per foreign collector. `unknown` (a reason) = the collector failed and NO scopes key is present; otherwise `scopes` maps each scope the collector looked at (a tmux socket, a docker socket, a model server, or `*`) to its status. Only `complete` in a fresh stamp lets a reader remove an object of that scope.",
+      "additionalProperties": { "$ref": "#/$defs/cov" }
+    },
+    "foreign": { "type": "array", "items": { "$ref": "#/$defs/item" } }
+  },
+  "$defs": {
+    "cov": {
+      "type": "object",
+      "required": ["observed_at", "valid_until"],
+      "properties": {
+        "observed_at": { "type": "number" },
+        "valid_until": { "type": "number" },
+        "unknown": { "type": "string" },
+        "scopes": { "type": "object", "additionalProperties": { "enum": ["complete", "partial", "failed"] } }
+      },
+      "oneOf": [ { "required": ["unknown"], "not": { "required": ["scopes"] } }, { "required": ["scopes"], "not": { "required": ["unknown"] } } ]
+    },
+    "item": {
+      "type": "object",
+      "required": ["id", "collector", "scope", "kind", "declared", "observed_at", "valid_until"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "description": "execution identity: a declared run id (fresh per execution, never the session name), `mux:<socket>:<pane>:<pid>@<start>`, `ctr:<immutable container id>`, `model:<server>:<name>`" },
+        "collector": { "type": "string", "description": "the coverage entry that may remove it" },
+        "scope": { "type": "string" },
+        "kind": { "type": "string", "description": "remote_job | container | resident_model | unknown; a reader maps any other value to unknown, never to the nearest kind" },
+        "declared": { "type": "boolean" },
+        "label": { "type": "string", "description": "declared items only; never a session name or command line (Augur rule 3)" },
+        "launched_from": { "type": "string", "description": "Waypoint machine key of the launching host (ruling 7)" },
+        "attach": { "type": "string", "description": "declared remote_job only: an attach-only target bound to this execution" },
+        "started_at": { "type": "number" },
+        "observed_at": { "type": "number" },
+        "valid_until": { "type": "number" },
+        "terminal": {
+          "type": "object",
+          "required": ["outcome"],
+          "description": "written by the execution host when the run ends, and kept (not deleted). Absence of an item is never an exit status.",
+          "properties": { "outcome": { "enum": ["exited", "failed", "interrupted"] }, "exit_code": { "type": "integer" }, "ended_at": { "type": "number" } }
+        }
+      }
+    }
+  }
+}

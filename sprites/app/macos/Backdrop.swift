@@ -24,6 +24,12 @@ final class Backdrop {
     private var lastTick = CACurrentMediaTime()
     private var locked = false, asleep = false
     var hidden = false { didSet { if hidden != oldValue { refreshPause() } } }
+    /// The Aether (AetherHost.swift): while on, it replaces the moving backdrop in the same black windows.
+    private var aether: AetherHost?
+    /// CG-global sprite circles for the Aether's field (the app reads the stage's hits).
+    var aetherSprites: () -> [(CGPoint, CGFloat, String)] = { [] }
+    func aetherStir() { aether?.stir() }
+    var aetherOn: Bool { aether != nil }
     private let device = MTLCreateSystemDefaultDevice()
     private var pipeline: MTLRenderPipelineState?, pipelineSrc = ""
     private lazy var queue = device?.makeCommandQueue()
@@ -40,7 +46,9 @@ final class Backdrop {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self?.spaceChanged() } }
         ws.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in self?.refreshPause() }
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
-            guard let self else { return }; self.lastKey = ""; self.applyCurrent() }
+            guard let self else { return }
+            if let h = self.aether { h.build(); h.wake(); return }
+            self.lastKey = ""; self.applyCurrent() }
     }
 
     /// Called with the behaviours JSON text whenever it changes. Cheap when nothing backdrop-related changed.
@@ -50,6 +58,8 @@ final class Backdrop {
             if let s = o["backdrop"] as? String { id = s }
             sp = backdropSpeedOverride(o, id: id)   // Decide.swift (0 and 1 are numbers, review R1 #3)
         }
+        if aetherSelected(behaviorsJSON: behaviorsJSON) { return startAether(AetherSettings.parse(behaviorsJSON: behaviorsJSON)) }
+        stopAether()
         if id != "none" && catalog.isEmpty { loadCatalog() }
         guard id == "none" || catalog[id] != nil else { log("backdrop: unknown \(id); none"); return set("none", 0) }
         let it = catalog[id]
@@ -76,7 +86,25 @@ final class Backdrop {
         }
     }
 
+    private func startAether(_ s: AetherSettings) {
+        if current != "none" { stopLive(); wall.restoreCurrentSpace(); current = "none"; speed = 0 }
+        lastKey = "aether"
+        if aether == nil {
+            guard let device else { log("aether: no Metal device"); return }
+            let h = AetherHost(device: device, owner: self); h.sprites = { [weak self] in self?.aetherSprites() ?? [] }
+            aether = h
+        }
+        aether?.paused = locked || asleep || hidden
+        aether?.apply(s)
+    }
+
+    private func stopAether() {
+        guard let h = aether else { return }
+        h.stop(); aether = nil; lastKey = ""
+    }
+
     private func spaceChanged() {
+        if let h = aether { h.wake(reconcileGeometry: true); return }
         guard current != "none", let it = catalog[current] else { wall.restoreCurrentSpace(); return }
         if speed <= 0 || it.max <= 0 { setStill(it) } else { wall.restoreCurrentSpace() }
     }
@@ -209,7 +237,10 @@ final class Backdrop {
 
     private var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
     private var paused: Bool { backdropPaused(locked: locked, asleep: asleep, hidden: hidden, reduceMotion: reduceMotion) }
-    func refreshPause() { if !paused { lastTick = CACurrentMediaTime() } }
+    func refreshPause() {
+        if !paused { lastTick = CACurrentMediaTime() }
+        if let h = aether { h.paused = locked || asleep || hidden; h.wake() }   // Reduce Motion: the Aether holds a still frame
+    }
 
     private func tick() {
         let now = CACurrentMediaTime(), dt = min(2.0, now - lastTick); lastTick = now
