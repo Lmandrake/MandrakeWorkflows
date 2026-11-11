@@ -1,6 +1,6 @@
 """Tests for `waypoint focus`: session matching and the open/skip plan.
 
-Run:  python3 -m unittest discover -s ~/dev/Waypoint/tests
+Run:  python3 -m unittest discover -s ~/dev/MandrakeWorkflows/tools/waypoint/tests
 Stdlib only. Nothing here talks to iTerm2 or writes the shell file.
 """
 import importlib.machinery

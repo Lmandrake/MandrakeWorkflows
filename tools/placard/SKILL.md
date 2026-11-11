@@ -92,6 +92,11 @@ one-shot override it names:
 (`pip install docling pypdf`, or a venv that has them); every other subcommand
 runs under any `python3`, stdlib only.
 
+Figure descriptions take one of three paths, `PLACARD_DESCRIBER=api|claude|codex|auto`
+(default `auto`): a Messages API credential, else the installed Claude Code CLI (`claude -p`),
+else Codex (`codex exec -i`, the `chatgpt-consult` skill's container). The digest's
+`figures_describer` says which one wrote the descriptions.
+
 ```
 scan      what exists, what is stale          (any python3)
 gaps      what has NO digest at all           (any python3)
@@ -100,12 +105,32 @@ refresh   re-stamp a v1 digest's provenance, keep the prose
 read      resolve one digest to one state     (any python3)
 verify    bytes; --deep also reads each digest against itself
 map       regenerate the navigation maps
+sweep     list external bodies no digest names (dry run); --apply deletes them
+fleet     several repos, OPT-IN: --allowlist FILE; plan unless --go
 ```
+
+🔴 **A multi-repo run is opt-in.** The only supported way to digest more than one
+repo is `python placard.py fleet --allowlist FILE`: FILE names the repo roots the
+owner approved, one per line (`#` comments allowed). No allowlist, a glob, or a
+root that is not a git repo is refused (exit 7); there is no "all of ~/dev" mode.
+Personal, health, financial, household and company repos are never in scope by
+default. The default prints a dry-run plan per repo (to digest, unchanged, and
+refused by reason: git-crypt, `.placard-skip`, `.lodestar-untracked`, generated
+collection); `--go` digests, in one process, only files whose digest is not
+current (`--force` for all),
+`--no-figures` spends no model calls. The guard and markers are a second fence,
+never the scope. It does not commit, push or check the VPN/load rule: do those
+yourself (LESSONS: "A multi-repo run is opt-in").
 
 1. **Survey:** `python3 placard.py --root <project> gaps` (no digest) and
    `scan` (stale digests).
-2. **Extract:** `python placard.py --root <project> digest <artifact>`. This
-   writes the body (text, tables as markdown, speaker notes, margin
+2. **Extract:** `python placard.py --root <project> digest <artifact>...`.
+   Many paths run in one process with one Docling load (3 small PDFs: 10 s
+   batched against 28 s as separate calls), each file named on failure, and a
+   `TOTAL` line. A file whose digest is current (same source sha, the current
+   `profile_id`, and detected figures described, unless this run passes
+   `--no-figures`) prints `unchanged:` and costs nothing; `--force` re-digests
+   it. This writes the body (text, tables as markdown, speaker notes, margin
    identifiers, figure descriptions when a model is configured) and empty
    prose sections. **Never paste a body by hand**; a hand-made body has no
    provenance and `verify --deep` cannot check it.

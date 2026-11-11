@@ -1,7 +1,7 @@
 ---
 dir_summary: A fictional irrigation co-op's Q3 2026 controller trial; report, review deck and data workbook
 placard_version: 1
-generated_on: 2026-10-26
+generated_on: 2026-11-09
 digests_in_subtree: 3
 ---
 

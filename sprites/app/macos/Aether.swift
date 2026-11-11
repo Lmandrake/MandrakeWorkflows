@@ -210,6 +210,7 @@ final class AetherSim {
     var tuning: AetherTuning
     var rng: AetherRNG
     var time = 0.0
+    var stepStartTime = 0.0
 
     // Point state, struct-of-arrays. Dormant slots are the reserve.
     var pos: [SIMD2<Double>]

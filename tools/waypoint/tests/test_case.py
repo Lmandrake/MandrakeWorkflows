@@ -1,6 +1,6 @@
 """Tests for case-insensitive waypoint names.
 
-Run:  python3 -m unittest discover -s ~/dev/Waypoint/tests
+Run:  python3 -m unittest discover -s ~/dev/MandrakeWorkflows/tools/waypoint/tests
 """
 import importlib.machinery
 import importlib.util

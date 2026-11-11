@@ -79,7 +79,7 @@ class ProseConflict(RuntimeError):
 
 def refresh_body(*, entry_text, sidecar_path, original_name, new_body,
                  new_fields, write_text, load_body=None,
-                 reread_entry=None) -> dict:
+                 reread_entry=None, remove_superseded=None) -> dict:
     """Replace the body and its provenance; carry the prose through untouched.
 
     When `reread_entry` is supplied it is called immediately before publishing
@@ -131,7 +131,7 @@ def refresh_body(*, entry_text, sidecar_path, original_name, new_body,
                     "destroy that edit. Nothing was written. Re-run `digest` "
                     "to pick up the newer prose.")
 
-    return publish.publish_digest(
+    published = publish.publish_digest(
         sidecar_path=sidecar_path,
         original_name=original_name,
         body_text=new_body,
@@ -139,3 +139,9 @@ def refresh_body(*, entry_text, sidecar_path, original_name, new_body,
         prose_markdown=prose,
         write_text=write_text,
     )
+    # The new entry is on disk and names the new body: only now is the old one
+    # safe to drop. Skipped when `remove_superseded` is not supplied.
+    if remove_superseded is not None and view.body_layout == "external":
+        remove_superseded(sidecar_path, view.body_path,
+                          published.get("body_path"))
+    return published

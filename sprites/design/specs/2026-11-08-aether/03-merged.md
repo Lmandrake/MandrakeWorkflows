@@ -1,6 +1,6 @@
 # The Aether: merged design (Deep-Design-3x2, step 5)
 
-Run: `~/dev/MandrakeWorkflows/sprites/docs/design/2026-11-08-aether/`. Inputs: `PROBLEM.md` (the owner's
+Run: `~/dev/MandrakeWorkflows/sprites/design/specs/2026-11-08-aether/`. Inputs: `PROBLEM.md` (the owner's
 words), `01-design.md` (pass 1), `02a-gpt-blind.md` (GPT blind), `02-gpt.md` (GPT critique of pass 1, authorship
 hidden), `02m-remeasure.md` (starred claims re-measured). All passes ran in full; no optional second Opus pass (GPT
 was available and the decision is cheap to reverse: nothing is built yet). Provenance tags: **[P1]** pass 1,

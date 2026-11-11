@@ -46,9 +46,10 @@ replays, a design judgment pilot; summary in `CONCLUSIONS.md` there).
 
 ## The procedure
 
-Pick one working directory for the run's artifacts, in the project the question belongs to, e.g.
-`<repo>/docs/design/<YYYY-MM-DD>-<slug>/`. Write each pass to its own file there and commit as
-you go, so a stalled agent loses nothing.
+Pick one working directory for the run's artifacts, in the project the question belongs to:
+`<repo>/design/specs/<YYYY-MM-DD>-<slug>/` (owner ruling 2026-11-09 — design docs are inputs to
+work, so `design/` sits at the project root, never under `docs/`). Write each pass to its own file
+there and commit as you go, so a stalled agent loses nothing.
 
 Respect the project's privacy boundary in every pass: if the repo pushes to a public host and the
 material involves private mail, colleagues' names or program details, keep real text out of the

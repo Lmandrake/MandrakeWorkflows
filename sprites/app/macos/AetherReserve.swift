@@ -63,7 +63,7 @@ extension AetherSim {
         let cap = ceiling, k = exp(-dt / tuning.pushReleaseTau)
         for i in pos.indices where boost[i] > 0 {
             if phase[i] != .active { boost[i] = 0; continue }
-            if time - pressedAt[i] < tuning.dt { continue }
+            if pressedAt[i] >= stepStartTime { continue }
             boost[i] = cap + (boost[i] - cap) * k
             if boost[i] - cap < 0.5 { boost[i] = 0 }
         }

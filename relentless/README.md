@@ -1,5 +1,8 @@
 # Relentless Pipeline
 
+RimMandrake workers support `"runner": "codex"` in `relentless_rules.json` (default `claude`), with existing lease, proof and verdict validation.
+See [runner setup](../tools/RUNNERS.md); quota/auth failures stop without a Claude fallback.
+
 A fire-and-forget pipeline: point it at a modest goal and trust it to get all the way there. Owner, 2026-11-01: *"Let's
 finally solve this once and for all: a fire-and-forget agent you can point at a modest goal and trust it will get all
 the way there."*

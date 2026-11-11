@@ -2,13 +2,13 @@
 source: field-trial-report.pdf
 source_sha256: 9e8bd07221ac36608e2dc81ff4a1f76248c909e631b5424bd2eb69c7e97c9e5c
 source_bytes: 4058
-source_modified: 2026-10-26
+source_modified: 2026-10-27
 tier: standard
 confidence: high
 placard_version: 2
-extractor: docling-2.115.0+models-3.15.0
-profile_id: docling-2.115.0+models-3.15.0/text-v1/soffice-present
-extracted_at: 2026-10-26T07:44:16
+extractor: docling-2.147.0+models-4.0.4
+profile_id: docling-2.147.0+models-4.0.4/text-v1/soffice-present
+extracted_at: 2026-11-09T19:43:51
 units_kind: page
 units_total: 5
 units_total_known: true

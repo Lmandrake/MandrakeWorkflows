@@ -1,6 +1,6 @@
 """Tests for `waypoint layout`: layouts.md round trip, profile rendering, window parsing.
 
-Run:  python3 -m unittest discover -s ~/dev/Waypoint/tests
+Run:  python3 -m unittest discover -s ~/dev/MandrakeWorkflows/tools/waypoint/tests
 Stdlib only. Nothing here talks to iTerm2 or writes outside a tempdir.
 """
 import importlib.machinery

@@ -144,6 +144,19 @@ keeps the skill current when you `git pull`. Skills that ship scripts need only 
 standard library; `deep-design-3x2` uses a second model when one is available (see below) and
 says what to do when it is not.
 
+A few tools carry their own `*.plist` under this repo and are **not installed by cloning or
+symlinking**: `augur/launchd/com.mandrake.augur.plist` and
+`augur/launchd/com.mandrake.augur.check24h.plist` (installer: `augur/bin/install.sh`, label
+`com.mandrake.augur` by default, `AUGUR_LABEL=com.mandrake.augur.check24h` for the 24h checker —
+`com.mandrake.augur` is currently installed in `~/Library/LaunchAgents/`, the
+`.check24h` variant is not), and `sprites/app/macos/com.mandrake.sprites.plist` (currently
+installed as `com.mandrake.sprites`). Nothing auto-installs either; `tools/modality` is the one
+component with its own `pyproject.toml` (`cd tools/modality && pip install -e .`), everything else
+here needs only Python 3 and the standard library, per the Check it commands above. No
+credential, token, or login layer was found in this repo's own files.
+
+*Detected 2026-11-10, not verified by running it.*
+
 ## Check it
 
 ```sh

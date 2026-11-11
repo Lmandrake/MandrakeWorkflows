@@ -33,6 +33,40 @@ func newTests() {
         let scans = Double(a.work.globalScans) / Double(max(1, a.work.steps))
         check(a.work.steps > 100 && scans <= 8, "scan fix: at most 8 global temperature scans per step", "\(scans) per step")
     }
+    // MARK: rule break: boost release must not bleed a point's speed in the step that pressed it
+    // (GPT code review 2026-11-08 finding 13, MANDRAKEWORKFLOWS_FIX_AETHER_THREE_LEFTOVER_RULE_BREAKS_NEXT_UP). releaseBoost
+    // inferred "pressed this step" from `time - pressedAt < dt`, so a contact in a ONE-substep step (age exactly dt) was
+    // decayed at once while a four-substep step's last-substep contact (age dt/4) was not: behaviour depended on the
+    // substep count. A 2000 pt/s face hits a resting dot; the dot must leave every contact step at the face's speed.
+    do {
+        func pushRun(maxSub: Int) -> (contact: [Double], after: Double, cap: Double) {
+            var t = AetherTuning(); t.reserveEnabled = false; t.thermostatTau = .infinity; t.maxSubsteps = maxSub
+            let st = settings { $0.boundary = .reflect; $0.densityPerMpt2 = 0; $0.attraction = 0; $0.repulsion = 0; $0.fieldStrength = 0 }
+            let s = AetherSim(bounds: AetherRect(x: 0, y: 0, width: 4000, height: 400), settings: st, seed: 52, tuning: t,
+                              obstacles: [AetherObstacle(id: 1, rect: AetherRect(x: 0, y: 100, width: 100, height: 200))], population: 0)
+            let d = s.injectPoint(at: SIMD2(300, 200), velocity: .zero)!
+            var x = 100.0, speeds: [Double] = []
+            for _ in 0..<12 {
+                x += 2000.0 / 12
+                s.setGeometry([AetherObstacle(id: 1, rect: AetherRect(minX: x - 100, minY: 100, maxX: x, maxY: 300))], sweep: 1.0 / 12)
+                for _ in 0..<Int((1.0 / 12 / s.tuning.dt).rounded()) {
+                    let before = s.stats.pressed
+                    s.step()
+                    if s.stats.pressed > before { speeds.append(len2(s.vel[d])) }
+                }
+            }
+            run(s, 1.5)
+            return (speeds, len2(s.vel[d]), s.ceiling)
+        }
+        for m in [1, 4] {
+            let r = pushRun(maxSub: m)
+            check(r.contact.count >= 5, "boost release (\(m) substeps): the face pressed the dot in several steps", "\(r.contact.count)")
+            check(!r.contact.isEmpty && r.contact.allSatisfy { $0 >= 0.97 * 2000 }, "boost release (\(m) substeps): the dot leaves EVERY contact step at the face's speed", "\(r.contact.map { Int($0) })")
+            check(r.after <= r.cap + 1e-9, "boost release (\(m) substeps): released, it decays back under the ceiling", "\(r.after) > \(r.cap)")
+        }
+        let a = pushRun(maxSub: 1).contact, b = pushRun(maxSub: 4).contact
+        check(!a.isEmpty && !b.isEmpty && abs(a[0] - b[0]) < 1e-6 * 2000, "boost release: the first contact's carry does not depend on the substep cap", "\(a.first ?? -1) vs \(b.first ?? -1)")
+    }
     // MARK: rule break: initial and injected velocities respect the ceiling
     do {
         for seed in 1...6 as ClosedRange<UInt64> {

@@ -4,6 +4,7 @@ extension AetherSim {
     // MARK: the step
 
     func step(typing: Bool = false) {
+        stepStartTime = time
         let dt = tuning.dt
         if typing { lastTyping = time }
         prevPos = pos

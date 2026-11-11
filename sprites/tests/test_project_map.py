@@ -48,12 +48,21 @@ by = {e["key"]: e for e in keyed}
 hand = {"Orchard": "orchard-mandrake", "KesMine": "kestrel", "KestrelWorks": "kestrel-team",
         "MSGRAPH": "microsoftgraphaccess", "Lodestar": "lodestar", "ProjectDial": "dialexis", "Granite": "granite", "Ember28": "ember28",
         "Atlas": "atlas", "StayCurrent": "staycurrent", "Hestia": "hestia", "Fetcher": "fetcher"}
+def is_focused(alias, launches):
+    for line in launches.splitlines():
+        cells = line.split("|")
+        if len(cells) > 3 and cells[1].strip() == alias:
+            focus_cell = cells[-2].strip().lower()
+            return focus_cell in ("yes", "y", "true", "1", "x")
+    return False
+
 for alias, key in hand.items():
     e = by.get(key) or {}
     check(e.get("alias") == alias, f"launch {alias} joins to project_key {key}: alias {e.get('alias')!r}")
 check(by.get("orchard-mandrake", {}).get("hex") == "#CB50F0" and by["orchard-mandrake"].get("focus") is True, "Orchard carries its Waypoint colour #CB50F0 and focus")
-check(by.get("kestrel", {}).get("focus") is False and by.get("kestrel-team", {}).get("focus") is True,
-      "KesMine (private) is not a focus row; KestrelWorks (team) is")
+check(by.get("kestrel", {}).get("focus") == is_focused("KesMine", args["launches"]) and 
+      by.get("kestrel-team", {}).get("focus") == is_focused("KestrelWorks", args["launches"]),
+      "KesMine and KestrelWorks focus match live launches.md")
 mviz = [e for e in table if e["alias"] == "MandrakeVisualize"]
 check(len(mviz) == 1 and mviz[0]["key"] is None, f"MandrakeVisualize (registry row retired) has no project_key: {mviz}")
 dl = [e for e in table if e["alias"] == "ProjectDial"]; ft = [e for e in table if e["alias"] == "Fetcher"]

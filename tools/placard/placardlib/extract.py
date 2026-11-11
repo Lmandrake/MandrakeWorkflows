@@ -229,6 +229,9 @@ def figure_records(doc) -> list:
     return out
 
 
+_CONVERTERS: dict = {}
+
+
 def _convert(path, *, do_ocr: bool, want_figures: bool = False):
     from docling.datamodel.base_models import InputFormat
     from docling.datamodel.pipeline_options import (
@@ -249,8 +252,14 @@ def _convert(path, *, do_ocr: bool, want_figures: bool = False):
     if want_figures:
         opts.images_scale = 2.0
 
-    converter = DocumentConverter(
-        format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts)})
+    # One converter per option set, kept for the process: a batch digest then
+    # loads Docling's layout and table models once, not once per file.
+    key = (do_ocr, want_figures)
+    converter = _CONVERTERS.get(key)
+    if converter is None:
+        converter = DocumentConverter(format_options={
+            InputFormat.PDF: PdfFormatOption(pipeline_options=opts)})
+        _CONVERTERS[key] = converter
     return converter.convert(str(path)).document
 
 
@@ -361,12 +370,87 @@ def pptx_speaker_notes(path) -> dict:
     return notes
 
 
+_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".tiff", ".bmp"}
+
+
+def _join_source(src) -> str:
+    return "".join(src) if isinstance(src, list) else str(src or "")
+
+
+def extract_notebook(path, *, want_figures: bool = False) -> ExtractResult:
+    """A Jupyter notebook, read with the standard library only.
+
+    Docling refuses .ipynb, and a notebook is JSON, so no extractor is needed.
+    Each cell is one unit: markdown as written, code fenced, text outputs
+    fenced under it. Image outputs (base64 png/jpeg) become figure records whose
+    bytes are in memory, with the cell number as their page.
+    """
+    import base64
+    import json
+
+    with open(path, encoding="utf-8") as fh:
+        nb = json.load(fh)
+    cells = nb.get("cells")
+    if cells is None:       # nbformat 3
+        cells = [c for ws in nb.get("worksheets", []) for c in ws.get("cells", [])]
+    lang = ((nb.get("metadata") or {}).get("language_info") or {}).get("name", "")
+    pages, figures = [], []
+    for number, cell in enumerate(cells, 1):
+        kind = cell.get("cell_type")
+        src = _join_source(cell.get("source", cell.get("input"))).rstrip()
+        parts = []
+        if kind == "code":
+            if src:
+                parts.append(f"```{lang}\n{src}\n```")
+            for out in cell.get("outputs", []) or []:
+                otype = out.get("output_type")
+                if otype == "stream":
+                    text = _join_source(out.get("text"))
+                elif otype in ("execute_result", "display_data", "pyout"):
+                    data = out.get("data") or out
+                    text = _join_source(data.get("text/plain", data.get("text")))
+                    for mime in ("image/png", "image/jpeg"):
+                        if want_figures and mime in data:
+                            try:
+                                raw = base64.b64decode(
+                                    _join_source(data[mime]), validate=False)
+                            except Exception:
+                                raw = None
+                            figures.append((number, raw or None, None, None, None))
+                elif otype == "error":
+                    text = (f"{out.get('ename', 'Error')}: "
+                            f"{out.get('evalue', '')}")
+                else:
+                    text = ""
+                if text and text.strip():
+                    parts.append(f"```output\n{text.rstrip()}\n```")
+        elif src:
+            parts.append(src)
+        if parts:
+            pages.append("\n".join(parts))
+    n_images = 0
+    for cell in cells:
+        for out in (cell.get("outputs", []) or []):
+            d = out.get("data") or {}
+            if "image/png" in d or "image/jpeg" in d:
+                n_images += 1
+    return ExtractResult(
+        pages=pages, margin=[], tables_detected=0, tables_exported=0,
+        figures_detected=n_images, profile_id="ipynb-json-1/" + DEFAULT_OPTION_PROFILE,
+        units_kind="cell", units_total=len(cells), units_known=True,
+        units_failed=0, ocr_used=False, margin_unavailable=None,
+        figures=figures)
+
+
 def extract(path, *, option_profile: str = DEFAULT_OPTION_PROFILE,
             want_figures: bool = False) -> ExtractResult:
     """Extract one artifact. Raises RuntimeError if Docling is unavailable --
     never returns an error string as content, which is how v1 produced bodies
     flagged `full` whose entire content was an exception message.
     """
+    from pathlib import Path as _P0
+    if _P0(str(path)).suffix.lower() == ".ipynb":
+        return extract_notebook(path, want_figures=want_figures)
     if not docling_available():
         raise RuntimeError(
             "docling is not importable in this interpreter. Run extraction with "
@@ -429,13 +513,26 @@ def extract(path, *, option_profile: str = DEFAULT_OPTION_PROFILE,
             units_known = False   # content exists; the unit count does not
     tables_failed = stats.get("export_failed", 0)
 
+    figures = figure_records(doc) if want_figures else []
+    if want_figures and suffix in _IMAGE_EXTS:
+        # The image file IS the artifact: describe its own bytes. Docling's
+        # picture items for a bare image carry no crops (measured: every
+        # figure came out "image bytes unavailable").
+        try:
+            raw_image = _P(str(path)).read_bytes()
+        except OSError:
+            raw_image = None
+        if raw_image:
+            figures = [(1, raw_image, None, None, None)]
+            pictures = pictures or [None]
+
     effective_profile = option_profile + ("+ocr" if ocr_used else "")
     return ExtractResult(
         pages=pages,
         margin=margin,
         tables_detected=len(tables),
         tables_exported=max(0, len(tables) - tables_failed),
-        figures_detected=len(pictures),
+        figures_detected=len(figures) if suffix in _IMAGE_EXTS and figures else len(pictures),
         profile_id=profile_id(versions=_versions(),
                              option_profile=effective_profile,
                              soffice=_soffice_present()),
@@ -445,5 +542,5 @@ def extract(path, *, option_profile: str = DEFAULT_OPTION_PROFILE,
         units_failed=units_failed,
         ocr_used=ocr_used,
         margin_unavailable=margin_unavailable,
-        figures=figure_records(doc) if want_figures else [],
+        figures=figures,
     )

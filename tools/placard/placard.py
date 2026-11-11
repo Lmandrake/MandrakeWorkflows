@@ -17,6 +17,8 @@ Subcommands:
   map     (Re)generate a PROJECT.placard.md in EVERY directory that has content
           — a recursive navigation tree, each map saying why you'd descend into
           each child directory (rolled up from the child's `dir_summary`).
+  fleet   Digest several repos, OPT-IN: only the roots in --allowlist FILE.
+          Dry-run plan unless --go; skips current digests unless --force.
   announce Report coverage for a session-start hook: counts what exists, never
           hashes, and prints NOTHING when a tree has no digests.
 
@@ -54,6 +56,7 @@ from placardlib import checks as _checks
 from placardlib import publish as _publish
 from placardlib import read as _read
 from placardlib import refresh as _refresh
+from placardlib import sweep as _sweep
 from placardlib import schema as _schema
 
 SIDECAR_SUFFIX = ".placard.md"
@@ -259,6 +262,16 @@ def tier_of(artifact: Path) -> str:
 
 
 def iter_artifacts(root: Path):
+    from placardlib import guard as _guard
+    yield from _guard.partition(_iter_all(root))[0]
+
+
+def iter_excluded(root: Path):
+    from placardlib import guard as _guard
+    return _guard.partition(_iter_all(root))[1]
+
+
+def _iter_all(root: Path):
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
         for name in filenames:
@@ -293,6 +306,42 @@ def status_of(artifact: Path) -> str:
     return "ok"
 
 
+def digest_current(artifact: Path, option_profile: str = "text-v1",
+                   describe_figures: bool = True,
+                   current_profile: str | None = None) -> tuple[bool, str]:
+    """(current, why): the one check `digest` and `fleet` both skip on.
+
+    Current means the stored source_sha256 matches, the stored profile_id is
+    the profile this interpreter would extract with, and any detected figures
+    were described, unless this run deliberately passes --no-figures. A
+    scaffold from `init` has no profile_id, so it is never current. Without
+    Docling installed the profile cannot be known; `why` says it was not
+    compared.
+    """
+    st = status_of(artifact)
+    if st in ("missing", "stale"):
+        return False, st
+    fm = parse_frontmatter(sidecar_for(artifact).read_text(
+        encoding="utf-8", errors="replace"))
+    stored = fm.get("profile_id", "")
+    if not stored:
+        return False, "no profile_id"
+    if current_profile is None:
+        from placardlib import extract as _extract
+        current_profile = _extract.current_profile_id(option_profile)
+    note = ""
+    if current_profile.startswith("docling-unknown"):
+        note = "; profile not compared, docling not installed here"
+    elif stored != current_profile:
+        return False, f"profile {stored} is not {current_profile}"
+    if describe_figures and fm.get("figures_detected", "0") not in ("", "0"):
+        if fm.get("figures_described_known") != "true":
+            return False, "figures not described"
+        if fm.get("figures_description_failed", "0") not in ("", "0"):
+            return False, "figure descriptions failed"
+    return True, "same sha, profile and figures" + note
+
+
 def rel(root: Path, p: Path) -> str:
     try:
         return str(p.relative_to(root))
@@ -305,6 +354,8 @@ def rel(root: Path, p: Path) -> str:
 # --------------------------------------------------------------------------- #
 def cmd_scan(root: Path) -> int:
     arts = sorted(iter_artifacts(root))
+    for p, why in sorted(iter_excluded(root)):
+        print(f"EXCLUDED    {rel(root, p)}  ({why})")
     if not arts:
         print(f"No digestible artifacts under {root}")
         return 0
@@ -486,6 +537,7 @@ def cmd_refresh(root: Path, artifact: Path) -> int:
                         "source_bytes": str(artifact.stat().st_size)},
             write_text=lambda p, t: Path(p).write_text(t, encoding="utf-8"),
             load_body=load_body,
+            remove_superseded=_sweep.remove_superseded,
             reread_entry=lambda: (
                 side.read_text(encoding="utf-8", errors="replace")
                 if side.exists() else None),
@@ -498,6 +550,22 @@ def cmd_refresh(root: Path, artifact: Path) -> int:
           f"authoring_status {fm.get('authoring_status')})")
     print("  -> authored prose carried through verbatim")
     return 0
+
+
+def _sniff_media_type(data: bytes) -> str:
+    """Figure bytes are PNG from Docling but the file's own bytes for a
+    standalone image or a notebook output, so the type is read from the bytes."""
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:4] == b"GIF8":
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data[:2] == b"BM":
+        return "image/bmp"
+    if data[:4] in (b"II*\x00", b"MM\x00*"):
+        return "image/tiff"
+    return "image/png"
 
 
 def _describe_figures(result, enabled: bool) -> tuple:
@@ -520,8 +588,9 @@ def _describe_figures(result, enabled: bool) -> tuple:
         return {"figures_described": "0",
                 "figures_description_note": "description pass not requested"}, ""
 
+    from placardlib import backends as _backends
     _describe.load_env()
-    ready, reason = _describe.available()
+    ready, reason, backend = _backends.available()
     if not ready:
         # Visibly absent, never silently empty.
         return {"figures_described": "0",
@@ -551,7 +620,7 @@ def _describe_figures(result, enabled: bool) -> tuple:
         else:
             if describer is None:
                 try:
-                    describer = _describe.Describer()
+                    describer = _backends.make(backend)
                 except _describe.DescribeUnavailable as exc:
                     return ({"figures_described": "0",
                              "figures_described_known": "false",
@@ -559,11 +628,11 @@ def _describe_figures(result, enabled: bool) -> tuple:
             try:
                 text = describer.describe_image(
                     data, depth=depth,
-                    media_type="image/png", caption=caption)
+                    media_type=_sniff_media_type(data), caption=caption)
             except _describe.DescribeUnavailable as exc:
                 failed += 1
                 lines.append(f"[figure p.{page}: description failed — "
-                             f"{str(exc)[:120]}]")
+                             f"{' '.join(str(exc).split())[:1000]}]")
                 continue
             cache[occ.observation_key] = text
         described += 1
@@ -582,13 +651,20 @@ def _describe_figures(result, enabled: bool) -> tuple:
         counts[key] = str(counts.get(key, 0))
     if describer is not None:
         counts["figure_model"] = _describe.model_label(describer.model)
+        counts["figures_describer"] = describer.backend
+        u = getattr(describer, "usage", None)
+        if u:
+            counts["figures_usage"] = (
+                f"in={u['input']} out={u['output']} cache_read={u['cache_read']} "
+                f"cache_creation={u['cache_creation']} cost_usd={u['cost_usd']}")
     section = ("## Figures\n\nGenerated descriptions, not the document's own "
                "captions.\n\n" + "\n\n".join(lines)) if lines else ""
     return counts, section
 
 
 def cmd_digest(root: Path, artifact: Path, option_profile: str,
-               describe_figures: bool = True) -> int:
+               describe_figures: bool = True, force: bool = False,
+               current_profile: str | None = None, outcome=None) -> int:
     """The single write path: extract, clean, publish. Replaces the old
     contrib/backfill_bodies.py, which preserved authored prose it had just
     invalidated and recorded nothing about having done so."""
@@ -599,6 +675,21 @@ def cmd_digest(root: Path, artifact: Path, option_profile: str,
         print(f"error: {rel(root, artifact)} does not exist", file=sys.stderr)
         return 2
 
+    from placardlib import guard as _guard
+    why = _guard.refusal_reason(artifact)
+    if why:
+        print(f"refusing: {rel(root, artifact)} is excluded: {why}. "
+              f"Digesting sends its text to a model.", file=sys.stderr)
+        return 6
+    if not force:
+        current, why = digest_current(artifact, option_profile,
+                                      describe_figures, current_profile)
+        if current:
+            print(f"unchanged: {rel(root, sidecar_for(artifact))}  ({why}; "
+                  f"--force re-digests)")
+            if outcome is not None:
+                outcome.append("unchanged")
+            return 0
     # Owner's ruling: a directory of generated plots is described AS A FAMILY,
     # never file by file — N descriptions of the same plot family is a huge
     # waste. So BLOCK the per-file vision path rather than relying on nobody
@@ -619,7 +710,8 @@ def cmd_digest(root: Path, artifact: Path, option_profile: str,
                   f"without a vision call.", file=sys.stderr)
             return 4
 
-    if not _extract.docling_available():
+    if (artifact.suffix.lower() != ".ipynb"
+            and not _extract.docling_available()):
         print("error: docling is not importable in this interpreter.\n"
               "  Fix: .venv/bin/python placard.py digest <artifact>",
               file=sys.stderr)
@@ -674,6 +766,7 @@ def cmd_digest(root: Path, artifact: Path, option_profile: str,
                 entry_text=entry_text, sidecar_path=side,
                 original_name=artifact.name, new_body=body, new_fields=fields,
                 write_text=lambda p, t: Path(p).write_text(t, encoding="utf-8"),
+                remove_superseded=_sweep.remove_superseded,
                 reread_entry=lambda: (
                     side.read_text(encoding="utf-8", errors="replace")
                     if side.exists() else None),
@@ -705,11 +798,64 @@ def cmd_digest(root: Path, artifact: Path, option_profile: str,
     return 0
 
 
+def cmd_sweep(root: Path, apply: bool, min_age: float) -> int:
+    """List (default) or delete (--apply) external bodies no sidecar names."""
+    rep = _sweep.find_orphans(root, min_age=min_age)
+    orphans = rep["orphans"]
+    size = sum(p.stat().st_size for p in orphans)
+    for p in orphans:
+        print(f"{'removed' if apply else 'orphan'}: {rel(root, p)}")
+        if apply:
+            p.unlink()
+    for d, why in rep["skipped_dirs"]:
+        print(f"skipped (unreadable entry, cannot judge): {rel(root, d)}  "
+              f"[{why[:120]}]")
+    print(f"sweep {'applied' if apply else 'dry run'}: {len(orphans)} orphan "
+          f"body(ies), {size} bytes; {rep['referenced']} referenced kept; "
+          f"{len(rep['young'])} too young kept; "
+          f"{len(rep['skipped_dirs'])} dir(s) skipped")
+    if not apply and orphans:
+        print("  -> re-run with --apply to delete")
+    return 0
+
+
+def digest_many(root: Path, artifacts: list, option_profile: str,
+                describe_figures: bool = True, force: bool = False,
+                err=None) -> tuple[int, dict]:
+    """Digest many files in ONE process: Docling is imported and its models
+    loaded once (extract caches the converter). Every file keeps its own exit
+    code and a failure is named, never folded into the total. One file returns
+    its own code; several return 0 only if all succeeded, else 1."""
+    from placardlib import extract as _extract
+    err = err or (lambda s: print(s, file=sys.stderr))
+    profile = _extract.current_profile_id(option_profile)
+    counts = {"digested": 0, "unchanged": 0, "failed": 0}
+    rcs = []
+    for a in artifacts:
+        outcome: list = []
+        rc = cmd_digest(root, a, option_profile,
+                        describe_figures=describe_figures, force=force,
+                        current_profile=profile, outcome=outcome)
+        rcs.append(rc)
+        if rc != 0:
+            counts["failed"] += 1
+            err(f"FAILED rc={rc} {rel(root, a)}")
+        elif outcome:
+            counts["unchanged"] += 1
+        else:
+            counts["digested"] += 1
+    if len(rcs) == 1:
+        return rcs[0], counts
+    return (0 if counts["failed"] == 0 else 1), counts
+
+
 def cmd_gaps(root: Path) -> int:
     """What is undigested here. The measured failure mode was never-digested,
     not digested-and-bypassed, so absence has to be visible."""
     from placardlib import discovery as _discovery
 
+    for p, why in sorted(_discovery.iter_excluded(root)):
+        print(f"EXCLUDED    {rel(root, p)}  ({why})")
     report = _discovery.gaps(root)
     if report.total == 0:
         print(f"No digestible artifacts under {root}")
@@ -728,6 +874,12 @@ def cmd_gaps(root: Path) -> int:
 
 
 def cmd_collection(root: Path, directory: Path, describe_figures: bool) -> int:
+    from placardlib import guard as _guard
+    why = _guard.refusal_reason(directory)
+    if why:
+        print(f"refusing: {rel(root, directory)} is excluded: {why}.",
+              file=sys.stderr)
+        return 6
     """One digest for a directory of generated output.
 
     Large trees of generated plots hold many near-identical images. A family
@@ -750,12 +902,13 @@ def cmd_collection(root: Path, directory: Path, describe_figures: bool) -> int:
 
     samples = []
     if describe_figures:
+        from placardlib import backends as _backends
         _describe.load_env()
-        ready, reason = _describe.available()
+        ready, reason, backend = _backends.available()
         if not ready:
             print(f"warning: describing unavailable — {reason}", file=sys.stderr)
         else:
-            describer = _describe.Describer()
+            describer = _backends.make(backend)
             for name in _collection.sample_paths(names):
                 data = (directory / name).read_bytes()
                 try:
@@ -1138,11 +1291,24 @@ def main(argv=None) -> int:
 
     p_digest = sub.add_parser("digest",
                               help="the single write path: extract, clean, publish")
-    p_digest.add_argument("artifact", help="path to the original artifact")
+    p_digest.add_argument("artifact", nargs="+",
+                          help="path(s) to the original artifact(s); many "
+                               "share one process and one Docling load")
+    p_digest.add_argument("--force", action="store_true",
+                          help="re-digest even when the digest is current")
     p_digest.add_argument("--option-profile", default="text-v1",
                           help="extraction option profile (default: text-v1)")
     p_digest.add_argument("--no-figures", action="store_true",
                           help="skip the figure description pass (no model calls)")
+
+    p_sweep = sub.add_parser(
+        "sweep", help="list external bodies no digest references (dry run); "
+                      "--apply deletes them")
+    p_sweep.add_argument("--apply", action="store_true",
+                         help="delete the orphans (default: only list)")
+    p_sweep.add_argument("--min-age", type=float, default=300.0,
+                         help="keep bodies younger than this many seconds "
+                              "(a digest may be mid-write; default 300)")
 
     sub.add_parser("gaps", help="what is undigested under --root")
     sub.add_parser("prefetch",
@@ -1155,6 +1321,18 @@ def main(argv=None) -> int:
                         help="write the digest without sampling descriptions")
 
     sub.add_parser("map", help="(re)generate PROJECT.placard.md")
+
+    p_fleet = sub.add_parser(
+        "fleet", help="digest several repos, opt-in: only those in --allowlist "
+                      "(dry-run plan unless --go)")
+    p_fleet.add_argument("--allowlist", help="file of approved repo roots, one "
+                                             "per line, # comments allowed")
+    p_fleet.add_argument("--go", action="store_true",
+                         help="digest; without it, print the plan only")
+    p_fleet.add_argument("--force", action="store_true",
+                         help="re-digest current digests too")
+    p_fleet.add_argument("--no-figures", action="store_true",
+                         help="skip the figure description pass (no model calls)")
 
     p_ann = sub.add_parser("announce",
                            help="coverage report for a session hook; no hashing, "
@@ -1176,9 +1354,16 @@ def main(argv=None) -> int:
     if args.cmd == "refresh":
         return cmd_refresh(root, Path(args.artifact).resolve())
     if args.cmd == "digest":
-        return cmd_digest(root, Path(args.artifact).resolve(),
-                          args.option_profile,
-                          describe_figures=not args.no_figures)
+        arts = [Path(a).resolve() for a in args.artifact]
+        rc, counts = digest_many(root, arts, args.option_profile,
+                                 describe_figures=not args.no_figures,
+                                 force=args.force)
+        if len(arts) > 1:
+            print(f"TOTAL digested {counts['digested']}, unchanged "
+                  f"{counts['unchanged']}, failed {counts['failed']}")
+        return rc
+    if args.cmd == "sweep":
+        return cmd_sweep(root, args.apply, args.min_age)
     if args.cmd == "gaps":
         return cmd_gaps(root)
     if args.cmd == "prefetch":
@@ -1188,6 +1373,12 @@ def main(argv=None) -> int:
                               not args.no_figures)
     if args.cmd == "map":
         return cmd_map(root)
+    if args.cmd == "fleet":
+        from placardlib import fleet as _fleet
+        return _fleet.run(args.allowlist, sys.modules[__name__], go=args.go,
+                          force=args.force,
+                          describe_figures=not args.no_figures,
+                          err=lambda s: print(s, file=sys.stderr))
     if args.cmd == "announce":
         return cmd_announce(root, args.max_depth)
     return 2

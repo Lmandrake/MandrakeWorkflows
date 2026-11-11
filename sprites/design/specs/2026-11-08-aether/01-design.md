@@ -5,7 +5,7 @@ Retina, macOS 26.7.2), on AC power with the VPN up and off site. That last fact 
 made.** Every measurement below is a single light run of a few seconds (a 100-step timing loop, a 5-second toy
 window, single API calls). Scratch code for all of them: `~/agent-storage/scratch/aether/`.
 
-Problem statement: `~/dev/MandrakeWorkflows/sprites/docs/design/2026-11-08-aether/PROBLEM.md`.
+Problem statement: `~/dev/MandrakeWorkflows/sprites/design/specs/2026-11-08-aether/PROBLEM.md`.
 
 > **Three findings from the survey change the design before any idea is had.**
 > 1. **SpriteKit's built-in electric and magnetic fields are the obvious tool, and measured, they are far too costly:**
@@ -124,7 +124,7 @@ Aether**. The elements, each of which this design must honour:
   layer; JS in JSC runs **about 2x slower live than in a tight loop** (cold, efficiency cores: c5 step 0.34 ms live vs
   0.18 ms in a loop); a JSContext without `allow-jit` runs ~10x slower (the entitlement is present); the host's own
   polling costs ~1.5-2 %.
-- **Design-run precedent:** `~/dev/MandrakeWorkflows/sprites/docs/design/2026-11-06-foreign-work/`
+- **Design-run precedent:** `~/dev/MandrakeWorkflows/sprites/design/specs/2026-11-06-foreign-work/`
   (same 3x2 shape).
 
 ### 2.2 Elsewhere in `~/dev`

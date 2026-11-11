@@ -14,7 +14,7 @@ Rule, in order:
 1. **Settings override** (`short` per project, saved in cast.json beside concept/iv/hex; max 12 characters) wins.
 2. **Waypoint launch alias** when it is up to 10 characters and differs from the name (MicrosoftGraphAccess -> MSGRAPH,
    KestrelWorks_Mandrake -> KesMine). Names come from the Lodestar registry (Augur's `project`), aliases from
-   ~/dev/Waypoint/launches.md.
+   ~/.config/waypoint/launches.md.
 3. **Automatic**: split on `_ - .` and CamelCase; drop the owner word "Mandrake" when anything is left; keep the whole name
    if it is up to 12 characters; else keep leading whole words while up to 10 characters; a result under 5 characters
    takes the whole name if up to 12, else adds the initials of the rest (NASA-Guidance-Docs -> NASA GD).

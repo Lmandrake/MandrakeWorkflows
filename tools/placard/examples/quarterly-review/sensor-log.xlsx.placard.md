@@ -2,13 +2,13 @@
 source: sensor-log.xlsx
 source_sha256: 50c8c6826e545c8425a159ef14f68da48fc5635a6b30d894e911476be60e0205
 source_bytes: 6860
-source_modified: 2026-10-26
+source_modified: 2026-10-27
 tier: standard
 confidence: high
 placard_version: 2
-extractor: docling-2.115.0+models-3.15.0
-profile_id: docling-2.115.0+models-3.15.0/text-v1/soffice-present
-extracted_at: 2026-10-26T07:44:29
+extractor: docling-2.147.0+models-4.0.4
+profile_id: docling-2.147.0+models-4.0.4/text-v1/soffice-present
+extracted_at: 2026-11-09T19:43:41
 units_kind: worksheet
 units_total: 2
 units_total_known: true

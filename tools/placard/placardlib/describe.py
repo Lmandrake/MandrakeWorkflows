@@ -60,7 +60,11 @@ API_VERSION = "2023-06-01"
 # module exists to refuse. They come from the live environment or not at all.
 ACCOUNT_KEYS = frozenset({BASE_URL_ENV, MODEL_OVERRIDE_ENV, MODEL_ENV,
                           API_KEY_ENV, AUTH_TOKEN_ENV, HELPER_ENV, OPT_IN_ENV,
-                          "CLAUDE_CONFIG_DIR", "PLACARD_EVAL_MODEL"})
+                          "CLAUDE_CONFIG_DIR", "PLACARD_EVAL_MODEL",
+                          # backends.py: which route describes, and how it authenticates
+                          "PLACARD_DESCRIBER", "PLACARD_CLAUDE_BARE",
+                          "PLACARD_CODEX_MODEL", "PLACARD_CODEX_IMAGE",
+                          "CODEX_CONTAINER_HOME"})
 
 
 def default_model() -> str:
@@ -166,6 +170,15 @@ PROMPT_BRIEF = (
     "no markdown, no speculation."
 )
 
+def prompt_for(depth: str, caption: str = None) -> str:
+    """The prompt for a depth, shared by every backend so they answer alike."""
+    prompt = PROMPT_FULL if depth == "full" else PROMPT_BRIEF
+    if caption:
+        prompt += (f"\n\nThe document's own caption for this figure is: "
+                   f"{caption!r}. Do not repeat it; add what it omits.")
+    return prompt
+
+
 _MEDIA = {
     ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
     ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
@@ -266,6 +279,8 @@ def load_env(root=None) -> None:
 class Describer:
     """Thin client over an Anthropic Messages API endpoint."""
 
+    backend = "api"
+
     def __init__(self, *, model=None, timeout=180):
         ready, reason = available(model)
         if not ready:
@@ -330,10 +345,7 @@ class Describer:
             self.notes.append(shrink_note)
         if shrink_note and "->" in shrink_note:
             media_type = "image/jpeg"           # shrink_if_needed re-encodes as JPEG
-        prompt = PROMPT_FULL if depth == "full" else PROMPT_BRIEF
-        if caption:
-            prompt += (f"\n\nThe document's own caption for this figure is: "
-                       f"{caption!r}. Do not repeat it; add what it omits.")
+        prompt = prompt_for(depth, caption)
 
         payload = {
             "model": self.model,

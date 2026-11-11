@@ -17,6 +17,9 @@ if [ ! -f "$gate" ] || [ ! -f "$(dirname "$gate")/load_rule.py" ]; then
 fi
 fails=""
 run() { name=$1; shift; echo "=== $name"; if "$@"; then echo "--- $name ok"; else fails="$fails $name"; echo "--- $name FAILED"; fi; }
+# First, because it is the only check that looks at the app the OWNER runs rather than the sources we compile: a
+# settings page loaded live from the repo tree against a host binary built days earlier passes every suite below.
+run installed_app sh "$here/installed_app_check.sh"
 run swift sh "$here/swift/run.sh"
 run aether sh "$here/swift/aether/run.sh"
 run host_safety sh "$here/swift/host/run.sh"
@@ -34,6 +37,8 @@ run observation_contract node "$here/node/test_observation_contract.js"
 run observation_fixtures python3 "$here/test_observation_fixtures.py"
 run unknown_drawn node "$here/node/test_unknown_drawn.js"
 run settings_tracking node "$here/node/test_settings_tracking.js"
+run shared node "$here/node/test_shared.js"
+run shared_hardening node "$here/node/test_shared_hardening.js"
 run labels python3 "$gate" python3 -m pytest -q "$here/test_labels.py"
 run native_gradient python3 "$here/native/test_gradient.py"
 run native_label_quad python3 "$here/native/test_label_quad.py"

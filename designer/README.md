@@ -1,5 +1,8 @@
 # The Designer
 
+RimMandrake supports `role_launch.py run-now --role Designer --runner codex` (Claude remains the default); its stage packet and `result.json` checks are unchanged.
+See [runner setup](../tools/RUNNERS.md) for the quota gate, model/effort configuration and Windows/WSL transport.
+
 An agent that argues with you about a design before anything is built. Owner, 2026-11-01: *"It gets really detailed,
 dialectic, debating, and works out a thorough understanding of what the mod does and does not do."* It is Socratic: it
 asks the questions that make you picture play, attacks its own claims, and coaches you toward a sharper design. It

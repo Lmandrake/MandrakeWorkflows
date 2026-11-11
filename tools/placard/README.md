@@ -105,10 +105,17 @@ pip install pytest && python3 -m pytest -q   # 250+ tests; the code under test i
 ```sh
 pip install docling pypdf        # extraction only; everything else is stdlib
 python3 placard.py --root <folder> gaps                  # what has no digest
-python3 placard.py --root <folder> digest <folder>/deck.pptx
+python3 placard.py --root <folder> digest <folder>/deck.pptx <folder>/*.pdf   # one Docling load
 python3 placard.py --root <folder> map                   # build the PROJECT.placard.md maps
 ```
 
+**Several repos at once is opt-in.** `python placard.py fleet --allowlist approved.txt` reads a
+file of repo roots, one per line, and prints a dry-run plan; `--go` digests, in one process,
+only files whose digest is not current. With no allowlist it refuses (exit 7), and there is no "everything under a
+directory" mode: an exclusion list or a `.placard-skip` marker is a second fence, not the scope.
+
+`digest` skips a file whose digest is current (same source sha, the current extraction
+profile, and its figures described unless `--no-figures`); `--force` re-digests it.
 `digest` writes the body and leaves the summary sections for an LLM to author (`SKILL.md` is
 the protocol, written as a Claude Code skill). Run it again after the original changes: the
 body is refreshed and authored prose is carried through, flagged for review if the body moved
@@ -123,6 +130,12 @@ Messages API endpoint. Everything is read from the environment when called, neve
 value is a refusal that names the variable, and the digest records the figures as not
 described rather than silently empty. A description cut off by its token budget is counted as
 failed, not described.
+
+**Two more describer paths** use what is already installed: `claude` (the Claude Code CLI,
+`claude -p` with only `Read`, on the machine's own account; `--bare` when an `apiKeyHelper` or key
+exists) and `codex` (`codex exec -i`, natively or in the `chatgpt-consult` skill's container).
+`PLACARD_DESCRIBER=api|claude|codex|auto` picks one; `auto` (the default) tries them in that
+order. Haiku is refused. The digest records the route as `figures_describer`.
 
 Dependencies, by use: none to read, verify and map digests; `docling` and `pypdf` to extract;
 `pytest` to run the suite; `python-pptx`, `openpyxl` and `Pillow` to regenerate the example;

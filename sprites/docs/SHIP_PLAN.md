@@ -41,7 +41,7 @@ focus projects, if Waypoint is installed. If it isn't, then it just randomly ass
 sessions for the duration of that session."
 - Menu-bar status item (top right) -> "Sprites Settings…" opens a dark, glowing settings window (WKWebView,
   same runtime, so previews are the real sprites).
-- With Waypoint (`~/dev/Waypoint/launches.md` readable): one row per **focus** project (Focus = yes), its
+- With Waypoint (`~/.config/waypoint/launches.md` readable): one row per **focus** project (Focus = yes), its
   Waypoint colour, a species picker (5) with live previews side by side, then a variant strip (8 live
   thumbnails); click to choose. Saved to `~/agent-storage/sprites/config/cast.json`; the stage reloads it live.
 - Without Waypoint, or a session whose project is not in the cast: a random species + variant + hue chosen

@@ -79,6 +79,20 @@ def sidecars_for(artifact) -> Sidecars:
 
 
 def iter_artifacts(root):
+    return _split(root)[0]
+
+
+def iter_excluded(root):
+    """(path, reason) for artifacts Placard must not read (guard.py)."""
+    return _split(root)[1]
+
+
+def _split(root):
+    from placardlib import guard
+    return guard.partition(_walk(root))
+
+
+def _walk(root):
     root = Path(root)
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]

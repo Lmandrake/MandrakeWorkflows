@@ -1,7 +1,7 @@
 # Observation contract (foreign work, build plan step 1, 2026-11-08)
 
 What an observation of another Mac means, and when Sprites may conclude that something has stopped. Source:
-`~/dev/MandrakeWorkflows/sprites/docs/design/2026-11-06-foreign-work/03-merged.md` ("Corrections",
+`~/dev/MandrakeWorkflows/sprites/design/specs/2026-11-06-foreign-work/03-merged.md` ("Corrections",
 "Build plan and gates", "Rulings"). Owner rulings it builds on (2026-11-08): **live view only**, so no durable store
 and no store-ready schema work; build order contract, then D (local scan), then A (pull), then C (declared runs);
 undeclared jobs drawn as **kind unknown**; scope is **the two Macs only** (`mt-BBBBBB`, `mt-AAAAAA`).
